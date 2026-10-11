@@ -71,7 +71,8 @@ function defaultState() {
     xp: 0,
     cooking: {},   // { recipeId: [erledigte Schritt-Indizes] }
     pick: {},      // { meal: Index der aktuellen Idee }
-    ownRecipes: [] // selbst eingetragene Rezepte
+    ownRecipes: [], // selbst eingetragene Rezepte
+    pantry: {}     // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
   };
 }
 
@@ -96,7 +97,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -146,7 +147,14 @@ function suitable(recipe) {
 
 function likeScore(recipe) {
   const text = textOf(recipe);
-  return Object.entries(state.profile.taste).filter(([food, v]) => v === 'like' && text.includes(food.toLowerCase())).length;
+  const taste = state.profile.taste;
+  const liked = Object.entries(taste).filter(([, v]) => v === 'like').map(([food]) => food);
+  // Was oft gekauft wird, zählt auch als Lieblingsessen
+  for (const p of Object.values(state.pantry || {})) {
+    const key = tasteKey(p.food);
+    if (key && p.count >= 3 && !taste[key] && !liked.includes(key)) liked.push(key);
+  }
+  return liked.filter((food) => text.includes(food.toLowerCase())).length;
 }
 
 // Wie passt ein Rezept in die verfügbare Zeit? 'fits', 'prep' (am Vorabend), 'vorkochen' (doppelt kochen) oder null
@@ -172,6 +180,7 @@ function ideasFor(meal) {
       let score = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80;
       if (x.mode === 'vorkochen') score -= 2;
       if (x.mode === 'vorkochen' && r.id === tipRecipe) score += 4; // passt zum Vorkoch-Tipp
+      score += pantryScore(r) * 1.5; // Zutaten schon eingekauft
       if (cookedToday.has(r.id)) score -= 10;
       score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
       return { ...x, score };
@@ -244,6 +253,7 @@ function gingerPeek(width) {
 }
 
 const ICONS = {
+  cart: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h2v12M9 6v12M12 6v12M15 6h1v12M19 6h1v12"/></svg>',
   heart: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 20 C5 15 3 12 3 8.5 A4.5 4.5 0 0 1 12 6.5 A4.5 4.5 0 0 1 21 8.5 C21 12 19 15 12 20 Z"/></svg>',
   cross: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 L10 17 L19 7"/></svg>',
@@ -264,6 +274,7 @@ function nav(active) {
   return `<nav class="nav" aria-label="Hauptmenü"><div class="nav-inner">
     ${item('heute', 'Heute', 'home')}
     ${item('rezepte', 'Rezepte', 'book')}
+    ${item('einkauf', 'Einkauf', 'cart')}
     ${item('stempel', 'Stempel', 'stamp')}
     ${item('ich', 'Ich', 'me')}
   </div></nav>`;
@@ -790,6 +801,216 @@ function viewIch() {
   </main>${nav('ich')}`;
 }
 
+// ---------- Einkauf scannen ----------
+
+// Open-Food-Facts-Kategorien, die zu Lebensmitteln aus nutrition.js passen
+const CATEGORY_FOODS = {
+  'en:pastas': 'Nudeln', 'en:rices': 'Reis', 'en:potatoes': 'Kartoffeln', 'en:sweet-potatoes': 'Süßkartoffel',
+  'en:rolled-oats': 'Haferflocken', 'en:oat-flakes': 'Haferflocken', 'en:breads': 'Brot', 'en:tortillas': 'Tortilla',
+  'en:couscous': 'Couscous', 'en:quinoa': 'Quinoa', 'en:flours': 'Mehl', 'en:lentils': 'Linsen', 'en:chickpeas': 'Kichererbsen',
+  'en:kidney-beans': 'Kidneybohnen', 'en:tofu': 'Tofu', 'en:eggs': 'Ei', 'en:chicken-breasts': 'Hähnchen', 'en:chickens': 'Hähnchen',
+  'en:minced-meats': 'Hackfleisch', 'en:hams': 'Schinken', 'en:salmons': 'Lachs', 'en:tunas': 'Thunfisch', 'en:shrimps': 'Garnelen',
+  'en:milks': 'Milch', 'en:oat-based-drinks': 'Haferdrink', 'en:plant-based-milk-alternatives': 'Haferdrink', 'en:yogurts': 'Joghurt',
+  'en:quarks': 'Magerquark', 'en:cream-cheeses': 'Frischkäse', 'en:fetas': 'Feta', 'en:mozzarella': 'Mozzarella',
+  'en:parmigiano-reggiano': 'Parmesan', 'en:cheeses': 'Käse', 'en:creams': 'Sahne', 'en:butters': 'Butter',
+  'en:vegetable-oils': 'Öl', 'en:olive-oils': 'Öl', 'en:coconut-milks': 'Kokosmilch', 'en:pestos': 'Pesto',
+  'en:mayonnaises': 'Mayonnaise', 'en:hummus': 'Hummus', 'en:nuts': 'Nüsse', 'en:peanut-butters': 'Erdnussbutter',
+  'en:chia-seeds': 'Chiasamen', 'en:honeys': 'Honig', 'en:chocolates': 'Schokolade', 'en:tomatoes': 'Tomaten',
+  'en:tomato-purees': 'Passierte Tomaten', 'en:tomato-pastes': 'Tomatenmark', 'en:onions': 'Zwiebel', 'en:carrots': 'Möhre',
+  'en:bell-peppers': 'Paprika', 'en:zucchini': 'Zucchini', 'en:broccoli': 'Brokkoli', 'en:spinachs': 'Spinat',
+  'en:mushrooms': 'Champignons', 'en:cucumbers': 'Gurke', 'en:salads': 'Salat', 'en:peas': 'Erbsen', 'en:sweet-corn': 'Mais',
+  'en:avocados': 'Avocado', 'en:bananas': 'Banane', 'en:apples': 'Apfel', 'en:berries': 'Beeren', 'en:soy-sauces': 'Sojasauce'
+};
+
+// Open-Food-Facts-Allergene auf die Allergien der App abbilden
+const OFF_ALLERGENS = {
+  'en:nuts': 'nuesse', 'en:peanuts': 'nuesse', 'en:gluten': 'gluten', 'en:milk': 'laktose',
+  'en:eggs': 'ei', 'en:soybeans': 'soja', 'en:fish': 'fisch'
+};
+
+// Wie ein Lebensmittel in der Geschmacksliste heißt (kurze Namen wie „Ei“ würden sonst in „Reis“ gefunden)
+const TASTE_KEY = { Ei: 'Eier', Champignons: 'Pilze', Magerquark: 'Quark', Kidneybohnen: 'Bohnen', Öl: null, Gewürze: null };
+function tasteKey(foodName) {
+  if (!foodName) return null;
+  if (foodName in TASTE_KEY) return TASTE_KEY[foodName];
+  return foodName.length >= 4 ? foodName : null;
+}
+
+function pantryList() {
+  return Object.values(state.pantry).sort((a, b) => (b.last || '').localeCompare(a.last || ''));
+}
+
+// Lebensmittel aus dem Einkauf, als Schlüssel wie in der Geschmacksliste
+function pantryKeys() {
+  return [...new Set(pantryList().map((p) => tasteKey(p.food)).filter(Boolean))];
+}
+
+function pantryScore(recipe) {
+  const text = textOf(recipe);
+  return pantryKeys().filter((k) => text.includes(k.toLowerCase())).length;
+}
+
+function productWarnings(p) {
+  const prof = state.profile;
+  const out = [];
+  const bad = (p.allergens || []).filter((a) => prof.allergies.includes(a));
+  if (bad.length) out.push(`Enthält ${bad.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ')}`);
+  if (p.diet === 'fleisch' && (prof.diet === 'vegan' || prof.diet === 'vegetarisch')) out.push('Nicht vegetarisch');
+  else if (p.diet === 'tierisch' && prof.diet === 'vegan') out.push('Nicht vegan');
+  return out;
+}
+
+async function lookupProduct(code) {
+  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags';
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status !== 1 || !data.product) return null;
+    const pr = data.product;
+    const name = (pr.product_name_de || pr.product_name || '').trim();
+    const cats = pr.categories_tags || [];
+    let food = findFood(name);
+    if (!food) {
+      for (let i = cats.length - 1; i >= 0 && !food; i--) if (CATEGORY_FOODS[cats[i]]) food = findFood(CATEGORY_FOODS[cats[i]]);
+    }
+    const analysis = pr.ingredients_analysis_tags || [];
+    const diet = analysis.includes('en:non-vegetarian') ? 'fleisch'
+      : analysis.includes('en:non-vegan') ? 'tierisch'
+      : analysis.includes('en:vegan') ? 'vegan' : (food && food.diet) || null;
+    const kcal = pr.nutriments && Number(pr.nutriments['energy-kcal_100g']);
+    return {
+      name: name || (food ? food.name : 'Unbekanntes Produkt'),
+      brand: (pr.brands || '').split(',')[0].trim(),
+      food: food ? food.name : null,
+      kcal100: kcal > 0 ? Math.round(kcal) : (food ? food.kcal : null),
+      allergens: [...new Set((pr.allergens_tags || []).map((a) => OFF_ALLERGENS[a]).filter(Boolean))],
+      diet
+    };
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function addToPantry(code, info) {
+  const old = state.pantry[code];
+  state.pantry[code] = { ...(old || {}), ...info, code, count: ((old && old.count) || 0) + 1, last: todayKey() };
+  save();
+}
+
+async function handleCode(raw) {
+  const code = String(raw).replace(/\D/g, '');
+  if (code.length < 8) { ui.scanMsg = 'Das sieht nicht nach einem Barcode aus. Er hat meist 8 oder 13 Ziffern.'; render(); return; }
+  if (state.pantry[code]) {
+    addToPantry(code, {});
+    ui.scanMsg = `${state.pantry[code].name} kenne ich schon. Jetzt ${state.pantry[code].count}× gekauft.`;
+    ui.lastCode = code;
+    render();
+    return;
+  }
+  ui.scanMsg = 'Ich schaue nach, was das ist …';
+  render();
+  const info = await lookupProduct(code);
+  if (info) {
+    addToPantry(code, info);
+    ui.lastCode = code;
+    ui.scanMsg = '';
+  } else {
+    ui.unknownCode = code;
+    ui.scanMsg = '';
+  }
+  render();
+}
+
+let scanner = null;
+
+function loadScannerLib() {
+  if (window.__Html5QrcodeLibrary__) return Promise.resolve(window.__Html5QrcodeLibrary__);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/html5-qrcode.min.js';
+    s.onload = () => resolve(window.__Html5QrcodeLibrary__);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function startScanner() {
+  try {
+    const lib = await loadScannerLib();
+    const F = lib.Html5QrcodeSupportedFormats;
+    scanner = new lib.Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false });
+    await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 140 } }, async (text) => {
+      await stopScanner();
+      handleCode(text);
+    }, () => {});
+  } catch (e) {
+    await stopScanner();
+    ui.scanMsg = 'Die Kamera ließ sich nicht starten. Erlaube den Kamerazugriff oder tipp die Zahlen unter dem Barcode ein.';
+    render();
+  }
+}
+
+async function stopScanner() {
+  const s = scanner;
+  scanner = null;
+  ui.scanning = false;
+  if (s) { try { await s.stop(); } catch (e) { /* lief schon nicht mehr */ } }
+}
+
+function viewEinkauf() {
+  const items = pantryList();
+  const last = ui.lastCode && state.pantry[ui.lastCode];
+  const taste = state.profile.taste;
+  const card = (p) => {
+    const key = tasteKey(p.food);
+    const warn = productWarnings(p);
+    return `<div class="card pantry-item">
+      <div class="info">
+        <div class="title">${esc(p.name)}</div>
+        <div class="meta">${[p.brand, p.food && p.food !== p.name ? p.food : '', p.kcal100 ? `${fmt(p.kcal100)} kcal/100 g` : '', p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        ${warn.length ? `<div class="warn-text">${esc(warn.join(' · '))}</div>` : ''}
+      </div>
+      ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
+      <button class="round" data-action="remove-product" data-code="${esc(p.code)}" aria-label="${esc(p.name)} entfernen">${ICONS.cross}</button>
+    </div>`;
+  };
+  const ideas = allRecipes().filter(suitable).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
+    .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
+  let bubble = 'Scann deinen Einkauf. Dann weiß ich, was du da hast und was du gern kaufst.';
+  if (last) {
+    bubble = !last.food ? `${last.name} habe ich gespeichert. Zu meinen Rezepten passt es noch nicht.`
+      : last.food === last.name ? `${last.name} habe ich gespeichert.` : `${last.name}! Das merke ich mir als ${last.food}.`;
+  }
+  return `<main class="screen with-nav">
+    <div class="ginger-says">${ginger(70)}<div class="bubble">${esc(bubble)}</div></div>
+    ${ui.scanning
+      ? `<div id="reader" class="reader"></div><button class="btn secondary" data-action="stop-scan">Fertig mit Scannen</button>`
+      : '<button class="btn" data-action="scan">Barcode scannen</button>'}
+    ${ui.scanMsg ? `<div class="hint">${ICONS.paw}<span>${esc(ui.scanMsg)}</span></div>` : ''}
+    ${ui.unknownCode
+      ? `<div class="card" style="display:flex;flex-direction:column;gap:8px">
+          <label class="small muted" for="pname" style="font-weight:700">Das Produkt kenne ich nicht. Wie heißt es?</label>
+          <div class="input-row"><input id="pname" class="input" list="foodlist2" placeholder="z. B. Kichererbsen" value="${esc(ui.productDraft)}" data-input="productDraft" autocomplete="off"><button class="btn dark small-btn" data-action="name-product">Speichern</button></div>
+          <datalist id="foodlist2">${FOODS.map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
+        </div>`
+      : ''}
+    <div class="input-row">
+      <label class="sr-only" for="ean">Barcode-Nummer</label>
+      <input id="ean" class="input" inputmode="numeric" placeholder="Barcode-Nummer eintippen" value="${esc(ui.codeDraft)}" data-input="codeDraft">
+      <button class="btn dark small-btn" data-action="enter-code">Suchen</button>
+    </div>
+    ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
+    <h2>Mein Einkauf ${items.length ? `<span class="small muted">${items.length} Produkte</span>` : ''}</h2>
+    ${items.length ? items.map(card).join('') : '<div class="card small muted">Noch nichts gescannt.</div>'}
+    ${items.length ? '<p class="small muted">Tipp aufs Herz, wenn du etwas besonders magst. Was du dreimal kaufst, merke ich mir auch so als Lieblingsessen. Produktdaten kommen von Open Food Facts.</p>' : ''}
+  </main>${nav('einkauf')}`;
+}
+
 // ---------- Router ----------
 
 function route() {
@@ -811,6 +1032,7 @@ function render() {
   else if (page === 'stempel') html = viewStempel();
   else if (page === 'ich') html = viewIch();
   else if (page === 'neu') html = viewNeu(a);
+  else if (page === 'einkauf') html = viewEinkauf();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
@@ -831,6 +1053,10 @@ function toast(text) {
 }
 
 window.addEventListener('hashchange', () => {
+  if (ui.scanning) stopScanner();
+  ui.scanMsg = '';
+  ui.lastCode = null;
+  ui.unknownCode = null;
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
   ui.showManual = false;
@@ -908,6 +1134,34 @@ const actions = {
       state.xp = Math.max(0, state.xp - XP_PER_RECIPE);
     }
     if (ui.justStamped === e.recipeId) ui.justStamped = null;
+  },
+  scan() {
+    ui.scanning = true;
+    ui.scanMsg = '';
+    ui.unknownCode = null;
+    render();
+    startScanner();
+    return 'skip';
+  },
+  'stop-scan'() { stopScanner(); },
+  'enter-code'() {
+    const code = ui.codeDraft;
+    ui.codeDraft = '';
+    handleCode(code);
+    return 'skip';
+  },
+  'name-product'() {
+    const name = ui.productDraft.trim();
+    if (!name) return;
+    const food = findFood(name);
+    addToPantry(ui.unknownCode, { name, brand: '', food: food ? food.name : null, kcal100: food ? food.kcal : null, allergens: (food && food.allergens) || [], diet: (food && food.diet) || null });
+    ui.lastCode = ui.unknownCode;
+    ui.unknownCode = null;
+    ui.productDraft = '';
+  },
+  'remove-product'(el) {
+    delete state.pantry[el.dataset.code];
+    if (ui.lastCode === el.dataset.code) ui.lastCode = null;
   },
   'ask-reset'() { ui.confirmReset = true; },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
@@ -1028,7 +1282,7 @@ app.addEventListener('input', (e) => {
     return;
   }
   const key = e.target.dataset.input;
-  if (key === 'draft' || key === 'manualKcal') ui[key] = e.target.value;
+  if (['draft', 'manualKcal', 'codeDraft', 'productDraft'].includes(key)) ui[key] = e.target.value;
 });
 
 app.addEventListener('keydown', (e) => {
@@ -1036,6 +1290,8 @@ app.addEventListener('keydown', (e) => {
   const key = e.target.dataset.input;
   if (key === 'draft') { actions['add-food'](); save(); render(); document.getElementById('eigenes')?.focus(); }
   if (key === 'manualKcal') { actions['add-manual'](); save(); render(); }
+  if (key === 'codeDraft') actions['enter-code']();
+  if (key === 'productDraft') { actions['name-product'](); save(); render(); }
 });
 
 render();

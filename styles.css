@@ -280,3 +280,12 @@ p { margin: 0; }
 .ing-row .round { flex: 0 0 44px; }
 textarea.input { resize: vertical; font: inherit; }
 .field > .input { flex: none; }
+
+/* Einkauf */
+.reader { width: 100%; border-radius: var(--radius); overflow: hidden; background: #000; min-height: 220px; }
+.reader video { width: 100% !important; display: block; }
+.pantry-item { display: flex; align-items: center; gap: 10px; padding: 12px; }
+.pantry-item .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pantry-item .title { font-weight: 800; font-size: 16px; }
+.pantry-item .meta { font-size: 13px; font-weight: 700; color: var(--muted); }
+.warn-text { font-size: 13px; font-weight: 800; color: #9A3324; }

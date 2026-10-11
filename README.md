@@ -6,6 +6,7 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Schlägt für Frühstück, Mittag- und Abendessen passende Rezepte vor (alle unter 30 Minuten, ohne ausgefallene Zutaten).
 - Ist für eine Mahlzeit wenig Zeit, schlägt Ginger Vorbereitung vor: Overnight Oats am Vorabend oder abends doppelt kochen.
 - Kochschritte lassen sich abhaken. Jedes gekochte Rezept gibt einen Stempel und XP, ab 10 Stempeln bekommt Ginger eine Kochmütze.
+- Eigene Rezepte eintragen: Ginger schätzt die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge (Mengen anpassen, Tauschideen wie Milch statt Sahne).
 
 Alle Daten bleiben im Browser auf dem Handy (localStorage), es gibt keine Anmeldung und keinen Server.
 Die Kalorienangaben der Rezepte sind grobe Schätzwerte. Ein Kalorientracker soll später angebunden werden.
@@ -25,4 +26,5 @@ Dann `http://localhost:8000` öffnen. Auf dem Handy lässt sich die Seite über 
 - `index.html`, `styles.css`: Seite und Aussehen
 - `app.js`: Ablauf, Vorschläge, Stempelheft
 - `recipes.js`: Rezeptliste und Lebensmittel für die Geschmacksabfrage
+- `nutrition.js`: Kalorien-Durchschnittswerte für eigene Rezepte
 - `sw.js`, `manifest.webmanifest`, `icon*`: Installation und Offline-Nutzung

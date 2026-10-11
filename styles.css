@@ -367,7 +367,7 @@ textarea.input { resize: vertical; font: inherit; }
 .reject-panel .small-btn { flex: 1; }
 
 /* Wochenplan */
-.nav a { min-width: 52px; }
+.nav a { min-width: 46px; }
 .tabs button { flex: 1; }
 .week-sum { display: flex; flex-direction: column; gap: 10px; }
 .week-sum .small-btn { flex: 1; }

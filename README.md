@@ -40,7 +40,8 @@ Dann `http://localhost:8000` öffnen. Auf dem Handy lässt sich die Seite über 
 - `app.js`: Ablauf, Vorschläge, Stempelheft
 - `recipes.js`: Rezeptliste und Lebensmittel für die Geschmacksabfrage
 - `vendor/html5-qrcode.min.js`: Barcode-Scanner (html5-qrcode 2.3.8, Apache-2.0)
-- `nutrition.js`: Kalorien-Durchschnittswerte für eigene Rezepte
+- `nutrition.js`: Nährwerte der Zutaten aus dem BLS 4.0
+- `tracker/`: Kalorien-Tracker von ST0PTV (MIT-Lizenz, `tracker/LICENSE`), ins Rezeptbuch-Design gebracht; „Fertig gekocht“ trägt das Gericht in sein Journal ein
 - `sw.js`, `manifest.webmanifest`, `icon*`: Installation und Offline-Nutzung
 
 ## Quellen und Lizenzen
@@ -51,5 +52,7 @@ In der App unter „Ich“ → „Quellen und Lizenzen“ (`#/quellen`) ausführ
 - Schrift Nunito (The Nunito Project Authors), über Google Fonts: SIL Open Font License 1.1
 - Produktdaten von Open Food Facts: Datenbank ODbL 1.0, Einträge DbCL 1.0
 - Richtwerte: DGE-Referenzwerte, WHO-Leitlinie zu Zucker (2015)
-- Rezepte, Nährwert-Schätzungen, Ginger, Icons und Design: für diese App selbst gemacht
+- Nährwerte: Max Rubner-Institut (2025), Bundeslebensmittelschlüssel (BLS) 4.0, DOI 10.25826/Data20251217-134202-0
+- Kalorien-Tracker (`tracker/`): Copyright (c) 2026 ST0PTV, MIT-Lizenz; enthält ZXing (Apache-2.0, `tracker/vendor/ZXING-LICENSE`)
+- Rezepte, Ginger, Icons und Design: für diese App selbst gemacht
 - Für den eigenen Programmcode ist noch keine Lizenz festgelegt (damit gilt: alle Rechte vorbehalten)

@@ -389,11 +389,15 @@ function viewHeute() {
     ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
     : `<div class="prep-banner">${ICONS.clock}<span><b>Tipp:</b> ${esc(tip.text)}</span></div>`).join('');
 
+  const eatenCard = (e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div>
+      <button class="round" data-action="undo-eaten" data-index="${e.index}" aria-label="${esc(e.name)} wieder austragen">${ICONS.cross}</button></div>`;
+  const indexed = log.map((e, index) => ({ ...e, index }));
+  const extras = indexed.filter((e) => !MEALS.some((m) => m.id === e.meal));
   const meals = MEALS.map((m) => {
-    const eatenHere = log.filter((e) => e.meal === m.id);
+    const eatenHere = indexed.filter((e) => e.meal === m.id);
     if (eatenHere.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3><span class="small muted">gegessen</span></div>
-        ${eatenHere.map((e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div><div class="stamp-mini">${ICONS.check}</div></div>`).join('')}
+        ${eatenHere.map(eatenCard).join('')}
       </section>`;
     }
     const ideas = ideasFor(m.id);
@@ -436,6 +440,7 @@ function viewHeute() {
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
     ${meals}
+    ${extras.length ? `<section class="meal-block"><div class="meal-head"><h3>Sonstiges</h3></div>${extras.map(eatenCard).join('')}</section>` : ''}
   </main>${nav('heute')}`;
 }
 
@@ -499,7 +504,7 @@ function viewRezept(id, meal) {
     </div>
     <div class="bottom">
       ${stampedNow
-        ? '<a class="btn" href="#/stempel">Zum Stempelheft</a>'
+        ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -889,6 +894,20 @@ const actions = {
     ui.justStamped = r.id;
     save();
     if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) toast('Ginger hat ihre Kochmütze bekommen!');
+  },
+  'undo-eaten'(el) {
+    const key = todayKey();
+    const log = todayLog();
+    const e = log[Number(el.dataset.index)];
+    if (!e) return;
+    state.log[key] = log.filter((_, i) => i !== Number(el.dataset.index));
+    // Stempel und XP, die das Kochen gebracht hat, wieder abziehen
+    if (e.recipeId && state.stamps[e.recipeId]) {
+      state.stamps[e.recipeId] -= 1;
+      if (!state.stamps[e.recipeId]) delete state.stamps[e.recipeId];
+      state.xp = Math.max(0, state.xp - XP_PER_RECIPE);
+    }
+    if (ui.justStamped === e.recipeId) ui.justStamped = null;
   },
   'ask-reset'() { ui.confirmReset = true; },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },

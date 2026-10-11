@@ -9,6 +9,7 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Nährwerte: Für jedes Rezept und den Tag zeigt die App Eiweiß, Kohlenhydrate, Zucker, zugesetzten Zucker, Fruktose, Fett und Ballaststoffe. Die Tagesziele richten sich nach Geschlecht und Ziel (DGE- und WHO-Richtwerte). Alles sind Schätzungen aus Durchschnittswerten.
 - Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
 - Einkauf scannen: Barcode mit der Handykamera scannen oder eintippen. Die Produktdaten kommen von Open Food Facts. Eingekaufte Lebensmittel rutschen in den Vorschlägen nach oben, was dreimal gekauft wurde, zählt als Lieblingsessen.
+- Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
 - Eigene Rezepte eintragen: Ginger schätzt die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge (Mengen anpassen, Tauschideen wie Milch statt Sahne).
 
 Alle Daten bleiben im Browser auf dem Handy (localStorage), es gibt keine Anmeldung und keinen Server.

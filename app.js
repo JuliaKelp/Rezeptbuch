@@ -109,7 +109,8 @@ function defaultState() {
     cooking: {},   // { recipeId: [erledigte Schritt-Indizes] }
     pick: {},      // { meal: Index der aktuellen Idee }
     ownRecipes: [], // selbst eingetragene Rezepte
-    pantry: {}     // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
+    pantry: {},    // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
+    rejected: {}   // { recipeId: true } abgelehnte Vorschläge
   };
 }
 
@@ -134,7 +135,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { rejecting: null, portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -172,6 +173,7 @@ function textOf(recipe) {
 
 function suitable(recipe) {
   const p = state.profile;
+  if (state.rejected && state.rejected[recipe.id]) return false;
   const diet = DIETS.find((d) => d.id === p.diet) || DIETS[3];
   if (!diet.allows.includes(recipe.diet)) return false;
   if (recipe.allergens.some((a) => p.allergies.includes(a))) return false;
@@ -423,6 +425,20 @@ function portionsOf(r) {
   return ui.portions[r.id] || state.profile.portions || 1;
 }
 
+// Nachfrage nach einem „Mag ich nicht“: nur dieses Rezept oder eine Zutat darin?
+function rejectPanel(r) {
+  const foods = [...new Set(r.foods)].filter((f) => state.profile.taste[f] !== 'no');
+  return `<div class="card reject-panel">
+    <div class="small" style="font-weight:800">Was magst du daran nicht?</div>
+    ${foods.length ? `<div class="chips">${foods.map((f) => `<button class="chip danger" data-action="reject-food" data-recipe="${r.id}" data-food="${esc(f)}">${esc(f)}</button>`).join('')}</div>
+      <p class="small muted">Tippst du eine Zutat an, schlage ich nichts mehr damit vor.</p>` : ''}
+    <div class="input-row">
+      <button class="btn secondary small-btn" data-action="cancel-reject">Doch behalten</button>
+      <button class="btn dark small-btn" data-action="reject-recipe" data-recipe="${r.id}">Nur dieses Rezept</button>
+    </div>
+  </div>`;
+}
+
 // ---------- Bausteine ----------
 
 function nav(active) {
@@ -590,7 +606,10 @@ function viewHeute() {
     return `<section class="meal-block">
       <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${state.profile.times[m.id]} Min Zeit</span></div>
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
-      ${ideas.length > 1 ? `<button class="link-btn" style="align-self:flex-end" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
+      ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
+        <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
+        ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
+      </div>`}
     </section>`;
   }).join('');
 
@@ -693,6 +712,7 @@ function viewRezept(id, meal) {
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+      ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
         : `<div class="input-row"><a class="btn secondary" href="#/neu/${r.id}">Bearbeiten</a><button class="btn secondary" data-action="ask-delete">Löschen</button></div>`) : ''}
@@ -973,6 +993,10 @@ function viewIch() {
       <h3>Zeit und Portionen</h3>
       <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
+    ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
+      <h3>Abgelehnte Rezepte</h3>
+      ${Object.keys(state.rejected).map((id) => allRecipes().find((r) => r.id === id)).filter(Boolean).map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.name)}</span><button class="link-btn" data-action="unreject" data-recipe="${r.id}">Wieder vorschlagen</button></div>`).join('')}
+    </section>` : ''}
     <div class="bottom">${ui.confirmReset
       ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
@@ -1258,6 +1282,7 @@ window.addEventListener('hashchange', () => {
   ui.showManual = false;
   ui.confirmReset = false;
   ui.confirmDelete = false;
+  ui.rejecting = null;
   ui.formError = '';
   if (!location.hash.startsWith('#/neu')) ui.form = null;
   render();
@@ -1303,6 +1328,21 @@ const actions = {
   time(el) { state.profile.times[el.dataset.meal] = Number(el.dataset.min); },
   'finish-start'() { state.onboarded = true; save(); go('#/heute'); return 'skip'; },
   'go-ich'() { save(); go('#/ich'); return 'skip'; },
+  'ask-reject'(el) { ui.rejecting = el.dataset.recipe; },
+  'cancel-reject'() { ui.rejecting = null; },
+  'reject-recipe'(el) {
+    state.rejected[el.dataset.recipe] = true;
+    ui.rejecting = null;
+    if (location.hash.startsWith('#/rezept/')) { save(); go('#/heute'); toast('Okay, das schlage ich dir nicht mehr vor.'); return 'skip'; }
+    toast('Okay, das schlage ich dir nicht mehr vor.');
+  },
+  'reject-food'(el) {
+    state.profile.taste[el.dataset.food] = 'no';
+    ui.rejecting = null;
+    if (location.hash.startsWith('#/rezept/')) { save(); go('#/heute'); toast(`Gemerkt: kein ${el.dataset.food} mehr.`); return 'skip'; }
+    toast(`Gemerkt: kein ${el.dataset.food} mehr.`);
+  },
+  'unreject'(el) { delete state.rejected[el.dataset.recipe]; },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + 1; },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   'show-manual'() { ui.showManual = true; },

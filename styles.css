@@ -353,3 +353,8 @@ textarea.input { resize: vertical; font: inherit; }
 .small-bar > div { height: 8px; }
 .stepper .round { color: var(--ink); width: 40px; height: 40px; }
 .sweet-tag { font-size: 12px; font-weight: 800; color: #7A4A00; background: #FCE9C4; border-radius: 999px; padding: 2px 8px; align-self: flex-start; }
+
+/* Vorschlag ablehnen */
+.idea-actions { display: flex; justify-content: space-between; }
+.reject-panel { display: flex; flex-direction: column; gap: 10px; }
+.reject-panel .small-btn { flex: 1; }

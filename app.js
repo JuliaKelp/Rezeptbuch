@@ -210,45 +210,50 @@ function prepTips() {
 
 // ---------- Ginger ----------
 
-function ginger(size, opts = {}) {
-  const happy = opts.mood === 'happy';
-  const hat = opts.hat ?? stampCount() >= STAMPS_FOR_HAT;
+// Ginger sieht aus wie die echte Ginger: weiß, Kopf und Rücken braun getigert, weiße Blesse, rosa Nase
+const G = { fur: '#8B6B4F', stripe: '#5C4535', white: '#FFFFFF', line: '#E3D3C4', ear: '#F3C1B8', nose: '#EFA3A6', eye: '#2E2018', iris: '#9C9452' };
+let gingerId = 0;
+
+function gingerHead({ happy = false, hat = false } = {}) {
+  const id = `gh${++gingerId}`;
+  const eye = (x) => `<circle cx="${x}" cy="54" r="6" fill="${G.iris}"/><circle cx="${x}" cy="54" r="4.8" fill="${G.eye}"/><circle cx="${x + 2}" cy="52" r="1.7" fill="#FFF"/>`;
   const eyes = happy
-    ? '<path d="M31 55 Q37 49 43 55 M57 55 Q63 49 69 55" stroke="#2E2018" stroke-width="3" fill="none" stroke-linecap="round"/>'
-    : '<circle cx="37" cy="54" r="5.5" fill="#2E2018"/><circle cx="63" cy="54" r="5.5" fill="#2E2018"/><circle cx="39" cy="52" r="1.8" fill="#FFF"/><circle cx="65" cy="52" r="1.8" fill="#FFF"/>';
+    ? `<path d="M31 55 Q37 49 43 55 M57 55 Q63 49 69 55" stroke="${G.eye}" stroke-width="3" fill="none" stroke-linecap="round"/>`
+    : eye(37) + eye(63);
   const mouth = happy
-    ? '<path d="M42 69 Q50 76 58 69" stroke="#2E2018" stroke-width="2" fill="none" stroke-linecap="round"/>'
-    : '<path d="M50 67 Q46 72 42 69 M50 67 Q54 72 58 69" stroke="#2E2018" stroke-width="2" fill="none" stroke-linecap="round"/>';
+    ? `<path d="M43 70 Q50 76 57 70" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>`
+    : `<path d="M50 67 Q46 72 42 69 M50 67 Q54 72 58 69" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
   const hatSvg = hat
     ? '<path d="M30 30 Q26 14 38 14 Q40 4 50 6 Q60 4 62 14 Q74 14 70 30 Z" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/><rect x="30" y="26" width="40" height="8" rx="3" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/>'
     : '';
-  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true">
-    <path d="M16 46 L20 8 L46 30 Z" fill="#E8925A"/>
-    <path d="M84 46 L80 8 L54 30 Z" fill="#E8925A"/>
-    <path d="M23 34 L25 18 L37 29 Z" fill="#F6C3B5"/>
-    <path d="M77 34 L75 18 L63 29 Z" fill="#F6C3B5"/>
-    <ellipse cx="50" cy="57" rx="37" ry="33" fill="#E8925A"/>
-    <path d="M40 27 Q50 22 60 27 L56 36 Q50 33 44 36 Z" fill="#D0743D"/>
-    <ellipse cx="30" cy="66" rx="7" ry="4.5" fill="#F6A99A"/>
-    <ellipse cx="70" cy="66" rx="7" ry="4.5" fill="#F6A99A"/>
+  return `<defs><clipPath id="${id}"><ellipse cx="50" cy="57" rx="37" ry="33"/></clipPath></defs>
+    <path d="M16 46 L20 8 L46 30 Z" fill="${G.fur}"/>
+    <path d="M84 46 L80 8 L54 30 Z" fill="${G.fur}"/>
+    <path d="M23 34 L25 18 L37 29 Z" fill="${G.ear}"/>
+    <path d="M77 34 L75 18 L63 29 Z" fill="${G.ear}"/>
+    <ellipse cx="50" cy="57" rx="37" ry="33" fill="${G.white}" stroke="${G.line}" stroke-width="1.5"/>
+    <g clip-path="url(#${id})">
+      <path d="M0 0 L100 0 L100 67 Q80 64 70 62 Q61 60 57.5 47 Q54.5 38 51.5 34 Q50 32.5 48.5 34 Q45.5 38 42.5 47 Q39 60 30 62 Q20 64 0 67 Z" fill="${G.fur}"/>
+      <path d="M43 25 Q45 29 44 33 M50 23 L50 29 M57 25 Q55 29 56 33 M34 31 Q37 35 36 39 M66 31 Q63 35 64 39 M17 47 Q24 47 28 43 M83 47 Q76 47 72 43" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
+    <ellipse cx="29" cy="67" rx="6" ry="3.5" fill="#F7C9C0"/>
+    <ellipse cx="71" cy="67" rx="6" ry="3.5" fill="#F7C9C0"/>
     ${eyes}
-    <path d="M46 63 L54 63 L50 67 Z" fill="#C9564A"/>
+    <path d="M46 62 L54 62 L50 66.5 Z" fill="${G.nose}"/>
     ${mouth}
-    <path d="M14 58 L28 61 M14 66 L28 65 M86 58 L72 61 M86 66 L72 65" stroke="#2E2018" stroke-width="1.5" stroke-linecap="round"/>
-    ${hatSvg}
-  </svg>`;
+    <path d="M14 60 L28 62 M14 67 L28 66 M86 60 L72 62 M86 67 L72 66" stroke="#B9A797" stroke-width="1.3" stroke-linecap="round"/>
+    ${hatSvg}`;
+}
+
+function ginger(size, opts = {}) {
+  const happy = opts.mood === 'happy';
+  const hat = opts.hat ?? stampCount() >= STAMPS_FOR_HAT;
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true">${gingerHead({ happy, hat })}</svg>`;
 }
 
 function gingerPeek(width) {
   return `<svg viewBox="0 0 100 60" width="${width}" height="${Math.round(width * 0.6)}" aria-hidden="true">
-    <path d="M14 46 L18 8 L40 28 Z" fill="#E8925A"/>
-    <path d="M86 46 L82 8 L60 28 Z" fill="#E8925A"/>
-    <ellipse cx="50" cy="60" rx="38" ry="34" fill="#E8925A"/>
-    <circle cx="37" cy="48" r="5" fill="#2E2018"/>
-    <circle cx="63" cy="48" r="5" fill="#2E2018"/>
-    <circle cx="38.5" cy="46.5" r="1.6" fill="#FFF"/>
-    <circle cx="64.5" cy="46.5" r="1.6" fill="#FFF"/>
-    <path d="M46 56 L54 56 L50 59 Z" fill="#C9564A"/>
+    <g transform="translate(0 -6)">${gingerHead()}</g>
   </svg>`;
 }
 

@@ -813,6 +813,7 @@ function hideWait() {
 }
 
 const ICONS = {
+  tracker: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 A9 9 0 1 1 3.5 9"/><path d="M12 7 A5 5 0 1 1 7 12"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>',
   cart: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h2v12M9 6v12M12 6v12M15 6h1v12M19 6h1v12"/></svg>',
   heart: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 20 C5 15 3 12 3 8.5 A4.5 4.5 0 0 1 12 6.5 A4.5 4.5 0 0 1 21 8.5 C21 12 19 15 12 20 Z"/></svg>',
   cross: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>',
@@ -914,6 +915,7 @@ function nav(active) {
     ${item('woche', 'Woche', 'week')}
     ${item('einkauf', 'Einkauf', 'cart')}
     ${item('stempel', 'Stempel', 'stamp')}
+    <a href="tracker/">${ICONS.tracker}Tracker</a>
     ${item('ich', 'Ich', 'me')}
   </div></nav>`;
 }
@@ -1385,14 +1387,14 @@ function viewRezept(id, meal, factorParam) {
     </div>
     <div style="display:flex;align-items:flex-end;gap:10px">
       ${ginger(64, { mood: allDone ? 'happy' : 'normal' })}
-      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP` : cheer}</div>
+      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${(todayLog().slice(-1)[0] || {}).trackerId ? ' Im Tracker steht es auch schon.' : ''}` : cheer}</div>
       ${stampedNow ? '<div class="stamp-big">Gekocht!</div>' : ''}
     </div>
     <div class="bottom">
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
-      <button class="link-btn" data-action="tracker-one" data-recipe="${r.id}">An den Kalorien-Tracker geben</button>
+      ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -1689,13 +1691,13 @@ function viewIch() {
 }
 
 // ---------- Kalorien-Tracker ----------
-// Gibt Rezepte als Lebensmittel-Datei für den Kalorien-Tracker (st0ptv.github.io/Calorie-Tracker) weiter.
-// Der Tracker importiert sie unter Einstellungen → Lebensmittel teilen → Importieren als „Eigene“ Lebensmittel.
-// Format dort: Nährwerte pro 100 g, Portion in g.
+// Der Tracker (Ordner tracker/, von ST0PTV, MIT-Lizenz) läuft auf derselben Seite und speichert unter „ct.v1“.
+// Gekochte Rezepte landen direkt in seinem Journal: als eigenes Lebensmittel (Nährwerte pro 100 g) plus Eintrag.
 
-const TRACKER_URL = 'https://st0ptv.github.io/Calorie-Tracker/';
+const TRACKER_KEY = 'ct.v1';
 const TRACKER_DIET = { vegan: 2, vegetarisch: 1, fisch: 0, fleisch: 0 };
 const TRACKER_ALLERGENS = { gluten: 'gl', laktose: 'mi', ei: 'ei', nuesse: 'nu', soja: 'so', fisch: 'fi' };
+const TRACKER_MEAL = { fruehstueck: 'breakfast', mittag: 'lunch', abend: 'dinner', snack: 'snack' };
 
 // Gewicht einer Portion in Gramm
 function portionGrams(r) {
@@ -1718,40 +1720,44 @@ function trackerFood(r) {
   };
 }
 
-function trackerRecipes() { return [...state.ownRecipes, ...RECIPES]; }
+function readTracker() {
+  try { return JSON.parse(localStorage.getItem(TRACKER_KEY)) || {}; } catch (e) { return {}; }
+}
+function writeTracker(t) {
+  try { localStorage.setItem(TRACKER_KEY, JSON.stringify(t)); return true; } catch (e) { return false; }
+}
 
-async function sendToTracker(recipes, fileName) {
-  const custom = recipes.map(trackerFood).filter(Boolean);
-  if (!custom.length) { toast('Dazu kenne ich noch keine Nährwerte.'); return; }
-  const today = new Date().toISOString().slice(0, 10);
-  const data = { format: 'kalorien-tracker-lebensmittel', v: 2, exported: today, custom, foods: [], off: {}, slices: {} };
-  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-  const name = `${fileName}-${today}.json`;
-  const done = () => toast(custom.length === 1 ? 'Rezept für den Tracker bereit' : `${custom.length} Rezepte für den Tracker bereit`);
-  try {
-    const file = new File([blob], name, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: name });
-      done();
-      return;
-    }
-  } catch (e) {
-    if (e && e.name === 'AbortError') return;
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  done();
+// Trägt eine Portion (× factor) ins Tracker-Journal von heute ein. Gibt die Eintrags-ID zurück oder null.
+function addToTracker(r, meal, factor = 1) {
+  const food = trackerFood(r);
+  if (!food) return null;
+  const t = readTracker();
+  t.custom = Array.isArray(t.custom) ? t.custom : [];
+  const i = t.custom.findIndex((x) => x.id === food.id);
+  if (i >= 0) t.custom[i] = food; else t.custom.push(food);
+  t.days = t.days && typeof t.days === 'object' ? t.days : {};
+  const day = todayKey();
+  const id = 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const { src, n, brand, liq, serving, k, p, c, f, fi, su, fs } = food;
+  const entry = { id, meal: TRACKER_MEAL[meal] || 'snack', grams: Math.round(food.serving * factor), ref: food.id, src, n, brand, liq, serving, k, p, c, f, fi, su, fs };
+  t.days[day] = [...(t.days[day] || []), entry];
+  return writeTracker(t) ? id : null;
+}
+
+function removeFromTracker(entryId, day = todayKey()) {
+  const t = readTracker();
+  if (!t.days || !t.days[day]) return;
+  t.days[day] = t.days[day].filter((e) => e.id !== entryId);
+  writeTracker(t);
 }
 
 function trackerCard() {
+  const on = state.trackerAuto !== false;
   return `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Kalorien-Tracker</h3>
-      <div class="small muted">Gib deine Rezepte mit Kalorien und Makros an den <a href="${TRACKER_URL}" target="_blank" rel="noopener" style="color:var(--accent-text);font-weight:700">Kalorien-Tracker</a> weiter. Dort unter Einstellungen → Lebensmittel teilen → „Importieren“ die Datei auswählen. Die Rezepte stehen dann unter Essen → Eigene, eine Portion ist schon hinterlegt.</div>
-      <button class="btn secondary" data-action="tracker-all">Alle ${trackerRecipes().length} Rezepte weitergeben</button>
+      <div class="small muted">Wenn du ein Rezept als „Fertig gekocht“ markierst, trage ich eine Portion in dein Tracker-Journal ein, mit Kalorien und Makros.</div>
+      <label class="step"><input type="checkbox" data-action="tracker-auto" ${on ? 'checked' : ''}><span>Gekochtes automatisch eintragen</span></label>
+      <a class="btn secondary" href="tracker/">Tracker öffnen</a>
     </section>`;
 }
 
@@ -1760,7 +1766,8 @@ function trackerCard() {
 const SOURCES = [
   { group: 'In der App enthalten', items: [
     { name: 'html5-qrcode 2.3.8', what: 'Barcode-Scanner im Reiter Einkauf (Datei vendor/html5-qrcode.min.js).', who: 'Minhaz (mebjas)', license: 'Apache License 2.0', link: 'https://github.com/mebjas/html5-qrcode', note: 'Lizenztext liegt bei: vendor/html5-qrcode-LICENSE' },
-    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes, steckt in html5-qrcode mit drin.', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library' }
+    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes, steckt in html5-qrcode mit drin. Der Tracker nutzt eine eigene Kopie (tracker/vendor/zxing.min.js).', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library', note: 'Lizenztext liegt bei: tracker/vendor/ZXING-LICENSE' },
+    { name: 'Kalorien-Tracker', what: 'Der ganze Bereich „Tracker“ (Ordner tracker/): Journal, Timeline, Essen, Analytics, Wasser, Koffein, Alkohol, Supplements, Gewichtsziel. Für das Rezeptbuch umgefärbt und mit „Fertig gekocht“ verbunden.', who: 'ST0PTV', license: 'MIT-Lizenz', link: 'https://github.com/st0ptv/Calorie-Tracker', note: 'Lizenztext liegt bei: tracker/LICENSE. Studien und Quellen des Trackers stehen dort unter Einstellungen → Quellen & Lizenzen.' }
   ] },
   { group: 'Aus dem Internet geladen', items: [
     { name: 'Schrift Nunito', what: 'Die Schrift der ganzen App, geladen von Google Fonts.', who: 'The Nunito Project Authors (Vernon Adams u. a.)', license: 'SIL Open Font License 1.1', link: 'https://github.com/googlefonts/nunito', note: 'Beim Laden der Schrift sieht Google deine IP-Adresse.' },
@@ -2378,7 +2385,8 @@ const actions = {
     const meal = el.dataset.meal || currentMeal();
     const key = todayKey();
     const f = Number(el.dataset.factor) || 1;
-    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: Math.round(r.kcal * f), name: r.name, n: addNutrients(emptyNutrients(), recipeNutrients(r), f) }];
+    const trackerId = state.trackerAuto !== false ? addToTracker(r, meal, f) : null;
+    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: Math.round(r.kcal * f), name: r.name, n: addNutrients(emptyNutrients(), recipeNutrients(r), f), trackerId }];
     const before = stampCount();
     state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
     state.xp += XP_PER_RECIPE;
@@ -2408,6 +2416,7 @@ const actions = {
     const e = log[Number(el.dataset.index)];
     if (!e) return;
     state.log[key] = log.filter((_, i) => i !== Number(el.dataset.index));
+    if (e.trackerId) removeFromTracker(e.trackerId, key);
     // Stempel und XP, die das Kochen gebracht hat, wieder abziehen
     if (e.recipeId && state.stamps[e.recipeId]) {
       state.stamps[e.recipeId] -= 1;
@@ -2452,13 +2461,11 @@ const actions = {
   'ask-reset'() { ui.confirmReset = true; },
   'tracker-one'(el) {
     const r = recipeById(el.dataset.recipe);
-    if (r) sendToTracker([r], 'rezept-' + r.id);
-    return 'skip';
+    if (!r) return;
+    const id = addToTracker(r, el.dataset.meal || currentMeal(), Number(el.dataset.factor) || 1);
+    toast(id ? 'Im Tracker eingetragen' : 'Dazu kenne ich noch keine Nährwerte.');
   },
-  'tracker-all'() {
-    sendToTracker(trackerRecipes(), 'rezeptbuch-rezepte');
-    return 'skip';
-  },
+  'tracker-auto'(el) { state.trackerAuto = el.checked; },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
   'remove-row'(el) {
     ui.form.rows.splice(Number(el.dataset.row), 1);

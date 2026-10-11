@@ -338,3 +338,18 @@ textarea.input { resize: vertical; font: inherit; }
   .wait .cat { left: calc(50% - 55px); }
   .wait .ball { display: none; }
 }
+
+/* Nährwerte und Portionen */
+.nut-card { display: flex; flex-direction: column; gap: 6px; }
+.nut-row { display: grid; grid-template-columns: 1fr auto 70px 70px; align-items: center; gap: 8px; font-size: 15px; }
+.nut-row.sub span:first-child { padding-left: 12px; color: var(--muted); font-size: 14px; }
+.nut-row b { font-weight: 800; text-align: right; white-space: nowrap; }
+.nut-goal { text-align: right; white-space: nowrap; }
+.small-bar { height: 8px; }
+.nut-today summary { cursor: pointer; font-weight: 800; min-height: 44px; display: flex; align-items: center; color: var(--accent-text); }
+.stepper { display: flex; align-items: center; gap: 8px; font-size: 15px; white-space: nowrap; }
+.stepper .round { width: 36px; height: 36px; font-size: 20px; font-weight: 900; }
+.stepper .round:disabled { opacity: 0.35; }
+.small-bar > div { height: 8px; }
+.stepper .round { color: var(--ink); width: 40px; height: 40px; }
+.sweet-tag { font-size: 12px; font-weight: 800; color: #7A4A00; background: #FCE9C4; border-radius: 999px; padding: 2px 8px; align-self: flex-start; }

@@ -6,6 +6,8 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Schlägt für Frühstück, Mittag- und Abendessen passende Rezepte vor (alle unter 30 Minuten, ohne ausgefallene Zutaten).
 - Ist für eine Mahlzeit wenig Zeit, schlägt Ginger Vorbereitung vor: Overnight Oats am Vorabend oder abends doppelt kochen.
 - Kochschritte lassen sich abhaken. Jedes gekochte Rezept gibt einen Stempel und XP, ab 10 Stempeln bekommt Ginger eine Kochmütze.
+- Nährwerte: Für jedes Rezept und den Tag zeigt die App Eiweiß, Kohlenhydrate, Zucker, zugesetzten Zucker, Fruktose, Fett und Ballaststoffe. Die Tagesziele richten sich nach Geschlecht und Ziel (DGE- und WHO-Richtwerte). Alles sind Schätzungen aus Durchschnittswerten.
+- Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
 - Einkauf scannen: Barcode mit der Handykamera scannen oder eintippen. Die Produktdaten kommen von Open Food Facts. Eingekaufte Lebensmittel rutschen in den Vorschlägen nach oben, was dreimal gekauft wurde, zählt als Lieblingsessen.
 - Eigene Rezepte eintragen: Ginger schätzt die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge (Mengen anpassen, Tauschideen wie Milch statt Sahne).
 

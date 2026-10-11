@@ -1,5 +1,11 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, findFood, gramsOf, kcalOf } from './nutrition.js';
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, scaleIngredient } from './nutrition.js';
+
+// Nährwerte der fertigen Rezepte aus den Zutaten berechnen (alle Rezepte sind für 1 Portion)
+for (const r of RECIPES) {
+  r.nutrients = r.ingredients.reduce((sum, line) => addNutrients(sum, nutrientsOfText(line)), emptyNutrients());
+  r.kcal = Math.round(r.nutrients.kcal / 10) * 10;
+}
 
 // ---------- Grunddaten ----------
 
@@ -33,6 +39,35 @@ const GOALS = [
   { id: 'zunehmen', name: 'Zunehmen', kcal: 2400 }
 ];
 
+const SEXES = [
+  { id: 'w', name: 'Weiblich' },
+  { id: 'm', name: 'Männlich' },
+  { id: 'x', name: 'Keine Angabe' }
+];
+
+// Startwerte für Kalorien nach Geschlecht und Ziel. Grundlage: DGE-Richtwerte für Erwachsene
+// mit wenig Bewegung (Frauen etwa 1.900, Männer etwa 2.400 kcal), zum Abnehmen etwa 300–400 weniger, zum Zunehmen etwa 300–400 mehr.
+const KCAL_START = {
+  w: { abnehmen: 1600, halten: 1900, zunehmen: 2200 },
+  m: { abnehmen: 2000, halten: 2400, zunehmen: 2800 },
+  x: { abnehmen: 1700, halten: 2000, zunehmen: 2400 }
+};
+
+// Tagesziele für Nährstoffe
+// Eiweiß: Anteil der Kalorien je nach Ziel, mindestens die DGE-Empfehlung (0,8 g pro kg, Referenzwerte Frauen 48 g, Männer 57 g)
+// Fett: 30 % der Kalorien (DGE), Kohlenhydrate: der Rest, Ballaststoffe: 30 g (DGE),
+// zugesetzter Zucker: höchstens 10 % der Kalorien (WHO). Für Fruktose und Zucker gesamt gibt es keinen offiziellen Richtwert.
+function nutrientTargets() {
+  const p = state.profile;
+  const kcal = p.kcal;
+  const share = { abnehmen: 0.25, halten: 0.18, zunehmen: 0.2 }[p.goal] || 0.18;
+  const min = { w: 48, m: 57, x: 52 }[p.sex] || 52;
+  const protein = Math.max(Math.round((kcal * share) / 4), min);
+  const fett = Math.round((kcal * 0.3) / 9);
+  const kh = Math.round((kcal - protein * 4 - fett * 9) / 4);
+  return { kcal, protein, kh, fett, ballast: 30, zugesetzt: Math.round((kcal * 0.1) / 4) };
+}
+
 const TIME_OPTIONS = [5, 10, 15, 30, 45];
 const SHORT_TIME = 10;
 const XP_PER_RECIPE = 40;
@@ -63,6 +98,8 @@ function defaultState() {
       allergies: [],
       goal: 'halten',
       kcal: 2000,
+      sex: 'x',
+      portions: 1,
       taste: {},
       times: { fruehstueck: 5, mittag: 15, abend: 30 }
     },
@@ -97,7 +134,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -210,38 +247,42 @@ function prepTips() {
 
 // ---------- Ginger ----------
 
-// Ginger sieht aus wie die echte Ginger: weiß, Kopf und Rücken braun getigert, weiße Blesse, rosa Nase
-const G = { fur: '#8B6B4F', stripe: '#5C4535', white: '#FFFFFF', line: '#E3D3C4', ear: '#F3C1B8', nose: '#EFA3A6', eye: '#2E2018', iris: '#9C9452' };
+// Ginger sieht aus wie die echte Ginger: weiße Schnauze, Brust und Pfoten, Kopf und Rücken braun getigert
+// mit M-Zeichnung auf der Stirn, schmale weiße Blesse, grün-goldene Augen, rosa Nase, geringelter Schwanz mit dunkler Spitze
+const G = { fur: '#9A7353', stripe: '#4A3628', white: '#FFFFFF', line: '#E3D3C4', ear: '#F1BDB4', nose: '#EFA3A6', eye: '#241912', iris: '#AFA34C', rim: '#6F6A2E', tip: '#2B201A' };
 let gingerId = 0;
 
 function gingerHead({ happy = false, hat = false } = {}) {
   const id = `gh${++gingerId}`;
-  const eye = (x) => `<circle cx="${x}" cy="54" r="6" fill="${G.iris}"/><circle cx="${x}" cy="54" r="4.8" fill="${G.eye}"/><circle cx="${x + 2}" cy="52" r="1.7" fill="#FFF"/>`;
+  // Augen leicht verschlafen wie auf den Fotos: obere Lider in Fellfarbe
+  const eye = (x) => `<ellipse cx="${x}" cy="54" rx="6.4" ry="5.6" fill="${G.iris}" stroke="${G.rim}" stroke-width="0.8"/>
+      <ellipse cx="${x}" cy="54.5" rx="3" ry="4.6" fill="${G.eye}"/><circle cx="${x + 2}" cy="52.6" r="1.4" fill="#FFF"/>
+      <path d="M${x - 7.5} 50.5 Q${x} 46 ${x + 7.5} 50.5 L${x + 7.5} 47 L${x - 7.5} 47 Z" fill="${G.fur}"/>
+      <path d="M${x - 6.6} 51.2 Q${x} 47.6 ${x + 6.6} 51.2" stroke="${G.stripe}" stroke-width="1.1" fill="none"/>`;
   const eyes = happy
-    ? `<path d="M31 55 Q37 49 43 55 M57 55 Q63 49 69 55" stroke="${G.eye}" stroke-width="3" fill="none" stroke-linecap="round"/>`
+    ? `<path d="M31 55 Q37 50 43 55 M57 55 Q63 50 69 55" stroke="${G.stripe}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`
     : eye(37) + eye(63);
-  const mouth = happy
-    ? `<path d="M43 70 Q50 76 57 70" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>`
-    : `<path d="M50 67 Q46 72 42 69 M50 67 Q54 72 58 69" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  const mouth = `<path d="M50 66.5 L50 68.5 M50 68.5 Q46.5 72 43.5 69.5 M50 68.5 Q53.5 72 56.5 69.5" stroke="${G.stripe}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`
+    + (happy ? `<ellipse cx="50" cy="72" rx="2.2" ry="1.8" fill="#EE8F98"/>` : '');
   const hatSvg = hat
     ? '<path d="M30 30 Q26 14 38 14 Q40 4 50 6 Q60 4 62 14 Q74 14 70 30 Z" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/><rect x="30" y="26" width="40" height="8" rx="3" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/>'
     : '';
   return `<defs><clipPath id="${id}"><ellipse cx="50" cy="57" rx="37" ry="33"/></clipPath></defs>
-    <path d="M16 46 L20 8 L46 30 Z" fill="${G.fur}"/>
-    <path d="M84 46 L80 8 L54 30 Z" fill="${G.fur}"/>
-    <path d="M23 34 L25 18 L37 29 Z" fill="${G.ear}"/>
-    <path d="M77 34 L75 18 L63 29 Z" fill="${G.ear}"/>
+    <path d="M15 47 L19 7 L47 30 Z" fill="${G.fur}"/>
+    <path d="M85 47 L81 7 L53 30 Z" fill="${G.fur}"/>
+    <path d="M22 35 L24.5 17 L37 29 Z" fill="${G.ear}"/>
+    <path d="M78 35 L75.5 17 L63 29 Z" fill="${G.ear}"/>
+    <path d="M24 30 L28 25 M25 34 L30 30 M76 30 L72 25 M75 34 L70 30" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
     <ellipse cx="50" cy="57" rx="37" ry="33" fill="${G.white}" stroke="${G.line}" stroke-width="1.5"/>
     <g clip-path="url(#${id})">
-      <path d="M0 0 L100 0 L100 67 Q80 64 70 62 Q61 60 57.5 47 Q54.5 38 51.5 34 Q50 32.5 48.5 34 Q45.5 38 42.5 47 Q39 60 30 62 Q20 64 0 67 Z" fill="${G.fur}"/>
-      <path d="M43 25 Q45 29 44 33 M50 23 L50 29 M57 25 Q55 29 56 33 M34 31 Q37 35 36 39 M66 31 Q63 35 64 39 M17 47 Q24 47 28 43 M83 47 Q76 47 72 43" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M0 0 L100 0 L100 70 Q76 66 64 63 Q58 61 56 52 Q54.5 42 52.5 34 Q50 30.5 47.5 34 Q45.5 42 44 52 Q42 61 36 63 Q24 66 0 70 Z" fill="${G.fur}"/>
+      <path d="M42 22 L44.5 31 M50 20 L50 29.5 M58 22 L55.5 31 M36 26 L39 33 M64 26 L61 33 M27 45 Q21 44 16 40 M73 45 Q79 44 84 40 M26 59 Q20 59 15 56 M74 59 Q80 59 85 56" stroke="${G.stripe}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
     </g>
-    <ellipse cx="29" cy="67" rx="6" ry="3.5" fill="#F7C9C0"/>
-    <ellipse cx="71" cy="67" rx="6" ry="3.5" fill="#F7C9C0"/>
+    <ellipse cx="43" cy="66" rx="5" ry="3.6" fill="#FAF3EE"/><ellipse cx="57" cy="66" rx="5" ry="3.6" fill="#FAF3EE"/>
     ${eyes}
-    <path d="M46 62 L54 62 L50 66.5 Z" fill="${G.nose}"/>
+    <path d="M46.2 61.5 Q50 60.5 53.8 61.5 L50 66 Z" fill="${G.nose}"/>
     ${mouth}
-    <path d="M14 60 L28 62 M14 67 L28 66 M86 60 L72 62 M86 67 L72 66" stroke="#B9A797" stroke-width="1.3" stroke-linecap="round"/>
+    <path d="M13 61 L30 63.5 M13 68 L30 67 M87 61 L70 63.5 M87 68 L70 67" stroke="#BDAD9E" stroke-width="1.1" stroke-linecap="round"/>
     ${hatSvg}`;
 }
 
@@ -260,19 +301,21 @@ function gingerPeek(width) {
 // Ganze Ginger von der Seite, für die Warte-Animation
 function gingerBody(mode) {
   const id = `gb${++gingerId}`;
-  const paw = `<rect class="leg leg-b paw" x="78" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>`;
+  const leg = (x, cls) => `<rect class="leg ${cls}" x="${x}" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>`;
+  const paw = leg(78, 'leg-b paw');
+  const tail = 'M24 52 Q8 46 10 26 Q11 18 17 13';
   return `<svg viewBox="0 0 120 90" width="110" height="83" aria-hidden="true">
     <defs><clipPath id="${id}"><ellipse cx="56" cy="55" rx="34" ry="18"/></clipPath></defs>
-    <g class="tail"><path d="M24 52 Q8 46 10 26 Q11 18 16 14" stroke="${G.fur}" stroke-width="7" fill="none" stroke-linecap="round"/>
-      <path d="M12 34 L19 35 M11 26 L18 28" stroke="${G.stripe}" stroke-width="2" stroke-linecap="round"/></g>
-    <rect class="leg leg-b" x="30" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
-    <rect class="leg leg-a" x="40" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
-    <rect class="leg leg-a" x="68" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
+    <g class="tail"><path d="${tail}" stroke="${G.fur}" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="${tail}" stroke="${G.stripe}" stroke-width="7" fill="none" stroke-dasharray="2.5 5" stroke-dashoffset="-4"/>
+      <path d="M13.5 17 Q15 14.5 17 13" stroke="${G.tip}" stroke-width="7" fill="none" stroke-linecap="round"/></g>
+    ${leg(30, 'leg-b')}${leg(40, 'leg-a')}${leg(68, 'leg-a')}
     ${mode === 'putzen' ? '' : paw}
     <ellipse cx="56" cy="55" rx="34" ry="18" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
     <g clip-path="url(#${id})">
-      <path d="M18 30 L96 30 L96 50 Q82 57 68 50 Q54 58 40 50 Q28 56 18 50 Z" fill="${G.fur}"/>
-      <path d="M38 40 Q40 45 38 49 M50 39 Q52 45 50 50 M62 40 Q64 45 62 49 M74 39 Q76 44 74 48" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M18 30 L82 30 L82 42 Q76 51 66 50 Q54 56 42 52 Q30 58 18 54 Z" fill="${G.fur}"/>
+      <ellipse cx="30" cy="52" rx="7" ry="3.5" fill="${G.white}"/>
+      <path d="M36 37 Q38 43 36 50 M45 36 Q47 43 45 51 M54 37 Q56 43 54 50 M63 37 Q65 42 63 48 M72 37 Q74 41 72 46" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>
     </g>
     <g class="head"><g transform="translate(66 2) scale(0.52)">${gingerHead({ happy: mode === 'putzen' })}</g></g>
     ${mode === 'putzen' ? paw : ''}
@@ -318,6 +361,67 @@ const ICONS = {
   stamp: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 12 L11 14.5 L15.5 9.5"/></svg>',
   me: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20 A8 8 0 0 1 20 20"/></svg>'
 };
+
+// ---------- Nährwerte ----------
+
+function g1(x) { return (Math.round(x * 10) / 10).toLocaleString('de-DE'); }
+
+function nutrientGoalsLine() {
+  const t = nutrientTargets();
+  return `<p class="small muted">Deine Tagesziele: ${t.protein} g Eiweiß · ${t.kh} g Kohlenhydrate · ${t.fett} g Fett · ${t.ballast} g Ballaststoffe · höchstens ${t.zugesetzt} g zugesetzter Zucker</p>`;
+}
+
+// Nährwerte pro Portion. Eigene Rezepte aus älteren Versionen haben noch keine gespeicherten Werte.
+function recipeNutrients(r) {
+  if (r.nutrients) return r.nutrients;
+  if (r.own && r.rows) {
+    const sum = r.rows.reduce((acc, row) => {
+      const food = findFood(row.name);
+      return addNutrients(acc, nutrientsFor(food, gramsOf(row, food), food ? null : row.kcal100));
+    }, emptyNutrients());
+    return addNutrients(emptyNutrients(), sum, 1 / (r.portions || 1));
+  }
+  return { ...emptyNutrients(), kcal: r.kcal };
+}
+
+// Tabelle mit Nährwerten; mit `day` zeigt sie den Anteil am Tagesziel
+function nutrientTable(n, { title = 'Nährwerte pro Portion', partial = false } = {}) {
+  const t = nutrientTargets();
+  const row = (id, name) => {
+    const v = n[id] || 0;
+    const goal = t[id];
+    const limit = id === 'zugesetzt';
+    const pct = goal ? Math.min(100, (v / goal) * 100) : 0;
+    const over = limit && v > goal;
+    return `<div class="nut-row ${id === 'zucker' || id === 'zugesetzt' || id === 'fruktose' ? 'sub' : ''}">
+      <span>${name}</span><b>${g1(v)} g</b>
+      ${goal ? `<div class="bar small-bar" title="${Math.round((v / goal) * 100)} % von ${limit ? 'höchstens ' : ''}${goal} g"><div style="width:${pct}%;${over ? 'background:#9A3324' : ''}"></div></div>
+        <span class="small muted nut-goal">${limit ? 'max. ' : 'von '}${goal} g</span>` : '<span></span><span class="small muted nut-goal">kein Richtwert</span>'}
+    </div>`;
+  };
+  return `<section class="card nut-card"><h2 style="margin-bottom:8px">${title}</h2>
+    <div class="nut-row"><span>Kalorien</span><b>${fmt(n.kcal)} kcal</b><div class="bar small-bar"><div style="width:${Math.min(100, (n.kcal / t.kcal) * 100)}%"></div></div><span class="small muted nut-goal">von ${fmt(t.kcal)}</span></div>
+    ${NUTRIENTS.map((x) => row(x.id, x.name)).join('')}
+    <p class="small muted" style="margin-top:6px">${partial ? 'Ohne Einträge über „Etwas anderes gegessen?“, dort kennt Ginger nur die Kalorien. ' : ''}Geschätzt aus Durchschnittswerten. Die Balken zeigen den Anteil an deinem Tagesziel.</p>
+  </section>`;
+}
+
+// Zutaten für eine gewünschte Portionenzahl
+function scaledIngredients(r, n) {
+  if (r.own && r.rows) {
+    const f = n / (r.portions || 1);
+    return r.rows.map((row) => {
+      const a = Number(String(row.amount).replace(',', '.')) * f;
+      const amount = row.unit === 'g' || row.unit === 'ml' ? (a >= 20 ? Math.round(a / 5) * 5 : Math.round(a)) : Math.round(a * 4) / 4;
+      return `${String(amount).replace('.', ',')} ${unitName(row.unit)} ${row.name.trim()}`;
+    });
+  }
+  return r.ingredients.map((x) => scaleIngredient(x, n));
+}
+
+function portionsOf(r) {
+  return ui.portions[r.id] || state.profile.portions || 1;
+}
 
 // ---------- Bausteine ----------
 
@@ -368,13 +472,18 @@ function viewStart1(edit) {
     <section class="field"><h2>Allergien und Unverträglichkeiten</h2>
       <div class="chips">${ALLERGIES.map((a) => `<button class="chip danger" data-action="allergy" data-id="${a.id}" aria-pressed="${p.allergies.includes(a.id)}">${a.name}</button>`).join('')}</div>
     </section>
+    <section class="field"><h2>Ich bin</h2>
+      <div class="chips">${SEXES.map((x) => `<button class="chip" data-action="sex" data-id="${x.id}" aria-pressed="${(p.sex || 'x') === x.id}">${x.name}</button>`).join('')}</div>
+      <p class="small muted">Danach richtet Ginger Kalorien und Eiweiß aus.</p>
+    </section>
     <section class="field"><h2>Mein Ziel</h2>
       <div class="chips">${GOALS.map((g) => `<button class="chip" data-action="goal" data-id="${g.id}" aria-pressed="${p.goal === g.id}">${g.name}</button>`).join('')}</div>
       <div class="row" style="margin-top:6px">
         <label for="kcal" class="small muted">Kalorien pro Tag</label>
         <input id="kcal" class="input number-input" type="number" inputmode="numeric" min="1000" max="5000" step="50" value="${p.kcal}" data-input="kcal">
       </div>
-      <p class="small muted">Ein grober Startwert. Später kommt er aus deinem Kalorientracker.</p>
+      <p class="small muted">Ein grober Startwert für wenig Bewegung. Wenn du mehr Sport machst, stell ihn höher.</p>
+      ${nutrientGoalsLine()}
     </section>
     <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/2'}">${edit ? 'Speichern' : 'Weiter'}</a></div>
   </main>`;
@@ -434,6 +543,13 @@ function viewStart3(edit) {
     <h1>Wie viel Zeit hast du zum Kochen?</h1>
     <p class="lead">Pro Mahlzeit, in Minuten. Wenn es knapp wird, plant Ginger Vorbereitung an Zeiten mit mehr Luft ein.</p>
     ${blocks}
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="meal-head"><h3>Ich koche meist für</h3><span class="small" style="color:var(--accent-text)">${state.profile.portions || 1} ${(state.profile.portions || 1) === 1 ? 'Portion' : 'Portionen'}</span></div>
+      <div class="seg" role="group" aria-label="Portionen">
+        ${[1, 2, 3, 4, 6].map((n) => `<button data-action="portions" data-n="${n}" aria-pressed="${(state.profile.portions || 1) === n}">${n}</button>`).join('')}
+      </div>
+      <p class="small muted">Die Zutatenmengen in den Rezepten passen sich daran an. Du kannst sie in jedem Rezept auch einzeln ändern.</p>
+    </div>
     <div class="bottom"><button class="btn" data-action="${edit ? 'go-ich' : 'finish-start'}">${edit ? 'Speichern' : 'Fertig'}</button></div>
   </main>`;
 }
@@ -501,6 +617,7 @@ function viewHeute() {
           : '<button class="link-btn" style="text-align:left;padding:0" data-action="show-manual">Etwas anderes gegessen?</button>'}
       </div>
     </div>
+    ${log.some((e) => e.n) ? `<details class="nut-today"><summary>Nährwerte heute</summary>${nutrientTable(log.reduce((acc, e) => addNutrients(acc, e.n || { kcal: e.kcal }), emptyNutrients()), { title: 'Heute gegessen', partial: log.some((e) => !e.n) })}</details>` : ''}
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
     ${meals}
@@ -547,12 +664,18 @@ function viewRezept(id, meal) {
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
-      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal${r.own ? ' pro Portion' : ''} · ${dietName(r.diet)}</div>
+      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal pro Portion · ${dietName(r.diet)}</div>
     </div>
     ${note}
-    <section class="card"><h2 style="margin-bottom:6px">Du brauchst${r.own ? ` <span class="small muted">für ${r.portions} ${r.portions === 1 ? 'Portion' : 'Portionen'}</span>` : ''}</h2>
-      <ul class="ing-list">${r.ingredients.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    <section class="card"><div class="meal-head" style="margin-bottom:6px"><h2>Du brauchst</h2>
+        <div class="stepper" role="group" aria-label="Portionen">
+          <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) - 1}" aria-label="Eine Portion weniger" ${portionsOf(r) <= 1 ? 'disabled' : ''}>−</button>
+          <span><b>${portionsOf(r)}</b> ${portionsOf(r) === 1 ? 'Portion' : 'Portionen'}</span>
+          <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) + 1}" aria-label="Eine Portion mehr" ${portionsOf(r) >= 12 ? 'disabled' : ''}>+</button>
+        </div></div>
+      <ul class="ing-list">${scaledIngredients(r, portionsOf(r)).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
     </section>
+    ${nutrientTable(recipeNutrients(r))}
     <h2>So geht’s</h2>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
@@ -620,6 +743,7 @@ function analyze(form) {
     return { ...x, kcal, grams: gramsOf(x.row, x.food) };
   });
   const perPortion = total / portions;
+  const nutrients = lines.reduce((acc, x) => addNutrients(acc, x.kcal === null ? null : nutrientsFor(x.food, x.grams, x.food ? null : x.row.kcal100)), emptyNutrients());
   const share = Math.max(...form.meals.map((m) => (MEALS.find((x) => x.id === m) || MEALS[1]).share), 0.25);
   const budget = Math.round(p.kcal * share);
 
@@ -693,7 +817,7 @@ function analyze(form) {
   if (Number(form.time) > 30) {
     tips.push({ text: 'Dauert länger als 30 Minuten. Ich schlage es dir als Vorkoch-Rezept vor, wenn du an einem Tag mehr Zeit hast.' });
   }
-  return { portions, total, perPortion, budget, unknown, lines, diet, allergens, tips, warn };
+  return { portions, total, perPortion, nutrients, budget, unknown, lines, diet, allergens, tips, warn };
 }
 
 function viewAnalysis(form) {
@@ -712,6 +836,7 @@ function viewAnalysis(form) {
       <div style="font-size:28px;font-weight:900">ca. ${fmt(a.perPortion)} kcal <span class="small muted">pro Portion</span></div>
       <div class="bar"><div style="width:${pct}%;${a.perPortion > a.budget * 1.15 ? 'background:#9A3324' : ''}"></div></div>
       <div class="small muted">Dein Rahmen für diese Mahlzeit: etwa ${fmt(a.budget)} kcal · insgesamt ${fmt(a.total)} kcal für ${a.portions} ${a.portions === 1 ? 'Portion' : 'Portionen'}</div>
+      <div class="small" style="font-weight:700">Pro Portion: ${g1(a.nutrients.protein / a.portions)} g Eiweiß · ${g1(a.nutrients.kh / a.portions)} g Kohlenhydrate · ${g1(a.nutrients.fett / a.portions)} g Fett · ${g1(a.nutrients.ballast / a.portions)} g Ballaststoffe · ${g1(a.nutrients.zugesetzt / a.portions)} g zugesetzter Zucker · ${g1(a.nutrients.fruktose / a.portions)} g Fruktose</div>
       <details><summary class="small" style="cursor:pointer;min-height:32px">Kalorien je Zutat</summary><ul class="ing-list" style="font-size:14px">${breakdown}</ul></details>
     </section>
     ${warns}
@@ -784,6 +909,7 @@ function buildOwnRecipe(form) {
     time: Math.max(1, Math.round(Number(form.time) || 20)),
     portions: a.portions,
     kcal: Math.round(a.perPortion),
+    nutrients: addNutrients(emptyNutrients(), a.nutrients, 1 / a.portions),
     diet: a.diet,
     allergens: a.allergens,
     foods: rows.map((r) => (findFood(r.name) || {}).name || r.name.trim()),
@@ -836,7 +962,7 @@ function viewIch() {
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Ernährung und Ziel</h3>
-      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag</div>
+      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · ${(SEXES.find((x) => x.id === (p.sex || 'x')) || SEXES[2]).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag</div>
     </a>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
@@ -844,8 +970,8 @@ function viewIch() {
       <div class="small muted">Mag ich nicht: ${esc(nos.join(', ') || 'nichts')}</div>
     </a>
     <a class="card" href="#/edit/3" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Zeit zum Kochen</h3>
-      <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')}</div>
+      <h3>Zeit und Portionen</h3>
+      <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
     <div class="bottom">${ui.confirmReset
       ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
@@ -873,6 +999,13 @@ const CATEGORY_FOODS = {
   'en:bell-peppers': 'Paprika', 'en:zucchini': 'Zucchini', 'en:broccoli': 'Brokkoli', 'en:spinachs': 'Spinat',
   'en:mushrooms': 'Champignons', 'en:cucumbers': 'Gurke', 'en:salads': 'Salat', 'en:peas': 'Erbsen', 'en:sweet-corn': 'Mais',
   'en:avocados': 'Avocado', 'en:bananas': 'Banane', 'en:apples': 'Apfel', 'en:berries': 'Beeren', 'en:soy-sauces': 'Sojasauce'
+};
+
+// Süßstoffe und Zuckeraustauschstoffe nach E-Nummer (Open Food Facts liefert sie als additives_tags)
+const SWEETENERS = {
+  'en:e420': 'Sorbit', 'en:e421': 'Mannit', 'en:e950': 'Acesulfam', 'en:e951': 'Aspartam', 'en:e952': 'Cyclamat', 'en:e953': 'Isomalt',
+  'en:e954': 'Saccharin', 'en:e955': 'Sucralose', 'en:e957': 'Thaumatin', 'en:e959': 'Neohesperidin', 'en:e960': 'Steviol', 'en:e961': 'Neotam',
+  'en:e962': 'Aspartam-Acesulfam', 'en:e964': 'Polyglycitol', 'en:e965': 'Maltit', 'en:e966': 'Lactit', 'en:e967': 'Xylit', 'en:e968': 'Erythrit', 'en:e969': 'Advantam'
 };
 
 // Open-Food-Facts-Allergene auf die Allergien der App abbilden
@@ -914,7 +1047,7 @@ function productWarnings(p) {
 }
 
 async function lookupProduct(code) {
-  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags';
+  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags,additives_tags';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
@@ -933,12 +1066,17 @@ async function lookupProduct(code) {
     const diet = analysis.includes('en:non-vegetarian') ? 'fleisch'
       : analysis.includes('en:non-vegan') ? 'tierisch'
       : analysis.includes('en:vegan') ? 'vegan' : (food && food.diet) || null;
-    const kcal = pr.nutriments && Number(pr.nutriments['energy-kcal_100g']);
+    const nu = pr.nutriments || {};
+    const kcal = Number(nu['energy-kcal_100g']);
+    const num = (k) => (nu[k] === undefined || nu[k] === '' ? null : Math.round(Number(nu[k]) * 10) / 10);
+    const sweeteners = (pr.additives_tags || []).map((a) => SWEETENERS[a.replace(/[a-z]$/, '')]).filter(Boolean);
     return {
       name: name || (food ? food.name : 'Unbekanntes Produkt'),
       brand: (pr.brands || '').split(',')[0].trim(),
       food: food ? food.name : null,
       kcal100: kcal > 0 ? Math.round(kcal) : (food ? food.kcal : null),
+      n100: { protein: num('proteins_100g'), kh: num('carbohydrates_100g'), zucker: num('sugars_100g'), fruktose: num('fructose_100g'), fett: num('fat_100g'), ballast: num('fiber_100g') },
+      sweeteners: [...new Set(sweeteners)],
       allergens: [...new Set((pr.allergens_tags || []).map((a) => OFF_ALLERGENS[a]).filter(Boolean))],
       diet
     };
@@ -1029,6 +1167,8 @@ function viewEinkauf() {
       <div class="info">
         <div class="title">${esc(p.name)}</div>
         <div class="meta">${[p.brand, p.food && p.food !== p.name ? p.food : '', p.kcal100 ? `${fmt(p.kcal100)} kcal/100 g` : '', p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        ${p.n100 && p.n100.protein !== null ? `<div class="meta">pro 100 g: ${[['Eiweiß', 'protein'], ['KH', 'kh'], ['Zucker', 'zucker'], ['Fruktose', 'fruktose'], ['Fett', 'fett'], ['Ballaststoffe', 'ballast']].filter(([, k]) => p.n100[k] !== null).map(([n, k]) => `${n} ${g1(p.n100[k])} g`).join(' · ')}</div>` : ''}
+        ${p.sweeteners && p.sweeteners.length ? `<span class="sweet-tag">Süßstoff: ${esc(p.sweeteners.join(', '))}</span>` : ''}
         ${warn.length ? `<div class="warn-text">${esc(warn.join(' · '))}</div>` : ''}
       </div>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
@@ -1136,7 +1276,16 @@ const actions = {
   goal(el) {
     const g = GOALS.find((x) => x.id === el.dataset.id);
     state.profile.goal = g.id;
-    state.profile.kcal = g.kcal;
+    state.profile.kcal = KCAL_START[state.profile.sex || 'x'][g.id];
+  },
+  sex(el) {
+    state.profile.sex = el.dataset.id;
+    state.profile.kcal = KCAL_START[el.dataset.id][state.profile.goal];
+  },
+  portions(el) {
+    const n = Math.max(1, Math.min(12, Number(el.dataset.n)));
+    if (el.dataset.recipe) ui.portions[el.dataset.recipe] = n;
+    else state.profile.portions = n;
   },
   taste(el) {
     const food = el.dataset.food;
@@ -1169,7 +1318,7 @@ const actions = {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
     const key = todayKey();
-    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name }];
+    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name, n: recipeNutrients(r) }];
     const before = stampCount();
     state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
     state.xp += XP_PER_RECIPE;

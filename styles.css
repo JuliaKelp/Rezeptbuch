@@ -280,3 +280,76 @@ p { margin: 0; }
 .ing-row .round { flex: 0 0 44px; }
 textarea.input { resize: vertical; font: inherit; }
 .field > .input { flex: none; }
+
+/* Einkauf */
+.reader { width: 100%; border-radius: var(--radius); overflow: hidden; background: #000; min-height: 220px; }
+.reader video { width: 100% !important; display: block; }
+.pantry-item { display: flex; align-items: center; gap: 10px; padding: 12px; }
+.pantry-item .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pantry-item .title { font-weight: 800; font-size: 16px; }
+.pantry-item .meta { font-size: 13px; font-weight: 700; color: var(--muted); }
+.warn-text { font-size: 13px; font-weight: 800; color: #9A3324; }
+
+/* Ginger beim Warten */
+.wait { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 80px); height: 150px; pointer-events: none; overflow: hidden; z-index: 40; }
+.wait-label {
+  position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  background: var(--dark); color: #FFF1E4; padding: 8px 14px; border-radius: 14px;
+  font-weight: 800; font-size: 14px; white-space: nowrap;
+}
+.wait .cat, .wait .ball { position: absolute; bottom: 4px; left: 0; }
+.wait .ball { bottom: 6px; }
+.wait .cat svg, .wait .ball svg { display: block; overflow: visible; }
+.wait .leg { transform-box: fill-box; transform-origin: 50% 10%; }
+.wait .tail { transform-box: fill-box; transform-origin: 100% 100%; animation: wag 0.8s ease-in-out infinite alternate; }
+
+.wait.laufen .cat, .wait.huepfen .cat { animation: across 4.5s linear infinite; }
+.wait.jagen .cat { animation: across 2.6s linear infinite; }
+.wait.jagen .ball { animation: across-ahead 2.6s linear infinite; }
+.wait.jagen .ball svg { animation: roll 0.5s linear infinite; }
+.wait.springen .cat { animation: pounce 3.6s ease-in-out infinite; }
+.wait.laufen .leg-a, .wait.jagen .leg-a, .wait.springen .leg-a { animation: step 0.45s ease-in-out infinite alternate; }
+.wait.laufen .leg-b, .wait.jagen .leg-b, .wait.springen .leg-b { animation: step 0.45s ease-in-out infinite alternate-reverse; }
+.wait.jagen .leg { animation-duration: 0.25s !important; }
+.wait.huepfen .cat svg { animation: hop 0.6s ease-in-out infinite; }
+.wait.putzen .cat { left: calc(50% - 55px); }
+.wait.putzen .paw { animation: lick 0.9s ease-in-out infinite; }
+.wait.putzen .head { transform-box: fill-box; transform-origin: 50% 90%; animation: bob 0.9s ease-in-out infinite; }
+
+@keyframes across { from { transform: translateX(-130px); } to { transform: translateX(100vw); } }
+@keyframes across-ahead { from { transform: translateX(-20px); } to { transform: translateX(calc(100vw + 110px)); } }
+@keyframes pounce {
+  0% { transform: translate(-130px, 0); }
+  38% { transform: translate(calc(50vw - 120px), 0); }
+  44% { transform: translate(calc(50vw - 100px), 6px) scaleY(0.9); }
+  55% { transform: translate(calc(50vw - 30px), -70px); }
+  66% { transform: translate(calc(50vw + 40px), 0); }
+  100% { transform: translate(100vw, 0); }
+}
+@keyframes step { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-30px); } }
+@keyframes wag { from { transform: rotate(-8deg); } to { transform: rotate(10deg); } }
+@keyframes roll { to { transform: rotate(360deg); } }
+@keyframes lick { 0%, 100% { transform: rotate(0); } 35%, 65% { transform: translate(6px, -30px) rotate(-130deg); } }
+@keyframes bob { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-8deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wait * { animation: none !important; }
+  .wait .cat { left: calc(50% - 55px); }
+  .wait .ball { display: none; }
+}
+
+/* Nährwerte und Portionen */
+.nut-card { display: flex; flex-direction: column; gap: 6px; }
+.nut-row { display: grid; grid-template-columns: 1fr auto 70px 70px; align-items: center; gap: 8px; font-size: 15px; }
+.nut-row.sub span:first-child { padding-left: 12px; color: var(--muted); font-size: 14px; }
+.nut-row b { font-weight: 800; text-align: right; white-space: nowrap; }
+.nut-goal { text-align: right; white-space: nowrap; }
+.small-bar { height: 8px; }
+.nut-today summary { cursor: pointer; font-weight: 800; min-height: 44px; display: flex; align-items: center; color: var(--accent-text); }
+.stepper { display: flex; align-items: center; gap: 8px; font-size: 15px; white-space: nowrap; }
+.stepper .round { width: 36px; height: 36px; font-size: 20px; font-weight: 900; }
+.stepper .round:disabled { opacity: 0.35; }
+.small-bar > div { height: 8px; }
+.stepper .round { color: var(--ink); width: 40px; height: 40px; }
+.sweet-tag { font-size: 12px; font-weight: 800; color: #7A4A00; background: #FCE9C4; border-radius: 999px; padding: 2px 8px; align-self: flex-start; }

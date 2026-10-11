@@ -14,6 +14,8 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Ampel je nach Ziel: Beim Abnehmen wird der Kalorienring rot, sobald das Ziel überschritten ist, sonst grün. Beim Zunehmen wird er grün, wenn das Ziel erreicht ist, und rot, wenn es nach dem Abendessen noch fehlt. Beim Halten zählt ±5 %.
 - Monatskalender: zeigt für jeden Tag, ob das Ziel erreicht wurde, mit Details zu Kalorien und Makros pro Tag. Gemessen wird am Ziel, das an dem Tag galt.
 - Makros: Eiweiß, Kohlenhydrate und Fett stehen bei jedem Rezept, unter dem Kalorienring, im Wochenplan pro Tag und auf der Einkaufsliste. Vorschläge und Wochenplan bevorzugen Gerichte, deren Eiweiß- und Fettanteil zum Ziel passt.
+- Gewicht und Größe (freiwillig): Mit Gewicht rechnet die App Eiweiß in g pro kg nach den Studien unter „Quellen“ (1,4 / 1,2 / 1,6 g/kg je Ziel, mindestens 0,83 g/kg). Mit Größe zeigt sie den BMI, rechnet ab BMI 25 mit dem Gewicht bei BMI 25 und rät bei Untergewicht vom Abnehmen ab.
+- Info-Knöpfe: Zu jeder abgefragten Angabe erklärt ein „i“, wofür Ginger sie braucht.
 - „Ich habe …“: Lebensmittel eingeben und passende Rezepte finden.
 - 2 oder 3 Mahlzeiten: Wer nur zweimal am Tag isst, bekommt normale Portionen und dazu zwei kleine Snacks statt größerer Mahlzeiten. Gescannte Snack-Produkte wie Riegel werden mit vorgeschlagen.
 - Favoriten: kommen öfter in den Wochenplan und lassen sich auf einen Tag einplanen.
@@ -40,3 +42,14 @@ Dann `http://localhost:8000` öffnen. Auf dem Handy lässt sich die Seite über 
 - `vendor/html5-qrcode.min.js`: Barcode-Scanner (html5-qrcode 2.3.8, Apache-2.0)
 - `nutrition.js`: Kalorien-Durchschnittswerte für eigene Rezepte
 - `sw.js`, `manifest.webmanifest`, `icon*`: Installation und Offline-Nutzung
+
+## Quellen und Lizenzen
+
+In der App unter „Ich“ → „Quellen und Lizenzen“ (`#/quellen`) ausführlich aufgelistet. Kurz:
+
+- html5-qrcode 2.3.8 (Minhaz/mebjas) mit eingebautem ZXing für JavaScript: Apache-2.0, Lizenztext in `vendor/html5-qrcode-LICENSE`
+- Schrift Nunito (The Nunito Project Authors), über Google Fonts: SIL Open Font License 1.1
+- Produktdaten von Open Food Facts: Datenbank ODbL 1.0, Einträge DbCL 1.0
+- Richtwerte: DGE-Referenzwerte, WHO-Leitlinie zu Zucker (2015)
+- Rezepte, Nährwert-Schätzungen, Ginger, Icons und Design: für diese App selbst gemacht
+- Für den eigenen Programmcode ist noch keine Lizenz festgelegt (damit gilt: alle Rechte vorbehalten)

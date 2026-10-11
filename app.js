@@ -59,14 +59,61 @@ const KCAL_START = {
 
 // Tagesziele für Nährstoffe
 // Eiweiß: Anteil der Kalorien je nach Ziel, mindestens die DGE-Empfehlung (0,8 g pro kg, Referenzwerte Frauen 48 g, Männer 57 g)
+// (höher beim Abnehmen nach Wycherley 2012 und Leidy 2015, beim Zunehmen nach Morton 2018; Belege unter Ich → Quellen)
 // Fett: 30 % der Kalorien (DGE), Kohlenhydrate: der Rest, Ballaststoffe: 30 g (DGE),
 // zugesetzter Zucker: höchstens 10 % der Kalorien (WHO). Für Fruktose und Zucker gesamt gibt es keinen offiziellen Richtwert.
+const PROTEIN_PER_KG = { abnehmen: 1.4, halten: 1.2, zunehmen: 1.6 };
+function bmi() {
+  const { weight, height } = state.profile;
+  return weight && height ? weight / ((height / 100) ** 2) : null;
+}
+// Gewicht, mit dem das Eiweiß gerechnet wird
+function proteinWeight() {
+  const { weight, height } = state.profile;
+  if (!weight) return null;
+  return height && bmi() > 25 ? 25 * ((height / 100) ** 2) : weight;
+}
+
+// Erklärungen hinter den Info-Knöpfen: warum Ginger etwas wissen will
+const INFO = {
+  diet: 'Damit Ginger nur Rezepte vorschlägt, die zu deiner Ernährung passen. Bei vegan zum Beispiel kein Ei, keine Milch, kein Fleisch.',
+  allergies: 'Rezepte mit diesen Zutaten fallen ganz weg. Beim Scannen warnt Ginger, wenn ein Produkt sie enthält. Bitte prüf bei echten Allergien trotzdem selbst die Packung.',
+  sex: 'Frauen und Männer brauchen im Schnitt unterschiedlich viel Energie und Eiweiß. Ginger nimmt das für den Kalorien-Startwert und das Mindest-Eiweiß. Bei „Keine Angabe“ rechnet sie mit einem Mittelwert.',
+  goal: 'Je nach Ziel ändern sich Kalorien, Eiweiß und die Ampel: Beim Abnehmen wird es rot, wenn du drüber bist, beim Zunehmen, wenn nach dem Abendessen noch etwas fehlt.',
+  kcal: 'Danach plant Ginger, wie groß jede Mahlzeit sein darf, und rechnet im Wochenplan die Mengen um. Der Startwert ist grob, du kannst ihn jederzeit ändern.',
+  weight: 'Mit deinem Gewicht rechnet Ginger Eiweiß in Gramm pro Kilo, so wie die Studien unter „Quellen“: 1,4 g/kg beim Abnehmen, 1,2 g/kg beim Halten, 1,6 g/kg beim Zunehmen, nie unter 0,83 g/kg. Ohne Gewicht nimmt sie einen Anteil der Kalorien. Freiwillig, bleibt nur auf deinem Handy.',
+  height: 'Mit Größe und Gewicht berechnet Ginger deinen BMI. Liegt er über 25, rechnet sie Eiweiß mit dem Gewicht bei BMI 25, damit das Ziel nicht unrealistisch hoch wird. Liegt er unter 18,5, rät sie vom Abnehmen ab. Freiwillig, bleibt nur auf deinem Handy.',
+  taste: 'Was du magst, schlägt Ginger öfter vor. Was du nicht magst, kommt gar nicht mehr. Lebensmittel, die du wegen Ernährung oder Allergie eh nicht isst, fragt sie gar nicht erst ab.',
+  meals: 'Ginger teilt deine Kalorien auf die Mahlzeiten auf. Bei 2 Mahlzeiten bleiben die Portionen normal groß und den Rest bekommst du als zwei kleine Snacks.',
+  times: 'Ginger schlägt pro Mahlzeit nur Rezepte vor, die in diese Zeit passen. Wenn es knapp ist, plant sie Vorbereitung ein, zum Beispiel Overnight Oats am Vorabend.',
+  portions: 'Damit die Zutatenmengen in Rezepten und auf der Einkaufsliste stimmen, wenn du für mehrere kochst.'
+};
+function infoBtn(key) {
+  const open = !!ui.info[key];
+  return `<button class="info-btn" data-action="info" data-key="${key}" aria-expanded="${open}" aria-label="Warum fragt Ginger das?">i</button>`;
+}
+function infoText(key) {
+  return ui.info[key] ? `<div class="info-text">${ICONS.paw}<span>${esc(INFO[key])}</span></div>` : '';
+}
+function infoHead(tag, title, key, extra = '') {
+  return `<div class="info-head"><${tag}>${title}</${tag}>${extra}${infoBtn(key)}</div>${infoText(key)}`;
+}
+
 function nutrientTargets() {
   const p = state.profile;
   const kcal = p.kcal;
   const share = { abnehmen: 0.25, halten: 0.18, zunehmen: 0.2 }[p.goal] || 0.18;
   const min = { w: 48, m: 57, x: 52 }[p.sex] || 52;
-  const protein = Math.max(Math.round((kcal * share) / 4), min);
+  let protein = Math.max(Math.round((kcal * share) / 4), min);
+  // Mit Gewicht: Eiweiß in g pro kg nach den Studien unter „Quellen“ (Leidy 2015: 1,2–1,6 g/kg beim Abnehmen und Halten,
+  // Morton 2018: etwa 1,6 g/kg beim Muskelaufbau, Li 2014: mindestens 0,83 g/kg). Bei einem BMI über 25 rechnet Ginger
+  // mit dem Gewicht bei BMI 25, sonst würde das Eiweißziel bei viel Körperfett unrealistisch hoch. Höchstens 35 % der Kalorien.
+  const ref = proteinWeight();
+  if (ref) {
+    const perKg = PROTEIN_PER_KG[p.goal] || 1.2;
+    protein = Math.min(Math.round(ref * perKg), Math.round((kcal * 0.35) / 4));
+    protein = Math.max(protein, Math.round(ref * 0.83));
+  }
   const fett = Math.round((kcal * 0.3) / 9);
   const kh = Math.round((kcal - protein * 4 - fett * 9) / 4);
   return { kcal, protein, kh, fett, ballast: 30, zugesetzt: Math.round((kcal * 0.1) / 4) };
@@ -103,6 +150,8 @@ function defaultState() {
       goal: 'halten',
       kcal: 2000,
       sex: 'x',
+      weight: null,          // kg, freiwillig
+      height: null,          // cm, freiwillig
       portions: 1,
       mealCount: 3,          // 2 oder 3 Mahlzeiten am Tag
       skip: 'fruehstueck',   // welche Mahlzeit bei 2 ausfällt
@@ -149,7 +198,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { calMonth: null, calDay: null, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { info: {}, calMonth: null, calDay: null, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -900,22 +949,37 @@ function viewStart1(edit) {
   return `<main class="screen">
     ${edit ? '' : stepsBar(1)}
     <div class="ginger-says">${ginger(78)}<div class="bubble">Hallo, ich bin Ginger! Wie isst du, und was verträgst du nicht?</div></div>
-    <section class="field"><h2>Ich ernähre mich</h2>
+    <section class="field">${infoHead('h2', 'Ich ernähre mich', 'diet')}
       <div class="chips">${DIETS.map((d) => `<button class="chip" data-action="diet" data-id="${d.id}" aria-pressed="${p.diet === d.id}">${d.name}</button>`).join('')}</div>
     </section>
-    <section class="field"><h2>Allergien und Unverträglichkeiten</h2>
+    <section class="field">${infoHead('h2', 'Allergien und Unverträglichkeiten', 'allergies')}
       <div class="chips">${ALLERGIES.map((a) => `<button class="chip danger" data-action="allergy" data-id="${a.id}" aria-pressed="${p.allergies.includes(a.id)}">${a.name}</button>`).join('')}</div>
     </section>
-    <section class="field"><h2>Ich bin</h2>
+    <section class="field">${infoHead('h2', 'Ich bin', 'sex')}
       <div class="chips">${SEXES.map((x) => `<button class="chip" data-action="sex" data-id="${x.id}" aria-pressed="${(p.sex || 'x') === x.id}">${x.name}</button>`).join('')}</div>
       <p class="small muted">Danach richtet Ginger Kalorien und Eiweiß aus.</p>
     </section>
-    <section class="field"><h2>Mein Ziel</h2>
+    <section class="field"><h2>Mein Körper <span class="small muted" style="font-weight:700">(freiwillig)</span></h2>
+      <div class="body-row">
+        <div class="info-head"><label for="weight">Gewicht in kg</label>${infoBtn('weight')}</div>
+        <input id="weight" class="input number-input" type="number" inputmode="decimal" min="30" max="300" step="0.5" placeholder="kg" value="${p.weight || ''}" data-input="weight">
+      </div>
+      ${infoText('weight')}
+      <div class="body-row">
+        <div class="info-head"><label for="height">Größe in cm</label>${infoBtn('height')}</div>
+        <input id="height" class="input number-input" type="number" inputmode="numeric" min="120" max="230" step="1" placeholder="cm" value="${p.height || ''}" data-input="height">
+      </div>
+      ${infoText('height')}
+      ${bmi() ? `<p class="small muted">BMI ${g1(bmi())}${bmi() > 25 ? ` · Eiweiß wird mit ${fmt(proteinWeight())} kg gerechnet (Gewicht bei BMI 25)` : ''}</p>` : ''}
+      ${bmi() && bmi() < 18.5 && p.goal === 'abnehmen' ? `<div class="hint warn">${ICONS.paw}<span>Dein BMI liegt unter 18,5, das gilt als Untergewicht. Abnehmen ist dann nicht ratsam, sprich das bitte mit deiner Ärztin oder deinem Arzt ab.</span></div>` : ''}
+    </section>
+    <section class="field">${infoHead('h2', 'Mein Ziel', 'goal')}
       <div class="chips">${GOALS.map((g) => `<button class="chip" data-action="goal" data-id="${g.id}" aria-pressed="${p.goal === g.id}">${g.name}</button>`).join('')}</div>
       <div class="row" style="margin-top:6px">
-        <label for="kcal" class="small muted">Kalorien pro Tag</label>
+        <label for="kcal" class="small muted">Kalorien pro Tag</label>${infoBtn('kcal')}
         <input id="kcal" class="input number-input" type="number" inputmode="numeric" min="1000" max="5000" step="50" value="${p.kcal}" data-input="kcal">
       </div>
+      ${infoText('kcal')}
       <p class="small muted">Ein grober Startwert für wenig Bewegung. Wenn du mehr Sport machst, stell ihn höher.</p>
       ${nutrientGoalsLine()}
     </section>
@@ -944,6 +1008,7 @@ function viewStart2(edit) {
   return `<main class="screen">
     ${edit ? '' : stepsBar(2)}
     <div class="ginger-says">${ginger(70)}<div class="bubble">Herz für Lieblingsessen, Kreuz für alles, was nie auf den Teller soll.</div></div>
+    ${infoHead('h2', 'Was magst du?', 'taste')}
     <div class="chips"><span class="tag green">${dietTag}</span>${allergyTags}</div>
     <div class="taste-list">${rows}</div>
     <div class="field">
@@ -967,7 +1032,7 @@ function viewStart3(edit) {
   const t = state.profile.times;
   const p = state.profile;
   const count = `<div class="card" style="display:flex;flex-direction:column;gap:10px">
-      <div class="meal-head"><h3>Wie oft isst du am Tag?</h3></div>
+      ${infoHead('h3', 'Wie oft isst du am Tag?', 'meals')}
       <div class="seg" role="group" aria-label="Mahlzeiten am Tag">
         ${[2, 3].map((n) => `<button data-action="meal-count" data-n="${n}" aria-pressed="${p.mealCount === n}">${n} Mahlzeiten</button>`).join('')}
       </div>
@@ -986,12 +1051,12 @@ function viewStart3(edit) {
     </div>`).join('');
   return `<main class="screen">
     ${edit ? '' : stepsBar(3)}
-    <h1>Wie viel Zeit hast du zum Kochen?</h1>
+    ${infoHead('h1', 'Wie viel Zeit hast du zum Kochen?', 'times')}
     <p class="lead">Pro Mahlzeit, in Minuten. Wenn es knapp wird, plant Ginger Vorbereitung an Zeiten mit mehr Luft ein.</p>
     ${count}
     ${blocks}
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
-      <div class="meal-head"><h3>Ich koche meist für</h3><span class="small" style="color:var(--accent-text)">${state.profile.portions || 1} ${(state.profile.portions || 1) === 1 ? 'Portion' : 'Portionen'}</span></div>
+      ${infoHead('h3', 'Ich koche meist für', 'portions', `<span class="small" style="color:var(--accent-text);margin-left:auto">${state.profile.portions || 1} ${(state.profile.portions || 1) === 1 ? 'Portion' : 'Portionen'}</span>`)}
       <div class="seg" role="group" aria-label="Portionen">
         ${[1, 2, 3, 4, 6].map((n) => `<button data-action="portions" data-n="${n}" aria-pressed="${(state.profile.portions || 1) === n}">${n}</button>`).join('')}
       </div>
@@ -1597,7 +1662,8 @@ function viewIch() {
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Ernährung und Ziel</h3>
-      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · ${(SEXES.find((x) => x.id === (p.sex || 'x')) || SEXES[2]).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag</div>
+      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · ${(SEXES.find((x) => x.id === (p.sex || 'x')) || SEXES[2]).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag${p.weight ? ` · ${g1(p.weight)} kg` : ''}${p.height ? ` · ${p.height} cm` : ''}</div>
+      ${p.weight ? '' : '<div class="small" style="color:var(--accent-text);font-weight:700">Gewicht und Größe eintragen</div>'}
     </a>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
@@ -1615,7 +1681,59 @@ function viewIch() {
     <div class="bottom">${ui.confirmReset
       ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
-      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}</div>
+      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
+      <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
+  </main>${nav('ich')}`;
+}
+
+// ---------- Quellen und Lizenzen ----------
+
+const SOURCES = [
+  { group: 'In der App enthalten', items: [
+    { name: 'html5-qrcode 2.3.8', what: 'Barcode-Scanner im Reiter Einkauf (Datei vendor/html5-qrcode.min.js).', who: 'Minhaz (mebjas)', license: 'Apache License 2.0', link: 'https://github.com/mebjas/html5-qrcode', note: 'Lizenztext liegt bei: vendor/html5-qrcode-LICENSE' },
+    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes, steckt in html5-qrcode mit drin.', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library' }
+  ] },
+  { group: 'Aus dem Internet geladen', items: [
+    { name: 'Schrift Nunito', what: 'Die Schrift der ganzen App, geladen von Google Fonts.', who: 'The Nunito Project Authors (Vernon Adams u. a.)', license: 'SIL Open Font License 1.1', link: 'https://github.com/googlefonts/nunito', note: 'Beim Laden der Schrift sieht Google deine IP-Adresse.' },
+    { name: 'Open Food Facts', what: 'Produktdaten beim Barcode-Scan: Name, Marke, Nährwerte, Allergene, Zutaten-Hinweise, Kategorien. Produktfotos nutzt die App nicht.', who: 'Open Food Facts und Mitwirkende', license: 'Datenbank: Open Database License (ODbL) 1.0 · einzelne Einträge: Database Contents License (DbCL) 1.0', link: 'https://world.openfoodfacts.org/terms-of-use', note: 'Beim Scannen wird nur die Barcode-Nummer an Open Food Facts geschickt.' }
+  ] },
+  { group: 'Grundlage für Zahlen', items: [
+    { name: 'DGE-Referenzwerte', what: 'Kalorien-Startwerte, Eiweiß (0,8 g pro kg), Fett 30 % der Kalorien, Ballaststoffe 30 g am Tag.', who: 'Deutsche Gesellschaft für Ernährung', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.dge.de/wissenschaft/referenzwerte/' },
+    { name: 'WHO-Leitlinie zu Zucker (2015)', what: 'Zugesetzter („freier“) Zucker höchstens 10 % der Kalorien.', who: 'Weltgesundheitsorganisation', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.who.int/publications/i/item/9789241549028' },
+    { name: 'Nährwerte der Zutaten', what: 'Kalorien und Nährwerte pro 100 g in nutrition.js und die kcal der Rezepte.', who: 'von Claude geschätzt', license: 'eigene Inhalte', note: 'Gerundete Durchschnittswerte aus allgemeinem Wissen, nicht aus einer geprüften Nährwert-Datenbank abgeschrieben. Deshalb nur Schätzungen.' }
+  ] },
+  { group: 'Studien zu Makros und Verteilung', intro: 'Begutachtete Studien (peer-reviewed), auf die sich die Makro-Ziele und die Auswahl im Wochenplan stützen. Hast du unter „Ich“ dein Gewicht eingetragen, rechnet Ginger Eiweiß in g pro kg: 1,4 beim Abnehmen und 1,2 beim Halten (Mitte und Untergrenze von Leidy 2015), 1,6 beim Zunehmen (Morton 2018), nie unter 0,83 (Li 2014). Ohne Gewicht nimmt sie einen Anteil der Kalorien. Dass bei einem BMI über 25 mit dem Gewicht bei BMI 25 gerechnet wird und Eiweiß höchstens 35 % der Kalorien ausmacht, ist eine eigene Vorsichtsregel und stammt nicht aus diesen Studien.', items: [
+    { name: 'Li et al. (2014): Eiweißbedarf gesunder Erwachsener', what: 'Meta-Analyse von 28 Stickstoffbilanz-Studien: empfohlene Zufuhr 0,83 g hochwertiges Eiweiß pro kg Körpergewicht am Tag. Das ist die Untergrenze, unter die Ginger nie geht.', who: 'Li M, Sun F, Piao JH, Yang XG. Biomedical and Environmental Sciences 27(8):606–613', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3967/bes2014.093' },
+    { name: 'Wycherley et al. (2012): Mehr Eiweiß beim Abnehmen', what: 'Meta-Analyse von 24 Studien: Bei gleicher Kalorienmenge führte eiweißreichere Kost zu etwas mehr Gewichts- und Fettverlust und erhielt mehr Muskelmasse. Deshalb ist das Eiweißziel beim Abnehmen höher (25 % der Kalorien) und mehr Eiweiß zählt dort nicht als Abweichung.', who: 'Wycherley TP, Moran LJ, Clifton PM, Noakes M, Brinkworth GD. American Journal of Clinical Nutrition 96(6):1281–1298', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.112.044321' },
+    { name: 'Leidy et al. (2015): Eiweiß beim Abnehmen und Halten', what: 'Übersichtsarbeit: empfiehlt 1,2–1,6 g Eiweiß pro kg am Tag und mindestens etwa 25–30 g pro Mahlzeit.', who: 'Leidy HJ et al. American Journal of Clinical Nutrition 101(6):1320S–1329S', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.114.084038' },
+    { name: 'Morton et al. (2018): Eiweiß und Muskelaufbau', what: 'Meta-Analyse von Krafttrainings-Studien: Über etwa 1,6 g Eiweiß pro kg am Tag gab es keinen weiteren Muskelzuwachs. Grundlage für das höhere Eiweißziel beim Zunehmen (20 % der Kalorien).', who: 'Morton RW, Murphy KT, McKellar SR, Schoenfeld BJ, Henselmans M, Helms E, Aragon AA, Devries MC, Banfield L, Krieger JW, Phillips SM. British Journal of Sports Medicine 52(6):376–384', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bjsports-2017-097608' },
+    { name: 'Sacks et al. (2009): Verteilung der Makros beim Abnehmen', what: 'Studie mit 811 Erwachsenen über 2 Jahre: Vier Diäten mit unterschiedlichem Fett-, Eiweiß- und Kohlenhydratanteil führten zu ähnlichem Gewichtsverlust. Entscheidend war die Kalorienmenge. Deshalb gewichtet Ginger die Kalorien stärker als die genaue Makro-Verteilung.', who: 'Sacks FM et al. New England Journal of Medicine 360(9):859–873', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1056/NEJMoa0804748' },
+    { name: 'Hooper et al. (2015): Fettanteil und Körpergewicht', what: 'Cochrane-Review von 32 Studien: Weniger Fett als üblich ging mit etwa 1,5 kg weniger Gewicht einher. Stützt, dass der Fettanteil nicht höher als 30 % der Kalorien liegen soll.', who: 'Hooper L, Abdelhamid A, Bunn D, Brown T, Summerbell CD, Skeaff CM. Cochrane Database of Systematic Reviews, CD011834', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1002/14651858.CD011834' },
+    { name: 'Reynolds et al. (2019): Ballaststoffe', what: 'Reihe von Meta-Analysen (185 Kohortenstudien, 58 Studien): Das Krankheitsrisiko sank am stärksten bei 25–29 g Ballaststoffen am Tag. Die App zielt auf 30 g.', who: 'Reynolds A et al. The Lancet 393(10170):434–445', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1016/S0140-6736(18)31809-9' },
+    { name: 'Te Morenga et al. (2013): Zucker und Körpergewicht', what: 'Meta-Analyse: Weniger Zucker ging bei Erwachsenen mit 0,8 kg weniger Gewicht einher, mehr Zucker mit 0,75 kg mehr. Grundlage dafür, zugesetzten Zucker zu begrenzen.', who: 'Te Morenga L, Mallard S, Mann J. BMJ 346:e7492', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bmj.e7492' }
+  ] },
+  { group: 'Selbst gemacht', items: [
+    { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
+    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Julias Fotos ihrer Katze', license: 'eigene Inhalte' },
+    { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
+    { name: 'Programmcode der App', what: 'app.js, styles.css, index.html, sw.js.', who: 'von Claude für Julia geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+  ] }
+];
+
+function viewQuellen() {
+  const item = (s) => `<div class="card source">
+      <h3>${esc(s.name)}</h3>
+      <p class="small muted">${esc(s.what)}</p>
+      <p class="small"><span class="muted">Von:</span> ${esc(s.who)}</p>
+      <p class="small"><span class="muted">Lizenz:</span> ${esc(s.license)}</p>
+      ${s.note ? `<p class="small muted">${esc(s.note)}</p>` : ''}
+      ${s.link ? `<a class="link-btn source-link" href="${s.link}" target="_blank" rel="noopener">${esc(s.link.replace(/^https:\/\/(www\.)?/, ''))}</a>` : ''}
+    </div>`;
+  return `<main class="screen with-nav">
+    <a class="back" href="#/ich">${ICONS.back}Ich</a>
+    <h1>Quellen und Lizenzen</h1>
+    <p class="lead">Alles, was die App von anderen benutzt, und was selbst gemacht ist.</p>
+    ${SOURCES.map((g) => `<section class="source-group"><h2>${esc(g.group)}</h2>${g.intro ? `<p class="small muted">${esc(g.intro)}</p>` : ''}${g.items.map(item).join('')}</section>`).join('')}
   </main>${nav('ich')}`;
 }
 
@@ -1987,6 +2105,7 @@ function render() {
   else if (page === 'einkauf') html = viewEinkauf();
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
+  else if (page === 'quellen') html = viewQuellen();
   else if (page === 'kalender') html = viewKalender();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
@@ -2171,6 +2290,7 @@ const actions = {
   },
   'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
   'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
+  info(el) { ui.info[el.dataset.key] = !ui.info[el.dataset.key]; },
   'cal-month'(el) { ui.calMonth = el.dataset.month; ui.calDay = null; },
   'cal-day'(el) { ui.calDay = ui.calDay === el.dataset.day ? null : el.dataset.day; },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (m === 'snack' ? SNACKS_PER_DAY : 1); },
@@ -2359,6 +2479,17 @@ app.addEventListener('change', (e) => {
     state.cooking[id] = [...set];
     save();
     render();
+  } else if (el.dataset.input === 'weight' || el.dataset.input === 'height') {
+    const key = el.dataset.input;
+    const raw = String(el.value).replace(',', '.').trim();
+    const n = Number(raw);
+    const [lo, hi] = key === 'weight' ? [30, 300] : [120, 230];
+    if (raw === '') state.profile[key] = null;
+    else if (n >= lo && n <= hi) state.profile[key] = key === 'weight' ? Math.round(n * 10) / 10 : Math.round(n);
+    save();
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
   } else if (el.dataset.input === 'kcal') {
     const n = Math.round(Number(el.value));
     if (n >= 1000 && n <= 5000) { state.profile.kcal = n; save(); }

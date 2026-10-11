@@ -257,6 +257,54 @@ function gingerPeek(width) {
   </svg>`;
 }
 
+// Ganze Ginger von der Seite, für die Warte-Animation
+function gingerBody(mode) {
+  const id = `gb${++gingerId}`;
+  const paw = `<rect class="leg leg-b paw" x="78" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>`;
+  return `<svg viewBox="0 0 120 90" width="110" height="83" aria-hidden="true">
+    <defs><clipPath id="${id}"><ellipse cx="56" cy="55" rx="34" ry="18"/></clipPath></defs>
+    <g class="tail"><path d="M24 52 Q8 46 10 26 Q11 18 16 14" stroke="${G.fur}" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M12 34 L19 35 M11 26 L18 28" stroke="${G.stripe}" stroke-width="2" stroke-linecap="round"/></g>
+    <rect class="leg leg-b" x="30" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
+    <rect class="leg leg-a" x="40" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
+    <rect class="leg leg-a" x="68" y="60" width="9" height="24" rx="4.5" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
+    ${mode === 'putzen' ? '' : paw}
+    <ellipse cx="56" cy="55" rx="34" ry="18" fill="${G.white}" stroke="${G.line}" stroke-width="1.2"/>
+    <g clip-path="url(#${id})">
+      <path d="M18 30 L96 30 L96 50 Q82 57 68 50 Q54 58 40 50 Q28 56 18 50 Z" fill="${G.fur}"/>
+      <path d="M38 40 Q40 45 38 49 M50 39 Q52 45 50 50 M62 40 Q64 45 62 49 M74 39 Q76 44 74 48" stroke="${G.stripe}" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
+    <g class="head"><g transform="translate(66 2) scale(0.52)">${gingerHead({ happy: mode === 'putzen' })}</g></g>
+    ${mode === 'putzen' ? paw : ''}
+  </svg>`;
+}
+
+const WAIT_MODES = ['laufen', 'huepfen', 'jagen', 'springen', 'putzen'];
+let waitCount = 0;
+
+// Zeigt Ginger, solange auf etwas gewartet wird. Liegt außerhalb von #app, damit Neuzeichnen die Animation nicht unterbricht.
+function showWait(text) {
+  waitCount++;
+  let box = document.getElementById('wait');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'wait';
+    box.setAttribute('role', 'status');
+    document.body.appendChild(box);
+  }
+  const mode = WAIT_MODES[Math.floor(Math.random() * WAIT_MODES.length)];
+  box.className = `wait ${mode}`;
+  box.innerHTML = `<div class="wait-label">${esc(text)}</div>
+    ${mode === 'jagen' ? '<div class="ball"><svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="#C2551F"/><path d="M3 7 Q10 11 17 6 M3 13 Q10 9 17 14 M8 2 Q12 10 9 18" stroke="#F3B48C" stroke-width="1.5" fill="none"/></svg></div>' : ''}
+    <div class="cat">${gingerBody(mode)}</div>`;
+}
+
+function hideWait() {
+  waitCount = Math.max(0, waitCount - 1);
+  if (waitCount) return;
+  document.getElementById('wait')?.remove();
+}
+
 const ICONS = {
   cart: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h2v12M9 6v12M12 6v12M15 6h1v12M19 6h1v12"/></svg>',
   heart: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 20 C5 15 3 12 3 8.5 A4.5 4.5 0 0 1 12 6.5 A4.5 4.5 0 0 1 21 8.5 C21 12 19 15 12 20 Z"/></svg>',
@@ -917,9 +965,11 @@ async function handleCode(raw) {
     render();
     return;
   }
-  ui.scanMsg = 'Ich schaue nach, was das ist …';
+  ui.scanMsg = '';
   render();
+  showWait('Ginger schaut nach, was das ist …');
   const info = await lookupProduct(code);
+  hideWait();
   if (info) {
     addToPantry(code, info);
     ui.lastCode = code;
@@ -935,11 +985,12 @@ let scanner = null;
 
 function loadScannerLib() {
   if (window.__Html5QrcodeLibrary__) return Promise.resolve(window.__Html5QrcodeLibrary__);
+  showWait('Ginger holt die Kamera …');
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = 'vendor/html5-qrcode.min.js';
-    s.onload = () => resolve(window.__Html5QrcodeLibrary__);
-    s.onerror = reject;
+    s.onload = () => { hideWait(); resolve(window.__Html5QrcodeLibrary__); };
+    s.onerror = (e) => { hideWait(); reject(e); };
     document.head.appendChild(s);
   });
 }

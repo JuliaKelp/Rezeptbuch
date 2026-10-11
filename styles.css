@@ -457,3 +457,14 @@ textarea.input { resize: vertical; font: inherit; }
 .cal-legend i.st-bad { background: #9A3324; }
 .cal-legend i.st-open { background: var(--accent-soft); border: 1px solid var(--accent); }
 .cal-detail { display: flex; flex-direction: column; gap: 8px; }
+
+/* Info-Knöpfe und Körperdaten */
+.info-head { display: flex; align-items: center; gap: 8px; }
+.info-head > h1, .info-head > h2, .info-head > h3, .info-head > label { margin: 0; }
+.info-btn { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--accent); background: var(--card); color: var(--accent-text); font: inherit; font-weight: 900; font-size: 14px; font-style: italic; line-height: 1; cursor: pointer; position: relative; }
+.info-btn::after { content: ''; position: absolute; inset: -8px; } /* größere Tippfläche */
+.info-btn[aria-expanded="true"] { background: var(--accent); color: #fff; }
+.info-text { display: flex; gap: 8px; align-items: flex-start; background: var(--accent-soft); border-radius: 14px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+.info-text svg { flex: none; width: 18px; height: 18px; color: var(--accent-text); margin-top: 1px; }
+.body-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hint.warn { background: var(--red-soft); }

@@ -92,7 +92,7 @@ function save() {
 }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -549,7 +549,10 @@ function viewIch() {
       <h3>Zeit zum Kochen</h3>
       <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')}</div>
     </a>
-    <div class="bottom"><button class="btn secondary" data-action="reset">Alles zurücksetzen</button></div>
+    <div class="bottom">${ui.confirmReset
+      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
+         <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
+      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}</div>
   </main>${nav('ich')}`;
 }
 
@@ -593,6 +596,7 @@ window.addEventListener('hashchange', () => {
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
   ui.showManual = false;
+  ui.confirmReset = false;
   render();
   window.scrollTo(0, 0);
 });
@@ -650,8 +654,10 @@ const actions = {
     save();
     if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) toast('Ginger hat ihre Kochmütze bekommen!');
   },
+  'ask-reset'() { ui.confirmReset = true; },
+  'cancel-reset'() { ui.confirmReset = false; },
   reset() {
-    if (!confirm('Wirklich alles löschen? Stempel und Einstellungen sind dann weg.')) return 'skip';
+    ui.confirmReset = false;
     state = defaultState();
     save();
     go('#/start/1');

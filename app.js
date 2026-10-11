@@ -1,5 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, scaleIngredient, parseIngredient } from './nutrition.js';
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient } from './nutrition.js';
 
 // Nährwerte der fertigen Rezepte aus den Zutaten berechnen (alle Rezepte sind für 1 Portion)
 for (const r of RECIPES) {
@@ -1392,6 +1392,7 @@ function viewRezept(id, meal, factorParam) {
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+      <button class="link-btn" data-action="tracker-one" data-recipe="${r.id}">An den Kalorien-Tracker geben</button>
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -1674,6 +1675,7 @@ function viewIch() {
       <h3>Zeit und Portionen</h3>
       <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
+    ${trackerCard()}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
       ${Object.keys(state.rejected).map((id) => allRecipes().find((r) => r.id === id)).filter(Boolean).map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.name)}</span><button class="link-btn" data-action="unreject" data-recipe="${r.id}">Wieder vorschlagen</button></div>`).join('')}
@@ -1684,6 +1686,73 @@ function viewIch() {
       : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
       <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
   </main>${nav('ich')}`;
+}
+
+// ---------- Kalorien-Tracker ----------
+// Gibt Rezepte als Lebensmittel-Datei für den Kalorien-Tracker (st0ptv.github.io/Calorie-Tracker) weiter.
+// Der Tracker importiert sie unter Einstellungen → Lebensmittel teilen → Importieren als „Eigene“ Lebensmittel.
+// Format dort: Nährwerte pro 100 g, Portion in g.
+
+const TRACKER_URL = 'https://st0ptv.github.io/Calorie-Tracker/';
+const TRACKER_DIET = { vegan: 2, vegetarisch: 1, fisch: 0, fleisch: 0 };
+const TRACKER_ALLERGENS = { gluten: 'gl', laktose: 'mi', ei: 'ei', nuesse: 'nu', soja: 'so', fisch: 'fi' };
+
+// Gewicht einer Portion in Gramm
+function portionGrams(r) {
+  if (r.own && r.rows) return r.rows.reduce((sum, row) => sum + gramsOf(row, findFood(row.name)), 0) / (r.portions || 1);
+  return (r.ingredients || []).reduce((sum, line) => sum + gramsOfText(line), 0);
+}
+
+function trackerFood(r) {
+  const n = recipeNutrients(r);
+  const grams = Math.round(portionGrams(r));
+  if (!n.kcal || grams < 10) return null;
+  const per100 = (x) => Math.round(((x || 0) * 1000) / grams) / 10;
+  return {
+    src: 'custom', id: 'custom:rezeptbuch-' + r.id, n: r.name, brand: 'Rezeptbuch',
+    k: Math.round((n.kcal * 100) / grams), p: per100(n.protein), c: per100(n.kh), f: per100(n.fett),
+    fi: per100(n.ballast), su: per100(n.zucker), fs: per100(Math.min(n.zugesetzt, n.zucker)),
+    serving: grams, barcode: null, liq: false,
+    d: r.diet in TRACKER_DIET ? TRACKER_DIET[r.diet] : null,
+    a: (r.allergens || []).map((a) => TRACKER_ALLERGENS[a]).filter(Boolean)
+  };
+}
+
+function trackerRecipes() { return [...state.ownRecipes, ...RECIPES]; }
+
+async function sendToTracker(recipes, fileName) {
+  const custom = recipes.map(trackerFood).filter(Boolean);
+  if (!custom.length) { toast('Dazu kenne ich noch keine Nährwerte.'); return; }
+  const today = new Date().toISOString().slice(0, 10);
+  const data = { format: 'kalorien-tracker-lebensmittel', v: 2, exported: today, custom, foods: [], off: {}, slices: {} };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const name = `${fileName}-${today}.json`;
+  const done = () => toast(custom.length === 1 ? 'Rezept für den Tracker bereit' : `${custom.length} Rezepte für den Tracker bereit`);
+  try {
+    const file = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: name });
+      done();
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  done();
+}
+
+function trackerCard() {
+  return `<section class="card" style="display:flex;flex-direction:column;gap:8px">
+      <h3>Kalorien-Tracker</h3>
+      <div class="small muted">Gib deine Rezepte mit Kalorien und Makros an den <a href="${TRACKER_URL}" target="_blank" rel="noopener" style="color:var(--accent-text);font-weight:700">Kalorien-Tracker</a> weiter. Dort unter Einstellungen → Lebensmittel teilen → „Importieren“ die Datei auswählen. Die Rezepte stehen dann unter Essen → Eigene, eine Portion ist schon hinterlegt.</div>
+      <button class="btn secondary" data-action="tracker-all">Alle ${trackerRecipes().length} Rezepte weitergeben</button>
+    </section>`;
 }
 
 // ---------- Quellen und Lizenzen ----------
@@ -2381,6 +2450,15 @@ const actions = {
     if (ui.lastCode === el.dataset.code) ui.lastCode = null;
   },
   'ask-reset'() { ui.confirmReset = true; },
+  'tracker-one'(el) {
+    const r = recipeById(el.dataset.recipe);
+    if (r) sendToTracker([r], 'rezept-' + r.id);
+    return 'skip';
+  },
+  'tracker-all'() {
+    sendToTracker(trackerRecipes(), 'rezeptbuch-rezepte');
+    return 'skip';
+  },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
   'remove-row'(el) {
     ui.form.rows.splice(Number(el.dataset.row), 1);

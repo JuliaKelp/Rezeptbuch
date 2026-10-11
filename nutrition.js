@@ -270,6 +270,13 @@ export function nutrientsOfText(text) {
   return nutrientsFor(food, gramsParsed(p, food));
 }
 
+// Gewicht einer Zutatenzeile in Gramm (ml zählen wie g, unbekannte Zutaten 0)
+export function gramsOfText(text) {
+  const p = parseIngredient(text);
+  if (p.amount === null) return 0;
+  return gramsParsed(p, findFood(p.name.replace(/[()]/g, ' ')));
+}
+
 function fmtAmount(x) {
   const whole = Math.floor(x + 1e-9);
   const frac = x - whole;

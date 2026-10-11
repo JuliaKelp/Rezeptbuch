@@ -59,6 +59,7 @@ const KCAL_START = {
 
 // Tagesziele für Nährstoffe
 // Eiweiß: Anteil der Kalorien je nach Ziel, mindestens die DGE-Empfehlung (0,8 g pro kg, Referenzwerte Frauen 48 g, Männer 57 g)
+// (höher beim Abnehmen nach Wycherley 2012 und Leidy 2015, beim Zunehmen nach Morton 2018; Belege unter Ich → Quellen)
 // Fett: 30 % der Kalorien (DGE), Kohlenhydrate: der Rest, Ballaststoffe: 30 g (DGE),
 // zugesetzter Zucker: höchstens 10 % der Kalorien (WHO). Für Fruktose und Zucker gesamt gibt es keinen offiziellen Richtwert.
 function nutrientTargets() {
@@ -118,6 +119,7 @@ function defaultState() {
     pantry: {},    // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
     rejected: {},  // { recipeId: true } abgelehnte Vorschläge
     favorites: {}, // { recipeId: true }
+    dayGoals: {},  // { 'JJJJ-MM-TT': { kcal, goal } } Ziel, das an dem Tag galt (für den Kalender)
     week: null     // { seed, meals, slots: { 'JJJJ-MM-TT|meal': { id, ok } }, bought: { key: true }, portions }
   };
 }
@@ -137,13 +139,18 @@ function load() {
 let state = load();
 
 function save() {
+  // Das Ziel des Tages merken, damit der Kalender alte Tage am damaligen Ziel misst
+  if (state.onboarded) {
+    if (!state.dayGoals) state.dayGoals = {};
+    state.dayGoals[todayKey()] = { kcal: state.profile.kcal, goal: state.profile.goal };
+  }
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
 }
 
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { calMonth: null, calDay: null, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -180,6 +187,67 @@ function mealBudget(meal) {
   if (meal === 'snack') return p.kcal * 0.1;
   return p.kcal * (MEALS.find((m) => m.id === meal) || MEALS[1]).share;
 }
+// ---------- Tagesziel und Makros ----------
+
+function dayGoalOf(day) {
+  return (state.dayGoals && state.dayGoals[day]) || { kcal: state.profile.kcal, goal: state.profile.goal };
+}
+function dayLog(day) { return state.log[day] || []; }
+function dayEaten(day) { return dayLog(day).reduce((s, e) => s + e.kcal, 0); }
+function dayNutrients(day) { return dayLog(day).reduce((acc, e) => addNutrients(acc, e.n || { kcal: e.kcal }), emptyNutrients()); }
+// Der Tag ist abgeschlossen, wenn er vorbei ist oder die letzte Hauptmahlzeit (meist das Abendessen) eingetragen ist
+function dayClosed(day) {
+  if (day < todayKey()) return true;
+  const meals = mainMeals();
+  const last = meals[meals.length - 1].id;
+  return dayLog(day).some((e) => e.meal === last);
+}
+// 'ok' (grün), 'bad' (rot), 'open' (läuft noch) oder 'none' (nichts eingetragen)
+// Abnehmen: rot, sobald das Ziel überschritten ist, sonst grün.
+// Zunehmen: grün, sobald das Ziel erreicht ist; rot, wenn es nach dem Abendessen nicht erreicht ist.
+// Halten: grün innerhalb von 5 % um das Ziel.
+function dayStatus(day) {
+  if (!dayLog(day).length) return 'none';
+  const { kcal, goal } = dayGoalOf(day);
+  const eaten = dayEaten(day);
+  if (goal === 'abnehmen') return eaten > kcal ? 'bad' : 'ok';
+  if (goal === 'zunehmen') return eaten >= kcal ? 'ok' : dayClosed(day) ? 'bad' : 'open';
+  if (eaten > kcal * (1 + DAY_TOLERANCE)) return 'bad';
+  if (eaten >= kcal * (1 - DAY_TOLERANCE)) return 'ok';
+  return dayClosed(day) ? 'bad' : 'open';
+}
+const STATUS_COLOR = { ok: '#3E8E5E', bad: '#9A3324', open: '#C2551F', none: '#C2551F' };
+
+// Wie weit liegt die Makro-Verteilung eines Rezepts neben den Tageszielen? 0 = passt genau, negativ = weiter weg.
+// Beim Abnehmen zählt mehr Eiweiß nicht als Abweichung.
+function macroScore(r) {
+  const n = recipeNutrients(r);
+  if (!n || !n.kcal || !(n.protein || n.kh || n.fett)) return 0;
+  const t = nutrientTargets();
+  const p = (n.protein * 4) / n.kcal;
+  const f = (n.fett * 9) / n.kcal;
+  const tp = (t.protein * 4) / t.kcal;
+  const tf = (t.fett * 9) / t.kcal;
+  let dp = p - tp;
+  if (state.profile.goal === 'abnehmen' && dp > 0) dp = 0;
+  return -(Math.abs(dp) + Math.abs(f - tf) * 0.7) * 12;
+}
+
+// Eiweiß, Kohlenhydrate, Fett kurz in einer Zeile
+function macroLine(n, f = 1) {
+  return `${fmt(n.protein * f)} g Eiweiß · ${fmt(n.kh * f)} g KH · ${fmt(n.fett * f)} g Fett`;
+}
+
+// Drei kleine Balken für die Makros, gemessen an einem (Teil-)Ziel
+function macroBars(n, t, share = 1) {
+  const row = (id, name) => {
+    const goal = Math.round(t[id] * share);
+    const v = n[id] || 0;
+    return `<div class="macro"><span>${name}</span><div class="bar small-bar"><div style="width:${goal ? Math.min(100, (v / goal) * 100) : 0}%"></div></div><b>${fmt(v)}<small> / ${fmt(goal)} g</small></b></div>`;
+  };
+  return `<div class="macros">${row('protein', 'Eiweiß')}${row('kh', 'Kohlenhydrate')}${row('fett', 'Fett')}</div>`;
+}
+
 function dietName(id) { return { vegan: 'vegan', vegetarisch: 'vegetarisch', fisch: 'mit Fisch', fleisch: 'mit Fleisch' }[id]; }
 
 function todayLog() { return state.log[todayKey()] || []; }
@@ -243,6 +311,7 @@ function ideasFor(meal) {
       if (x.mode === 'vorkochen') score -= 2;
       if (x.mode === 'vorkochen' && r.id === tipRecipe) score += 4; // passt zum Vorkoch-Tipp
       score += pantryScore(r) * 1.5; // Zutaten schon eingekauft
+      score += macroScore(r); // passt zu deinen Makro-Zielen
       if (isFav(r)) score += 3;
       if (cookedToday.has(r.id)) score -= 10;
       score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
@@ -326,7 +395,7 @@ function weekCandidates(meal, day, used) {
   return allRecipes()
     .filter((r) => r.meals.includes(meal) && suitable(r) && timeMode(r, meal))
     .map((r) => {
-      let s = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80 + pantryScore(r);
+      let s = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80 + pantryScore(r) + macroScore(r);
       if (isFav(r)) s += 4; // Favoriten kommen öfter dran
       if (timeMode(r, meal) === 'vorkochen') s -= 2;
       s -= (used[r.id] || 0) * 5; // Abwechslung über die Woche
@@ -338,6 +407,44 @@ function weekCandidates(meal, day, used) {
 }
 
 function slotFits(r, meal) { return r.meals.includes(meal) && !!timeMode(r, meal); }
+
+// Mengenfaktoren für einen Tag im Plan: Die Gerichte werden so hoch- oder heruntergerechnet,
+// dass der ganze Tag höchstens 5 % vom Kalorienziel der geplanten Mahlzeiten abweicht.
+// Jedes Gericht bleibt zwischen 0,6× und 1,6× der Rezeptmenge; gekaufte Produkte bleiben, wie sie sind.
+const FIT_MIN = 0.6;
+const FIT_MAX = 1.6;
+const DAY_TOLERANCE = 0.05;
+function dayFactors(day) {
+  const w = state.week;
+  const out = {};
+  const items = w.meals.map((m) => {
+    const k = `${day}|${m}`;
+    const r = w.slots[k] && recipeById(w.slots[k].id);
+    return r ? { k, r, budget: mealBudget(m), f: 1 } : null;
+  }).filter(Boolean);
+  if (w.fit === false) { for (const x of items) out[x.k] = 1; return out; }
+  const target = items.reduce((a, x) => a + x.budget, 0);
+  const fixed = items.filter((x) => x.r.product || !x.r.kcal);
+  const free = items.filter((x) => !x.r.product && x.r.kcal);
+  // Erst jedes Gericht auf seinen Platz, dann den Tag als Ganzes nachziehen
+  for (const x of free) x.f = Math.min(FIT_MAX, Math.max(FIT_MIN, x.budget / x.r.kcal));
+  const fixedKcal = fixed.reduce((a, x) => a + x.r.kcal, 0);
+  for (let i = 0; i < 6; i++) {
+    const sum = free.reduce((a, x) => a + x.r.kcal * x.f, 0);
+    if (!sum) break;
+    const ratio = (target - fixedKcal) / sum;
+    if (Math.abs(ratio - 1) < 0.005) break;
+    for (const x of free) x.f = Math.min(FIT_MAX, Math.max(FIT_MIN, x.f * ratio));
+  }
+  for (const x of free) x.f = Math.round(x.f * 20) / 20;
+  for (const x of items) out[x.k] = x.f;
+  return out;
+}
+function slotFactor(k) {
+  if (!state.week || !state.week.slots[k]) return 1;
+  return dayFactors(k.split('|')[0])[k] || 1;
+}
+function fmtFactor(f) { return String(f).replace('.', ','); }
 
 // Übernommenes Gericht für einen Tag und eine Mahlzeit
 function plannedRecipe(day, meal) {
@@ -353,7 +460,7 @@ function acceptedSlots() {
   const days = weekDays();
   return Object.entries(w.slots)
     .filter(([k, s]) => s.ok && days.includes(k.split('|')[0]) && w.meals.includes(k.split('|')[1]))
-    .map(([k, s]) => ({ key: k, recipe: recipeById(s.id), n: s.n || weekPortions() }))
+    .map(([k, s]) => ({ key: k, recipe: recipeById(s.id), n: s.n || weekPortions(), f: slotFactor(k) }))
     .filter((x) => x.recipe);
 }
 
@@ -373,7 +480,7 @@ function shoppingList() {
   const groups = new Map();
   const staples = new Map();
   const bought = new Set(pantryList().map((p) => p.food).filter(Boolean));
-  for (const { recipe, n } of acceptedSlots()) {
+  for (const { recipe, n, f } of acceptedSlots()) {
     if (recipe.product) {
       const key = `p|${recipe.code}`;
       const g = groups.get(key) || { key, product: recipe, amount: 0, recipes: new Set() };
@@ -395,7 +502,7 @@ function shoppingList() {
       }
       const key = `${food ? food.name : p.name.toLowerCase()}|${p.unit}`;
       const g = groups.get(key) || { key, p, food, amount: 0, recipes: new Set() };
-      g.amount += p.amount * n;
+      g.amount += p.amount * n * f;
       g.recipes.add(recipe.name);
       groups.set(key, g);
     }
@@ -451,7 +558,7 @@ function viewWoche() {
     const label = ui.swapFrom && ui.swapFrom !== k && canSwap(ui.swapFrom, k) ? `${r.name} tauschen` : r.name;
     return `<td class="wk-cell${cls}"><button data-action="cell" data-slot="${k}" aria-label="${esc(label)}${s.ok ? ', übernommen' : ''}" aria-pressed="${ui.cell === k}">
       <span class="wk-name">${esc(r.name)}</span>
-      ${s.ok ? `<span class="wk-ok">${ICONS.check}${s.n || weekPortions()}×</span>` : ''}
+      <span class="wk-foot"><span class="wk-kcal">${fmt(Math.round((r.kcal * slotFactor(k)) / 10) * 10)}</span>${s.ok ? `<span class="wk-ok">${ICONS.check}${s.n || weekPortions()}×</span>` : ''}</span>
     </button></td>`;
   };
   const detail = (k) => {
@@ -459,9 +566,18 @@ function viewWoche() {
     const [day, meal] = k.split('|');
     const r = recipeById(s.id);
     const n = s.n || weekPortions();
+    const dn = w.meals.reduce((acc, m) => {
+      const kk = `${day}|${m}`;
+      const rr = w.slots[kk] && recipeById(w.slots[kk].id);
+      return rr ? addNutrients(acc, recipeNutrients(rr), slotFactor(kk)) : acc;
+    }, emptyNutrients());
+    const share = w.meals.reduce((a, m) => a + mealBudget(m), 0) / state.profile.kcal;
     return `<tr class="wk-detail"><td colspan="${w.meals.length + 1}">
-      <div class="small muted" style="font-weight:800">${dayName(day)} · ${mealName(meal)}</div>
-      ${recipeCard(r, { meal, mode: timeMode(r, meal) })}
+      <div class="small muted" style="font-weight:800">${dayName(day)}: ${fmt(Math.round(dn.kcal / 10) * 10)} kcal geplant</div>
+      ${macroBars(dn, nutrientTargets(), share)}
+      <div class="small muted" style="font-weight:800">${mealName(meal)}</div>
+      ${recipeCard(r, { meal, mode: timeMode(r, meal), factor: slotFactor(k) })}
+      ${slotFactor(k) !== 1 ? `<div class="small muted">Menge ${fmtFactor(slotFactor(k))}× Rezept, damit der Tag zu deinem Kalorienziel passt.</div>` : ''}
       ${ui.swapFrom === k
         ? '<div class="plan-actions"><span class="small muted">Tipp in der Tabelle auf den Platz zum Tauschen.</span><button class="link-btn" data-action="week-swap">Abbrechen</button></div>'
         : `<div class="plan-actions">
@@ -475,12 +591,27 @@ function viewWoche() {
     </td></tr>`;
   };
   const selDay = ui.cell && ui.cell.split('|')[0];
+  // Summe des Tages und Abweichung vom Ziel der geplanten Mahlzeiten
+  function dayTotal(d) {
+    let sum = 0;
+    let goal = 0;
+    for (const m of w.meals) {
+      const k = `${d}|${m}`;
+      const r = w.slots[k] && recipeById(w.slots[k].id);
+      if (!r) continue;
+      sum += r.kcal * slotFactor(k);
+      goal += mealBudget(m);
+    }
+    if (!sum) return '';
+    const off = Math.abs(sum - goal) / goal > DAY_TOLERANCE;
+    return `<span class="wk-sum${off ? ' off' : ''}" title="Ziel ca. ${fmt(Math.round(goal / 10) * 10)} kcal">${fmt(Math.round(sum / 10) * 10)}<small>kcal</small></span>`;
+  }
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Mein Plan für die nächsten 7 Tage. Tipp ein Gericht an, um es zu übernehmen, zu tauschen oder ein anderes zu bekommen.</div></div>
     <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${[...MEALS, SNACK].sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id)).map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
     <div class="wk-wrap"><table class="wk">
       <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', snack: 'Snack', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
-      <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
+      <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}${dayTotal(d)}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
     </table></div>
     <div class="card week-sum">
       <div style="font-weight:800">${okCount} von ${shown.length} Gerichten übernommen</div>
@@ -488,10 +619,22 @@ function viewWoche() {
         <button class="btn secondary small-btn" data-action="${okCount === shown.length ? 'week-none' : 'week-all'}">${okCount === shown.length ? 'Keins übernehmen' : 'Alle übernehmen'}</button>
         <button class="btn secondary small-btn" data-action="week-new">Rest neu mischen</button>
       </div>
+      <label class="row fit-row"><input type="checkbox" data-action="week-fit" ${w.fit === false ? '' : 'checked'}><span class="small">Mengen an mein Kalorienziel anpassen</span></label>
       <div class="plan-portions"><span class="small muted">Portionen pro Gericht, wenn du nichts änderst</span>${portionStepper('week-portions', weekPortions(), '')}</div>
       <a class="btn" href="#/liste">Einkaufsliste${okCount ? ` (${okCount} Gerichte)` : ''}</a>
     </div>
   </main>${nav('woche')}`;
+}
+
+// Was die übernommenen Gerichte pro Tag im Schnitt liefern (eine Portion je Gericht, mit Mengenfaktor)
+function listMacros(slots) {
+  const days = new Set(slots.map((x) => x.key.split('|')[0]));
+  if (!days.size) return '';
+  const sum = slots.reduce((acc, x) => addNutrients(acc, recipeNutrients(x.recipe), x.f), emptyNutrients());
+  const avg = addNutrients(emptyNutrients(), sum, 1 / days.size);
+  return `<div class="card macro-card"><div class="small" style="font-weight:800">Pro Tag im Schnitt für dich: ca. ${fmt(Math.round(avg.kcal / 10) * 10)} von ${fmt(state.profile.kcal)} kcal</div>
+    ${macroBars(avg, nutrientTargets())}
+    <p class="small muted">Gerechnet mit einer Portion je Gericht an ${days.size === 1 ? 'einem Tag' : `${days.size} Tagen`}. Ginger wählt die Gerichte im Plan so, dass Eiweiß und Fett möglichst gut zu deinem Ziel passen.</p></div>`;
 }
 
 function viewListe() {
@@ -507,6 +650,7 @@ function viewListe() {
     <a class="back" href="#/woche">${ICONS.back}Wochenplan</a>
     <h1>Einkaufsliste</h1>
     ${items.length ? `
+      ${listMacros(slots)}
       <p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>
       <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
       ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>` : ''}
@@ -732,7 +876,7 @@ function stepsBar(n) {
     <b>${n} von 3</b></div>`;
 }
 
-function recipeCard(recipe, { meal, mode } = {}) {
+function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
   const cooked = !!state.stamps[recipe.id];
   let badge = cooked
     ? `<div class="stamp-mini" title="Schon gekocht">${ICONS.check}<span class="sr-only">Schon gekocht</span></div>`
@@ -741,10 +885,11 @@ function recipeCard(recipe, { meal, mode } = {}) {
   if (mode === 'prep') { badge = '<div class="badge prep">Vorbereiten</div>'; meta = `Am Vorabend ${recipe.time} Min · ca. ${recipe.kcal} kcal`; }
   if (recipe.product) { badge = '<div class="badge new">Gekauft</div>'; meta = `${recipe.servingGuess ? 'ca. ' : ''}${fmt(recipe.serving)} g · ca. ${recipe.kcal} kcal`; }
   if (mode === 'vorkochen') { badge = '<div class="badge prep">Vorkochen</div>'; meta = `Vorher doppelt kochen · ca. ${recipe.kcal} kcal`; }
-  const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}`;
+  if (factor !== 1) meta = meta.replace(`ca. ${recipe.kcal} kcal`, `ca. ${Math.round((recipe.kcal * factor) / 10) * 10} kcal (${fmtFactor(factor)}× Menge)`);
+  const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}${meal && factor !== 1 ? '/' + factor : ''}`;
   return `<a class="recipe-card" href="${href}">
     <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
-    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div></div>
+    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div>${recipeNutrients(recipe).protein || recipeNutrients(recipe).kh ? `<div class="meta macro-meta">${macroLine(recipeNutrients(recipe), factor)}</div>` : ''}</div>
     ${badge}
   </a>`;
 }
@@ -864,14 +1009,14 @@ function snackBlock(eatenHere, eatenCard) {
   const need = Math.max(0, SNACKS_PER_DAY - eatenHere.length);
   const planned = plannedRecipe(todayKey(), 'snack');
   let ideas = ideasFor('snack');
-  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true, factor: slotFactor(`${todayKey()}|snack`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
   const start = ideas.length ? (state.pick.snack || 0) % ideas.length : 0;
   const shown = [];
   for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
   return `<section class="meal-block">
     <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
     ${eatenHere.map(eatenCard).join('')}
-    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack' })).join('')}
+    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
     ${need && ideas.length > need ? '<div class="idea-actions"><span></span><button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button></div>' : ''}
   </section>`;
 }
@@ -884,6 +1029,14 @@ function viewHeute() {
   const circ = 2 * Math.PI * 50;
   const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   const log = todayLog();
+  const status = dayStatus(todayKey());
+  const goal = state.profile.goal;
+  const diff = Math.round(eaten - target);
+  let headline = `Noch ${fmt(rest)} kcal frei`;
+  if (status === 'bad') headline = diff > 0 ? `${fmt(diff)} kcal über dem Ziel` : `${fmt(-diff)} kcal unter dem Ziel`;
+  else if (goal === 'zunehmen') headline = status === 'ok' ? 'Ziel erreicht!' : `Noch ${fmt(rest)} kcal bis zum Ziel`;
+  else if (goal === 'halten' && status === 'ok') headline = 'Im Zielbereich';
+  const color = STATUS_COLOR[status];
 
   const tips = prepTips().map((tip) => tip.recipe
     ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
@@ -905,7 +1058,7 @@ function viewHeute() {
     // Dasselbe Gericht nicht mittags und abends vorschlagen
     let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
     const planned = plannedRecipe(todayKey(), m.id);
-    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true, factor: slotFactor(`${todayKey()}|${m.id}`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
     if (!ideas.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
         <div class="card small muted">Ginger findet gerade kein passendes Rezept. Vielleicht sind zu viele Zutaten auf „mag ich nicht“?</div></section>`;
@@ -915,7 +1068,7 @@ function viewHeute() {
     shownToday.add(idea.recipe.id);
     return `<section class="meal-block">
       <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
-      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
+      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
         <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
         ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
@@ -935,22 +1088,87 @@ function viewHeute() {
       <div class="peek">${gingerPeek(96)}</div>
       <svg class="ring" viewBox="0 0 120 120" width="112" height="112" role="img" aria-label="${fmt(eaten)} von ${fmt(target)} Kilokalorien">
         <circle cx="60" cy="60" r="50" fill="none" stroke="#F1E3D6" stroke-width="14"/>
-        ${eaten > 0 ? `<circle cx="60" cy="60" r="50" fill="none" stroke="#C2551F" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(frac * circ).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 60 60)"/>` : ''}
+        ${eaten > 0 ? `<circle cx="60" cy="60" r="50" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(frac * circ).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 60 60)"/>` : ''}
         <text x="60" y="58" text-anchor="middle" font-size="22" font-weight="900" fill="#3B2A20" font-family="Nunito, sans-serif">${fmt(eaten)}</text>
         <text x="60" y="76" text-anchor="middle" font-size="11" font-weight="700" fill="#6B5444" font-family="Nunito, sans-serif">von ${fmt(target)} kcal</text>
       </svg>
       <div style="display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:16px;font-weight:800">Noch ${fmt(rest)} kcal frei</div>
+        <div class="kcal-head st-${status}">${headline}</div>
         ${ui.showManual
           ? `<div class="input-row"><label class="sr-only" for="manual">Kalorien</label><input id="manual" class="input" style="width:90px;flex:none" type="number" inputmode="numeric" placeholder="kcal" value="${esc(ui.manualKcal)}" data-input="manualKcal"><button class="btn dark small-btn" data-action="add-manual">Dazu</button></div>`
           : '<button class="link-btn" style="text-align:left;padding:0" data-action="show-manual">Etwas anderes gegessen?</button>'}
       </div>
+    </div>
+    <div class="card macro-card">
+      ${macroBars(dayNutrients(todayKey()), nutrientTargets())}
+      <a class="link-btn cal-link" href="#/kalender">Monatskalender ansehen</a>
     </div>
     ${log.some((e) => e.n) ? `<details class="nut-today"><summary>Nährwerte heute</summary>${nutrientTable(log.reduce((acc, e) => addNutrients(acc, e.n || { kcal: e.kcal }), emptyNutrients()), { title: 'Heute gegessen', partial: log.some((e) => !e.n) })}</details>` : ''}
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
     ${meals}
     ${extras.length ? `<section class="meal-block"><div class="meal-head"><h3>Sonstiges</h3></div>${extras.map(eatenCard).join('')}</section>` : ''}
+  </main>${nav('heute')}`;
+}
+
+// ---------- Kalender ----------
+
+const STATUS_TEXT = { ok: 'Ziel erreicht', bad: 'Ziel verfehlt', open: 'läuft noch', none: 'nichts eingetragen' };
+
+function viewKalender() {
+  const today = todayKey();
+  const ym = ui.calMonth || today.slice(0, 7);
+  const [y, m] = ym.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const daysIn = new Date(y, m, 0).getDate();
+  const lead = (first.getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<span class="cal-pad"></span>');
+  let ok = 0;
+  let counted = 0;
+  for (let d = 1; d <= daysIn; d++) {
+    const key = `${ym}-${String(d).padStart(2, '0')}`;
+    const st = key > today ? 'future' : dayStatus(key);
+    if (st === 'ok' || st === 'bad') counted++;
+    if (st === 'ok') ok++;
+    const label = `${d}. ${first.toLocaleDateString('de-DE', { month: 'long' })}: ${st === 'future' ? 'noch nicht' : STATUS_TEXT[st]}`;
+    cells.push(`<button class="cal-day st-${st}${key === today ? ' today' : ''}" data-action="cal-day" data-day="${key}" aria-label="${label}" aria-pressed="${ui.calDay === key}" ${st === 'future' ? 'disabled' : ''}>${d}</button>`);
+  }
+  const goal = state.profile.goal;
+  const rule = goal === 'abnehmen' ? 'Grün, solange du unter deinem Kalorienziel bleibst. Rot, wenn du darüber liegst.'
+    : goal === 'zunehmen' ? 'Grün, wenn du dein Kalorienziel erreicht hast. Rot, wenn es nach dem Abendessen noch fehlt.'
+    : 'Grün, wenn du höchstens 5 % neben deinem Kalorienziel liegst. Rot, wenn du darüber oder nach dem Abendessen darunter liegst.';
+  let detail = '';
+  if (ui.calDay && ui.calDay.startsWith(ym) && ui.calDay <= today) {
+    const d = ui.calDay;
+    const g = dayGoalOf(d);
+    const st = dayStatus(d);
+    const log = dayLog(d);
+    detail = `<section class="card cal-detail">
+      <div class="meal-head"><h3>${dateOf(d).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}</h3><span class="small st-${st}" style="font-weight:800">${STATUS_TEXT[st]}</span></div>
+      ${log.length ? `<div style="font-weight:800">${fmt(dayEaten(d))} von ${fmt(g.kcal)} kcal</div>
+        ${macroBars(dayNutrients(d), nutrientTargets())}
+        <div class="small muted">${log.map((e) => esc(e.name)).join(' · ')}</div>` : '<div class="small muted">An diesem Tag ist nichts eingetragen.</div>'}
+    </section>`;
+  }
+  const prev = keyOf(new Date(y, m - 2, 1)).slice(0, 7);
+  const next = keyOf(new Date(y, m, 1)).slice(0, 7);
+  return `<main class="screen with-nav">
+    <a class="back" href="#/heute">${ICONS.back}Heute</a>
+    <h1>Mein Kalender</h1>
+    <div class="card">
+      <div class="cal-head">
+        <button class="round" data-action="cal-month" data-month="${prev}" aria-label="Voriger Monat">‹</button>
+        <h2>${first.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</h2>
+        <button class="round" data-action="cal-month" data-month="${next}" aria-label="Nächster Monat" ${next > today.slice(0, 7) ? 'disabled' : ''}>›</button>
+      </div>
+      <div class="cal-grid" aria-hidden="true">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((x) => `<span class="cal-wd">${x}</span>`).join('')}</div>
+      <div class="cal-grid">${cells.join('')}</div>
+      <div class="cal-legend small"><span><i class="st-ok"></i>erreicht</span><span><i class="st-bad"></i>verfehlt</span><span><i class="st-open"></i>läuft noch</span><span><i class="st-none"></i>nichts eingetragen</span></div>
+    </div>
+    <div class="ginger-says">${ginger(58)}<div class="bubble">${counted ? `In diesem Monat hast du dein Ziel an ${ok} von ${counted} ${counted === 1 ? 'Tag' : 'Tagen'} erreicht.` : 'In diesem Monat ist noch kein Tag fertig.'}</div></div>
+    ${detail}
+    <p class="small muted">${rule} Tipp auf einen Tag für die Details.</p>
   </main>${nav('heute')}`;
 }
 
@@ -1053,8 +1271,10 @@ function viewProdukt(r, meal) {
   </main>`;
 }
 
-function viewRezept(id, meal) {
+function viewRezept(id, meal, factorParam) {
   const r = allRecipes().find((x) => x.id === id);
+  // Aus dem Wochenplan kann eine angepasste Menge mitkommen (z. B. 1.2)
+  const f = Math.min(FIT_MAX, Math.max(FIT_MIN, Number(factorParam) || 1));
   if (!r) return viewHeute();
   if (r.product) return viewProdukt(r, meal);
   const done = new Set(state.cooking[r.id] || []);
@@ -1072,13 +1292,15 @@ function viewRezept(id, meal) {
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
-      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal pro Portion · ${dietName(r.diet)}</div>
+      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${Math.round((r.kcal * f) / 10) * 10} kcal pro Portion · ${dietName(r.diet)}</div>
+      <div class="small muted macro-meta">${macroLine(recipeNutrients(r), f)}</div>
     </div>
     <div class="input-row">
       <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
       <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
     </div>
     ${ui.planning === r.id ? planPicker(r) : ''}
+    ${f !== 1 ? `<div class="hint">${ICONS.paw}<span>Für deinen Plan nimmst du ${fmtFactor(f)}× die Rezeptmenge, damit der Tag zu deinem Kalorienziel passt. Die Zutaten unten sind schon umgerechnet.</span></div>` : ''}
     ${note}
     <section class="card"><div class="meal-head" style="margin-bottom:6px"><h2>Du brauchst</h2>
         <div class="stepper" role="group" aria-label="Portionen">
@@ -1086,9 +1308,9 @@ function viewRezept(id, meal) {
           <span><b>${portionsOf(r)}</b> ${portionsOf(r) === 1 ? 'Portion' : 'Portionen'}</span>
           <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) + 1}" aria-label="Eine Portion mehr" ${portionsOf(r) >= 12 ? 'disabled' : ''}>+</button>
         </div></div>
-      <ul class="ing-list">${scaledIngredients(r, portionsOf(r)).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
     </section>
-    ${nutrientTable(recipeNutrients(r))}
+    ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f))}
     <h2>So geht’s</h2>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
@@ -1105,7 +1327,7 @@ function viewRezept(id, meal) {
     <div class="bottom">
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
-        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -1411,9 +1633,19 @@ const SOURCES = [
     { name: 'Open Food Facts', what: 'Produktdaten beim Barcode-Scan: Name, Marke, Nährwerte, Allergene, Zutaten-Hinweise, Kategorien. Produktfotos nutzt die App nicht.', who: 'Open Food Facts und Mitwirkende', license: 'Datenbank: Open Database License (ODbL) 1.0 · einzelne Einträge: Database Contents License (DbCL) 1.0', link: 'https://world.openfoodfacts.org/terms-of-use', note: 'Beim Scannen wird nur die Barcode-Nummer an Open Food Facts geschickt.' }
   ] },
   { group: 'Grundlage für Zahlen', items: [
-    { name: 'DGE-Referenzwerte', what: 'Kalorien-Startwerte, Eiweiß (0,8 g pro kg), Fett 30 % der Kalorien, Ballaststoffe 30 g am Tag.', who: 'Deutsche Gesellschaft für Ernährung', license: 'nur als Richtwert übernommen, keine Texte kopiert', link: 'https://www.dge.de/wissenschaft/referenzwerte/' },
-    { name: 'WHO-Leitlinie zu Zucker (2015)', what: 'Zugesetzter („freier“) Zucker höchstens 10 % der Kalorien.', who: 'Weltgesundheitsorganisation', license: 'nur als Richtwert übernommen', link: 'https://www.who.int/publications/i/item/9789241549028' },
+    { name: 'DGE-Referenzwerte', what: 'Kalorien-Startwerte, Eiweiß (0,8 g pro kg), Fett 30 % der Kalorien, Ballaststoffe 30 g am Tag.', who: 'Deutsche Gesellschaft für Ernährung', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.dge.de/wissenschaft/referenzwerte/' },
+    { name: 'WHO-Leitlinie zu Zucker (2015)', what: 'Zugesetzter („freier“) Zucker höchstens 10 % der Kalorien.', who: 'Weltgesundheitsorganisation', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.who.int/publications/i/item/9789241549028' },
     { name: 'Nährwerte der Zutaten', what: 'Kalorien und Nährwerte pro 100 g in nutrition.js und die kcal der Rezepte.', who: 'von Claude geschätzt', license: 'eigene Inhalte', note: 'Gerundete Durchschnittswerte aus allgemeinem Wissen, nicht aus einer geprüften Nährwert-Datenbank abgeschrieben. Deshalb nur Schätzungen.' }
+  ] },
+  { group: 'Studien zu Makros und Verteilung', intro: 'Begutachtete Studien (peer-reviewed), auf die sich die Makro-Ziele und die Auswahl im Wochenplan stützen. Die App kennt dein Gewicht nicht und rechnet deshalb in Prozent der Kalorien; die Angaben in g pro kg dienen zum Abgleich.', items: [
+    { name: 'Li et al. (2014): Eiweißbedarf gesunder Erwachsener', what: 'Meta-Analyse von 28 Stickstoffbilanz-Studien: empfohlene Zufuhr 0,83 g hochwertiges Eiweiß pro kg Körpergewicht am Tag. Das ist die Untergrenze, unter die Ginger nie geht.', who: 'Li M, Sun F, Piao JH, Yang XG. Biomedical and Environmental Sciences 27(8):606–613', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3967/bes2014.093' },
+    { name: 'Wycherley et al. (2012): Mehr Eiweiß beim Abnehmen', what: 'Meta-Analyse von 24 Studien: Bei gleicher Kalorienmenge führte eiweißreichere Kost zu etwas mehr Gewichts- und Fettverlust und erhielt mehr Muskelmasse. Deshalb ist das Eiweißziel beim Abnehmen höher (25 % der Kalorien) und mehr Eiweiß zählt dort nicht als Abweichung.', who: 'Wycherley TP, Moran LJ, Clifton PM, Noakes M, Brinkworth GD. American Journal of Clinical Nutrition 96(6):1281–1298', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.112.044321' },
+    { name: 'Leidy et al. (2015): Eiweiß beim Abnehmen und Halten', what: 'Übersichtsarbeit: empfiehlt 1,2–1,6 g Eiweiß pro kg am Tag und mindestens etwa 25–30 g pro Mahlzeit.', who: 'Leidy HJ et al. American Journal of Clinical Nutrition 101(6):1320S–1329S', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.114.084038' },
+    { name: 'Morton et al. (2018): Eiweiß und Muskelaufbau', what: 'Meta-Analyse von Krafttrainings-Studien: Über etwa 1,6 g Eiweiß pro kg am Tag gab es keinen weiteren Muskelzuwachs. Grundlage für das höhere Eiweißziel beim Zunehmen (20 % der Kalorien).', who: 'Morton RW, Murphy KT, McKellar SR, Schoenfeld BJ, Henselmans M, Helms E, Aragon AA, Devries MC, Banfield L, Krieger JW, Phillips SM. British Journal of Sports Medicine 52(6):376–384', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bjsports-2017-097608' },
+    { name: 'Sacks et al. (2009): Verteilung der Makros beim Abnehmen', what: 'Studie mit 811 Erwachsenen über 2 Jahre: Vier Diäten mit unterschiedlichem Fett-, Eiweiß- und Kohlenhydratanteil führten zu ähnlichem Gewichtsverlust. Entscheidend war die Kalorienmenge. Deshalb gewichtet Ginger die Kalorien stärker als die genaue Makro-Verteilung.', who: 'Sacks FM et al. New England Journal of Medicine 360(9):859–873', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1056/NEJMoa0804748' },
+    { name: 'Hooper et al. (2015): Fettanteil und Körpergewicht', what: 'Cochrane-Review von 32 Studien: Weniger Fett als üblich ging mit etwa 1,5 kg weniger Gewicht einher. Stützt, dass der Fettanteil nicht höher als 30 % der Kalorien liegen soll.', who: 'Hooper L, Abdelhamid A, Bunn D, Brown T, Summerbell CD, Skeaff CM. Cochrane Database of Systematic Reviews, CD011834', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1002/14651858.CD011834' },
+    { name: 'Reynolds et al. (2019): Ballaststoffe', what: 'Reihe von Meta-Analysen (185 Kohortenstudien, 58 Studien): Das Krankheitsrisiko sank am stärksten bei 25–29 g Ballaststoffen am Tag. Die App zielt auf 30 g.', who: 'Reynolds A et al. The Lancet 393(10170):434–445', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1016/S0140-6736(18)31809-9' },
+    { name: 'Te Morenga et al. (2013): Zucker und Körpergewicht', what: 'Meta-Analyse: Weniger Zucker ging bei Erwachsenen mit 0,8 kg weniger Gewicht einher, mehr Zucker mit 0,75 kg mehr. Grundlage dafür, zugesetzten Zucker zu begrenzen.', who: 'Te Morenga L, Mallard S, Mann J. BMJ 346:e7492', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bmj.e7492' }
   ] },
   { group: 'Selbst gemacht', items: [
     { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
@@ -1436,7 +1668,7 @@ function viewQuellen() {
     <a class="back" href="#/ich">${ICONS.back}Ich</a>
     <h1>Quellen und Lizenzen</h1>
     <p class="lead">Alles, was die App von anderen benutzt, und was selbst gemacht ist.</p>
-    ${SOURCES.map((g) => `<section class="source-group"><h2>${esc(g.group)}</h2>${g.items.map(item).join('')}</section>`).join('')}
+    ${SOURCES.map((g) => `<section class="source-group"><h2>${esc(g.group)}</h2>${g.intro ? `<p class="small muted">${esc(g.intro)}</p>` : ''}${g.items.map(item).join('')}</section>`).join('')}
   </main>${nav('ich')}`;
 }
 
@@ -1801,7 +2033,7 @@ function render() {
   if (page === 'start') html = a === '3' ? viewStart3(false) : a === '2' ? viewStart2(false) : viewStart1(false);
   else if (page === 'edit') html = a === '3' ? viewStart3(true) : a === '2' ? viewStart2(true) : viewStart1(true);
   else if (page === 'rezepte') html = viewRezepte();
-  else if (page === 'rezept') html = viewRezept(a, b);
+  else if (page === 'rezept') html = viewRezept(a, b, route()[3]);
   else if (page === 'stempel') html = viewStempel();
   else if (page === 'ich') html = viewIch();
   else if (page === 'neu') html = viewNeu(a);
@@ -1809,6 +2041,7 @@ function render() {
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
   else if (page === 'quellen') html = viewQuellen();
+  else if (page === 'kalender') html = viewKalender();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
@@ -1950,6 +2183,7 @@ const actions = {
     if (w.meals.includes(m)) { if (w.meals.length > 1) w.meals = w.meals.filter((x) => x !== m); }
     else w.meals = MEAL_ORDER.filter((x) => x === m || w.meals.includes(x));
   },
+  'week-fit'() { state.week.fit = state.week.fit === false; },
   'week-portions'(el) { state.week.portions = Math.max(1, Math.min(12, Number(el.dataset.n))); },
   'slot-portions'(el) { state.week.slots[el.dataset.slot].n = Math.max(1, Math.min(12, Number(el.dataset.n))); },
   'list-check'(el) {
@@ -1991,6 +2225,8 @@ const actions = {
   },
   'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
   'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
+  'cal-month'(el) { ui.calMonth = el.dataset.month; ui.calDay = null; },
+  'cal-day'(el) { ui.calDay = ui.calDay === el.dataset.day ? null : el.dataset.day; },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (m === 'snack' ? SNACKS_PER_DAY : 1); },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   'show-manual'() { ui.showManual = true; },
@@ -2006,7 +2242,8 @@ const actions = {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
     const key = todayKey();
-    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name, n: recipeNutrients(r) }];
+    const f = Number(el.dataset.factor) || 1;
+    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: Math.round(r.kcal * f), name: r.name, n: addNutrients(emptyNutrients(), recipeNutrients(r), f) }];
     const before = stampCount();
     state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
     state.xp += XP_PER_RECIPE;

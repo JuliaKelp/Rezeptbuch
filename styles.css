@@ -273,3 +273,10 @@ p { margin: 0; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .round.like[aria-pressed="false"] svg { fill: none; stroke: currentColor; stroke-width: 2; }
+
+/* Eigenes Rezept */
+.ing-row .input-row { gap: 6px; }
+.ing-row .input { min-width: 0; }
+.ing-row .round { flex: 0 0 44px; }
+textarea.input { resize: vertical; font: inherit; }
+.field > .input { flex: none; }

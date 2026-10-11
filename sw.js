@@ -1,6 +1,6 @@
 // Speichert die App auf dem Handy, damit sie auch ohne Internet startet.
-const CACHE = 'rezeptbuch-v1';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'recipes.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'rezeptbuch-v2';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'recipes.js', 'nutrition.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

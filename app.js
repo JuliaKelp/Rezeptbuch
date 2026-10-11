@@ -1,4 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
+import { FOODS, UNITS, findFood, gramsOf, kcalOf } from './nutrition.js';
 
 // ---------- Grunddaten ----------
 
@@ -69,7 +70,8 @@ function defaultState() {
     stamps: {},    // { recipeId: Anzahl gekocht }
     xp: 0,
     cooking: {},   // { recipeId: [erledigte Schritt-Indizes] }
-    pick: {}       // { meal: Index der aktuellen Idee }
+    pick: {},      // { meal: Index der aktuellen Idee }
+    ownRecipes: [] // selbst eingetragene Rezepte
   };
 }
 
@@ -91,8 +93,10 @@ function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
 }
 
+function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
+
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -159,7 +163,7 @@ function ideasFor(meal) {
   const day = todayKey();
   const cookedToday = new Set(todayLog().map((e) => e.recipeId));
   const tipRecipe = meal === 'mittag' ? (prepTips().find((t) => t.recipe && t.recipe.mealprep) || {}).recipe?.id : null;
-  return RECIPES
+  return allRecipes()
     .filter((r) => r.meals.includes(meal) && suitable(r))
     .map((r) => ({ recipe: r, mode: timeMode(r, meal) }))
     .filter((x) => x.mode)
@@ -179,13 +183,13 @@ function prepTips() {
   const times = state.profile.times;
   const tips = [];
   if (times.fruehstueck <= SHORT_TIME) {
-    const oats = RECIPES.filter((r) => r.prep && r.meals.includes('fruehstueck') && suitable(r))
+    const oats = allRecipes().filter((r) => r.prep && r.meals.includes('fruehstueck') && suitable(r))
       .sort((a, b) => likeScore(b) - likeScore(a))[0];
     if (oats) tips.push({ recipe: oats, text: `Setz heute Abend nebenbei ${oats.name} für morgen früh an. Dauert nur ${oats.time} Min.` });
   }
   const dinnerDone = todayLog().some((e) => e.meal === 'abend');
   if (times.mittag <= SHORT_TIME && !dinnerDone) {
-    const mp = RECIPES.filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
+    const mp = allRecipes().filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
       .sort((a, b) => likeScore(b) - likeScore(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
     if (mp) tips.push({ recipe: mp, text: `Koch heute Abend ${mp.name} doppelt und nimm eine Portion morgen zum Mittagessen mit.` });
   }
@@ -439,13 +443,17 @@ function viewHeute() {
 
 function viewRezepte() {
   const f = ui.recipeFilter;
-  const list = RECIPES.filter(suitable).filter((r) => f === 'alle' || r.meals.includes(f))
+  const byMeal = (r) => f === 'alle' || r.meals.includes(f);
+  const own = state.ownRecipes.filter(byMeal);
+  const list = RECIPES.filter(suitable).filter(byMeal)
     .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
   const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS];
   return `<main class="screen with-nav">
     <h1>Rezepte</h1>
     <p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
+    <a class="btn secondary" href="#/neu">+ Eigenes Rezept eintragen</a>
     <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
+    ${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}<h2>Gingers Rezepte</h2>` : ''}
     ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}
   </main>${nav('rezepte')}`;
 }
@@ -453,7 +461,7 @@ function viewRezepte() {
 // ---------- Rezept und Kochen ----------
 
 function viewRezept(id, meal) {
-  const r = RECIPES.find((x) => x.id === id);
+  const r = allRecipes().find((x) => x.id === id);
   if (!r) return viewHeute();
   const done = new Set(state.cooking[r.id] || []);
   const doneCount = r.steps.filter((_, i) => done.has(i)).length;
@@ -462,7 +470,7 @@ function viewRezept(id, meal) {
   const stampedNow = ui.justStamped === r.id;
   let note = '';
   if (r.prep) note = `<div class="hint">${ICONS.paw}<span>Am Vorabend vorbereiten, dann ist es morgens sofort fertig.</span></div>`;
-  else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.</span></div>`;
+  else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>${r.own && r.portions >= 2 ? `Vorkoch-Tipp: Das Rezept reicht für ${r.portions} Portionen. Den Rest kannst du am nächsten Tag essen.` : 'Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.'}</span></div>`;
   const backHref = meal ? '#/heute' : '#/rezepte';
 
   return `<main class="screen">
@@ -470,10 +478,10 @@ function viewRezept(id, meal) {
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
-      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal · ${dietName(r.diet)}</div>
+      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal${r.own ? ' pro Portion' : ''} · ${dietName(r.diet)}</div>
     </div>
     ${note}
-    <section class="card"><h2 style="margin-bottom:6px">Du brauchst</h2>
+    <section class="card"><h2 style="margin-bottom:6px">Du brauchst${r.own ? ` <span class="small muted">für ${r.portions} ${r.portions === 1 ? 'Portion' : 'Portionen'}</span>` : ''}</h2>
       <ul class="ing-list">${r.ingredients.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
     </section>
     <h2>So geht’s</h2>
@@ -493,8 +501,229 @@ function viewRezept(id, meal) {
       ${stampedNow
         ? '<a class="btn" href="#/stempel">Zum Stempelheft</a>'
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+      ${r.own ? (ui.confirmDelete
+        ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
+        : `<div class="input-row"><a class="btn secondary" href="#/neu/${r.id}">Bearbeiten</a><button class="btn secondary" data-action="ask-delete">Löschen</button></div>`) : ''}
     </div>
   </main>`;
+}
+
+// ---------- Eigene Rezepte ----------
+
+const OWN_TINTS = ['#F3C9A8', '#F5E1A4', '#DCE8C8', '#DDEAF4', '#F2D4DC', '#E3DCF2', '#F7D2B0'];
+
+function emptyForm() {
+  return {
+    id: null, name: '', portions: 2, time: 20, meals: ['abend'], steps: '',
+    rows: [{ amount: '', unit: 'g', name: '' }, { amount: '', unit: 'g', name: '' }, { amount: '', unit: 'g', name: '' }]
+  };
+}
+
+function formFromRecipe(r) {
+  return {
+    id: r.id, name: r.name, portions: r.portions, time: r.time, meals: [...r.meals],
+    steps: r.steps.join('\n'), rows: r.rows.map((x) => ({ ...x }))
+  };
+}
+
+function unitName(id) { return (UNITS.find((u) => u.id === id) || UNITS[0]).name; }
+
+function roundAmount(x, unit) {
+  if (unit === 'g' || unit === 'ml') return Math.max(5, Math.round(x / 5) * 5);
+  return Math.max(0.5, Math.round(x * 2) / 2);
+}
+
+function fmtAmount(a) { return String(a).replace('.', ','); }
+
+// Rechnet ein Formular durch und sammelt Gingers Tipps
+function analyze(form) {
+  const p = state.profile;
+  const portions = Math.max(1, Number(form.portions) || 1);
+  const rows = form.rows
+    .map((row, i) => ({ row, i, food: findFood(row.name) }))
+    .filter((x) => x.row.name.trim() && Number(String(x.row.amount).replace(',', '.')) > 0);
+  let total = 0;
+  const unknown = [];
+  const lines = rows.map((x) => {
+    const kcal = kcalOf(x.row);
+    if (kcal === null) unknown.push(x);
+    else total += kcal;
+    return { ...x, kcal, grams: gramsOf(x.row, x.food) };
+  });
+  const perPortion = total / portions;
+  const share = Math.max(...form.meals.map((m) => (MEALS.find((x) => x.id === m) || MEALS[1]).share), 0.25);
+  const budget = Math.round(p.kcal * share);
+
+  // Ernährungsform und Allergene aus den Zutaten ableiten
+  const tags = lines.map((x) => x.food && x.food.diet).filter(Boolean);
+  const diet = tags.includes('fleisch') ? 'fleisch' : tags.includes('fisch') ? 'fisch' : tags.includes('tierisch') ? 'vegetarisch' : 'vegan';
+  const allergens = [...new Set(lines.flatMap((x) => (x.food && x.food.allergens) || []))];
+
+  const tips = [];
+  const warn = [];
+  if (unknown.length) {
+    tips.push({ text: `Diese Zutaten kenne ich nicht: ${unknown.map((x) => x.row.name).join(', ')}. Trag dahinter die kcal pro 100 g ein, sonst zähle ich sie nicht mit.` });
+  }
+  const dietOk = (DIETS.find((d) => d.id === p.diet) || DIETS[3]).allows.includes(diet);
+  if (!dietOk) warn.push(`Passt nicht zu deiner Ernährungsform (${DIETS.find((d) => d.id === p.diet).name}). Ich schlage es dir deshalb nicht vor.`);
+  const badAllergens = allergens.filter((a) => p.allergies.includes(a));
+  if (badAllergens.length) warn.push(`Achtung, enthält ${badAllergens.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ')}. Das hast du als Allergie angegeben.`);
+  const disliked = Object.entries(p.taste).filter(([f, v]) => v === 'no' && lines.some((x) => x.row.name.toLowerCase().includes(f.toLowerCase()) || (x.food && x.food.name === f)));
+  if (disliked.length) warn.push(`Enthält ${disliked.map(([f]) => f).join(', ')}, das magst du laut deinen Angaben nicht.`);
+
+  if (lines.length && total > 0) {
+    if (perPortion > budget * 1.15) {
+      const f = budget / perPortion;
+      const more = Math.ceil(total / budget);
+      tips.push({
+        text: `Eine Portion hat ca. ${fmt(perPortion)} kcal. Für dein Ziel passen zu dieser Mahlzeit etwa ${fmt(budget)} kcal. Ich kann alle Mengen anpassen, oder du teilst das Rezept auf ${more} Portionen auf.`,
+        actions: [{ label: `Mengen auf ${fmt(budget)} kcal anpassen`, kind: 'scale', value: f }, { label: `${more} Portionen`, kind: 'portions', value: more }]
+      });
+    } else if (perPortion < budget * 0.7) {
+      tips.push({ text: `Eine Portion hat ca. ${fmt(perPortion)} kcal, für diese Mahlzeit sind etwa ${fmt(budget)} kcal drin. Nimm ruhig etwas Brot, Reis oder Eiweiß dazu, damit du satt bleibst.`, actions: [{ label: `Mengen auf ${fmt(budget)} kcal anpassen`, kind: 'scale', value: budget / perPortion }] });
+    } else {
+      tips.push({ text: `Eine Portion hat ca. ${fmt(perPortion)} kcal und passt gut zu deinem Ziel von etwa ${fmt(budget)} kcal für diese Mahlzeit.` });
+    }
+
+    // Tausch-Ideen, gerechnet pro Portion
+    const per = (x) => x.grams / portions;
+    for (const x of lines) {
+      if (!x.food || x.kcal === null) continue;
+      const n = x.food.name;
+      if ((n === 'Öl' || n === 'Butter') && per(x) > 10) {
+        const target = 10 * portions;
+        const save = ((x.grams - target) * x.food.kcal) / 100 / portions;
+        const amount = x.row.unit === 'g' || x.row.unit === 'ml' ? target : roundAmount(target / (x.food.el || 15), 'el');
+        const unit = x.row.unit === 'g' || x.row.unit === 'ml' ? x.row.unit : 'el';
+        tips.push({ text: `${n}: 1 EL pro Portion reicht meist zum Braten. Das spart etwa ${fmt(save)} kcal pro Portion.`, actions: [{ label: `${n} reduzieren`, kind: 'set', row: x.i, amount, unit }] });
+      }
+      if (['Käse', 'Parmesan', 'Feta', 'Mozzarella'].includes(n) && per(x) > 40) {
+        const save = (x.kcal / 2) / portions;
+        tips.push({ text: `${n}: Mit der halben Menge schmeckt es immer noch käsig und spart etwa ${fmt(save)} kcal pro Portion.`, actions: [{ label: 'Halbieren', kind: 'set', row: x.i, amount: roundAmount(Number(String(x.row.amount).replace(',', '.')) / 2, x.row.unit), unit: x.row.unit }] });
+      }
+      if (['Nudeln', 'Reis', 'Couscous', 'Quinoa'].includes(n) && per(x) > 100) {
+        const target = 80 * portions;
+        const save = ((x.grams - target) * x.food.kcal) / 100 / portions;
+        tips.push({ text: `${n}: ${fmt(per(x))} g pro Portion ist viel. Mit 80 g und einer Handvoll Gemüse mehr sparst du etwa ${fmt(save)} kcal.`, actions: x.row.unit === 'g' ? [{ label: `Auf 80 g pro Portion`, kind: 'set', row: x.i, amount: target, unit: 'g' }] : [] });
+      }
+      if (['Zucker', 'Honig', 'Ahornsirup'].includes(n) && per(x) > 15) {
+        const save = (x.kcal / 2) / portions;
+        tips.push({ text: `${n}: Die halbe Menge reicht meist, besonders mit reifem Obst. Spart etwa ${fmt(save)} kcal pro Portion.`, actions: [{ label: 'Halbieren', kind: 'set', row: x.i, amount: roundAmount(Number(String(x.row.amount).replace(',', '.')) / 2, x.row.unit), unit: x.row.unit }] });
+      }
+      if (n === 'Sahne') tips.push({ text: `Sahne: Milch mit 1 EL Frischkäse wird auch cremig und spart etwa ${fmt((x.grams * (290 - 85)) / 100 / portions)} kcal pro Portion.` });
+      if (n === 'Mayonnaise') tips.push({ text: `Mayonnaise: Halb Joghurt, halb Mayo schmeckt fast gleich und spart etwa ${fmt((x.grams / 2) * (700 - 65) / 100 / portions)} kcal pro Portion.` });
+      if (n === 'Hackfleisch') tips.push({ text: 'Hackfleisch: Ersetz die Hälfte durch rote Linsen. Das spart Kalorien und bringt Ballaststoffe.' });
+    }
+    if (!lines.some((x) => x.food && x.food.group === 'gemuese')) {
+      tips.push({ text: 'Noch kein Gemüse dabei. Eine Handvoll Spinat, Paprika oder Tomaten macht satt und hat kaum Kalorien.' });
+    }
+    if (!lines.some((x) => x.food && x.food.group === 'eiweiss')) {
+      tips.push({ text: 'Wenig Eiweiß. Linsen, Kichererbsen, Joghurt, Ei oder Tofu halten länger satt.' });
+    }
+  }
+  if (Number(form.time) > 30) {
+    tips.push({ text: 'Dauert länger als 30 Minuten. Ich schlage es dir als Vorkoch-Rezept vor, wenn du an einem Tag mehr Zeit hast.' });
+  }
+  return { portions, total, perPortion, budget, unknown, lines, diet, allergens, tips, warn };
+}
+
+function viewAnalysis(form) {
+  const a = analyze(form);
+  if (!a.lines.length) {
+    return `<div class="ginger-says">${ginger(58)}<div class="bubble">Trag Zutaten mit Mengen ein, dann rechne ich die Kalorien aus.</div></div>`;
+  }
+  const pct = Math.min(100, (a.perPortion / a.budget) * 100);
+  const tips = a.tips.map((t, ti) => `<div class="hint">${ICONS.paw}<div style="display:flex;flex-direction:column;gap:6px"><span>${esc(t.text)}</span>
+      ${(t.actions || []).length ? `<div class="row">${t.actions.map((ac, ai) => `<button class="btn dark small-btn" data-action="apply-tip" data-tip="${ti}" data-act="${ai}">${esc(ac.label)}</button>`).join('')}</div>` : ''}
+    </div></div>`).join('');
+  const warns = a.warn.map((w) => `<div class="hint" style="background:var(--red-soft)"><span>${esc(w)}</span></div>`).join('');
+  const breakdown = a.lines.map((x) => `<li>${esc(x.row.name)}: ${x.kcal === null ? '?' : `ca. ${fmt(x.kcal)} kcal`}</li>`).join('');
+  return `<section class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="small muted">Gingers Rechnung</div>
+      <div style="font-size:28px;font-weight:900">ca. ${fmt(a.perPortion)} kcal <span class="small muted">pro Portion</span></div>
+      <div class="bar"><div style="width:${pct}%;${a.perPortion > a.budget * 1.15 ? 'background:#9A3324' : ''}"></div></div>
+      <div class="small muted">Dein Rahmen für diese Mahlzeit: etwa ${fmt(a.budget)} kcal · insgesamt ${fmt(a.total)} kcal für ${a.portions} ${a.portions === 1 ? 'Portion' : 'Portionen'}</div>
+      <details><summary class="small" style="cursor:pointer;min-height:32px">Kalorien je Zutat</summary><ul class="ing-list" style="font-size:14px">${breakdown}</ul></details>
+    </section>
+    ${warns}
+    ${tips}
+    <p class="small muted">Alle Werte sind Schätzungen aus Durchschnittswerten.</p>`;
+}
+
+function viewNeu(id) {
+  if (!ui.form || (ui.form.id || null) !== (id || null)) {
+    const existing = id && state.ownRecipes.find((r) => r.id === id);
+    ui.form = existing ? formFromRecipe(existing) : emptyForm();
+  }
+  const f = ui.form;
+  const rows = f.rows.map((row, i) => {
+    const unknown = row.name.trim() && !findFood(row.name);
+    return `<div class="ing-row">
+      <div class="input-row">
+        <label class="sr-only" for="amt${i}">Menge</label>
+        <input id="amt${i}" class="input" style="flex:0 0 72px;padding:0 10px" inputmode="decimal" placeholder="200" value="${esc(row.amount)}" data-row="${i}" data-field="amount">
+        <label class="sr-only" for="unit${i}">Einheit</label>
+        <select id="unit${i}" class="input" style="flex:0 0 82px;padding:0 8px" data-row="${i}" data-field="unit">
+          ${UNITS.map((u) => `<option value="${u.id}" ${row.unit === u.id ? 'selected' : ''}>${u.name}</option>`).join('')}
+        </select>
+        <label class="sr-only" for="name${i}">Zutat</label>
+        <input id="name${i}" class="input" list="foodlist" placeholder="Zutat" value="${esc(row.name)}" data-row="${i}" data-field="name" autocomplete="off">
+        <button class="round" data-action="remove-row" data-row="${i}" aria-label="Zutat entfernen">${ICONS.cross}</button>
+      </div>
+      ${unknown ? `<div class="row" style="margin-top:6px"><label class="small muted" for="k${i}">Kenne ich nicht. kcal pro 100 g:</label>
+        <input id="k${i}" class="input" style="flex:0 0 90px" inputmode="numeric" value="${esc(row.kcal100 ?? '')}" data-row="${i}" data-field="kcal100"></div>` : ''}
+    </div>`;
+  }).join('');
+  return `<main class="screen">
+    <a class="back" href="#/rezepte">${ICONS.back}Zurück</a>
+    <h1>${f.id ? 'Rezept bearbeiten' : 'Eigenes Rezept'}</h1>
+    <div class="field"><label for="rname">Name</label>
+      <input id="rname" class="input" placeholder="z. B. Omas Kartoffelsuppe" value="${esc(f.name)}" data-form="name"></div>
+    <div class="row">
+      <div class="field"><label for="rport">Portionen</label><input id="rport" class="input number-input" type="number" inputmode="numeric" min="1" max="12" value="${f.portions}" data-form="portions"></div>
+      <div class="field"><label for="rtime">Minuten</label><input id="rtime" class="input number-input" type="number" inputmode="numeric" min="1" max="240" value="${f.time}" data-form="time"></div>
+    </div>
+    <div class="field"><span class="small muted" style="font-weight:700">Passt zu</span>
+      <div class="chips">${MEALS.map((m) => `<button class="chip" data-action="form-meal" data-id="${m.id}" aria-pressed="${f.meals.includes(m.id)}">${m.name}</button>`).join('')}</div></div>
+    <section class="field"><h2>Zutaten (für alle Portionen)</h2>
+      <datalist id="foodlist">${FOODS.map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
+      <div style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+      <button class="link-btn" style="align-self:flex-start" data-action="add-row">+ Zutat hinzufügen</button>
+    </section>
+    <div class="field"><label for="rsteps">Schritte (eine Zeile pro Schritt)</label>
+      <textarea id="rsteps" class="input" style="height:auto;min-height:120px;padding:10px 14px;line-height:1.5" data-form="steps" placeholder="Zwiebel würfeln.&#10;In Öl anbraten.">${esc(f.steps)}</textarea></div>
+    <div id="analysis" style="display:flex;flex-direction:column;gap:10px">${viewAnalysis(f)}</div>
+    ${ui.formError ? `<div class="hint" style="background:var(--red-soft)"><span>${esc(ui.formError)}</span></div>` : ''}
+    <div class="bottom"><button class="btn" data-action="save-own">Rezept speichern</button></div>
+  </main>`;
+}
+
+function refreshAnalysis() {
+  const box = document.getElementById('analysis');
+  if (box && ui.form) box.innerHTML = viewAnalysis(ui.form);
+}
+
+function buildOwnRecipe(form) {
+  const a = analyze(form);
+  const steps = form.steps.split('\n').map((s) => s.trim()).filter(Boolean);
+  const rows = form.rows.filter((r) => r.name.trim() && Number(String(r.amount).replace(',', '.')) > 0);
+  const id = form.id || `eigen-${Date.now().toString(36)}`;
+  return {
+    id, own: true,
+    name: form.name.trim(),
+    meals: form.meals.length ? form.meals : ['mittag', 'abend'],
+    time: Math.max(1, Math.round(Number(form.time) || 20)),
+    portions: a.portions,
+    kcal: Math.round(a.perPortion),
+    diet: a.diet,
+    allergens: a.allergens,
+    foods: rows.map((r) => (findFood(r.name) || {}).name || r.name.trim()),
+    ingredients: rows.map((r) => `${fmtAmount(r.amount)} ${unitName(r.unit)} ${r.name.trim()}`),
+    steps: steps.length ? steps : ['Alles nach Gefühl zubereiten.'],
+    mealprep: a.portions >= 2 || Number(form.time) > 30,
+    tint: (state.ownRecipes.find((r) => r.id === id) || {}).tint || OWN_TINTS[state.ownRecipes.length % OWN_TINTS.length],
+    rows: rows.map((r) => ({ ...r }))
+  };
 }
 
 // ---------- Stempelheft ----------
@@ -502,8 +731,8 @@ function viewRezept(id, meal) {
 function viewStempel() {
   const colors = ['#C2551F', '#3E8E5E', '#7A4FB5'];
   const rots = [-8, 6, -3, 10, -12, 4, -6, 8, -10, 3];
-  const got = RECIPES.filter((r) => state.stamps[r.id]);
-  const total = RECIPES.filter(suitable).length;
+  const got = allRecipes().filter((r) => state.stamps[r.id]);
+  const total = allRecipes().filter(suitable).length;
   const cells = [];
   got.forEach((r, i) => cells.push(`<div class="stamp" style="border-color:${colors[i % 3]};color:${colors[i % 3]};transform:rotate(${rots[i % rots.length]}deg)" title="${state.stamps[r.id]}× gekocht">${esc(r.name)}</div>`));
   const empty = Math.max(3 - (got.length % 3 || 3) + 3, 3);
@@ -566,6 +795,7 @@ function route() {
 
 const app = document.getElementById('app');
 
+let rendering = false;
 function render() {
   const [page, a, b] = route();
   let html;
@@ -575,9 +805,12 @@ function render() {
   else if (page === 'rezept') html = viewRezept(a, b);
   else if (page === 'stempel') html = viewStempel();
   else if (page === 'ich') html = viewIch();
+  else if (page === 'neu') html = viewNeu(a);
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
-  app.innerHTML = html;
+  // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
+  rendering = true;
+  try { app.innerHTML = html; } finally { rendering = false; }
 }
 
 function go(hash) {
@@ -597,6 +830,9 @@ window.addEventListener('hashchange', () => {
   ui.justStamped = null;
   ui.showManual = false;
   ui.confirmReset = false;
+  ui.confirmDelete = false;
+  ui.formError = '';
+  if (!location.hash.startsWith('#/neu')) ui.form = null;
   render();
   window.scrollTo(0, 0);
 });
@@ -643,7 +879,7 @@ const actions = {
     ui.showManual = false;
   },
   cooked(el) {
-    const r = RECIPES.find((x) => x.id === el.dataset.recipe);
+    const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
     const key = todayKey();
     state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name }];
@@ -655,6 +891,53 @@ const actions = {
     if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) toast('Ginger hat ihre Kochmütze bekommen!');
   },
   'ask-reset'() { ui.confirmReset = true; },
+  'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
+  'remove-row'(el) {
+    ui.form.rows.splice(Number(el.dataset.row), 1);
+    if (!ui.form.rows.length) ui.form.rows.push({ amount: '', unit: 'g', name: '' });
+  },
+  'form-meal'(el) {
+    const id = el.dataset.id;
+    const m = ui.form.meals;
+    ui.form.meals = m.includes(id) ? m.filter((x) => x !== id) : [...m, id];
+  },
+  'apply-tip'(el) {
+    const tip = analyze(ui.form).tips[Number(el.dataset.tip)];
+    const ac = tip && tip.actions && tip.actions[Number(el.dataset.act)];
+    if (!ac) return;
+    if (ac.kind === 'scale') {
+      ui.form.rows = ui.form.rows.map((r) => {
+        const n = Number(String(r.amount).replace(',', '.'));
+        return n > 0 ? { ...r, amount: String(roundAmount(n * ac.value, r.unit)).replace('.', ',') } : r;
+      });
+    } else if (ac.kind === 'portions') {
+      ui.form.portions = ac.value;
+    } else if (ac.kind === 'set') {
+      ui.form.rows[ac.row] = { ...ui.form.rows[ac.row], amount: String(ac.amount).replace('.', ','), unit: ac.unit };
+    }
+  },
+  'save-own'() {
+    const f = ui.form;
+    const a = analyze(f);
+    if (!f.name.trim()) { ui.formError = 'Gib dem Rezept noch einen Namen.'; return; }
+    if (!a.lines.length) { ui.formError = 'Trag mindestens eine Zutat mit Menge ein.'; return; }
+    const r = buildOwnRecipe(f);
+    const i = state.ownRecipes.findIndex((x) => x.id === r.id);
+    if (i >= 0) state.ownRecipes[i] = r; else state.ownRecipes.unshift(r);
+    ui.form = null;
+    ui.formError = '';
+    save();
+    go(`#/rezept/${r.id}`);
+    return 'skip';
+  },
+  'ask-delete'() { ui.confirmDelete = true; },
+  'cancel-delete'() { ui.confirmDelete = false; },
+  'delete-own'(el) {
+    state.ownRecipes = state.ownRecipes.filter((x) => x.id !== el.dataset.recipe);
+    save();
+    go('#/rezepte');
+    return 'skip';
+  },
   'cancel-reset'() { ui.confirmReset = false; },
   reset() {
     ui.confirmReset = false;
@@ -683,6 +966,21 @@ app.addEventListener('click', (e) => {
 
 app.addEventListener('change', (e) => {
   const el = e.target;
+  if (rendering) return;
+  // Bei Zutatennamen und Einheiten neu zeichnen (z. B. für das Feld bei unbekannten Zutaten)
+  if (ui.form && el.dataset.row !== undefined && (el.dataset.field === 'name' || el.dataset.field === 'unit')) {
+    const row = ui.form.rows[Number(el.dataset.row)];
+    row[el.dataset.field] = el.value;
+    // Nur neu zeichnen, wenn das kcal-Feld für unbekannte Zutaten auftauchen oder verschwinden muss
+    const isUnknown = Boolean(row.name.trim() && !findFood(row.name));
+    const hasField = Boolean(el.closest('.ing-row').querySelector('[data-field="kcal100"]'));
+    if (isUnknown !== hasField) {
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    } else refreshAnalysis();
+    return;
+  }
   if (el.dataset.action === 'step') {
     const id = el.dataset.recipe;
     const i = Number(el.dataset.step);
@@ -699,6 +997,17 @@ app.addEventListener('change', (e) => {
 });
 
 app.addEventListener('input', (e) => {
+  const t = e.target;
+  if (ui.form && t.dataset.row !== undefined) {
+    ui.form.rows[Number(t.dataset.row)][t.dataset.field] = t.value;
+    refreshAnalysis();
+    return;
+  }
+  if (ui.form && t.dataset.form) {
+    ui.form[t.dataset.form] = t.value;
+    if (t.dataset.form !== 'name' && t.dataset.form !== 'steps') refreshAnalysis();
+    return;
+  }
   const key = e.target.dataset.input;
   if (key === 'draft' || key === 'manualKcal') ui[key] = e.target.value;
 });

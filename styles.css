@@ -358,3 +358,29 @@ textarea.input { resize: vertical; font: inherit; }
 .idea-actions { display: flex; justify-content: space-between; }
 .reject-panel { display: flex; flex-direction: column; gap: 10px; }
 .reject-panel .small-btn { flex: 1; }
+
+/* Wochenplan */
+.nav a { min-width: 52px; }
+.tabs button { flex: 1; }
+.week-sum { display: flex; flex-direction: column; gap: 10px; }
+.week-sum .small-btn { flex: 1; }
+.plan-slot { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin: 0 -8px; border-radius: 20px; }
+.plan-slot.ok { background: var(--green-soft); }
+.plan-slot.swapping { outline: 3px dashed var(--accent); }
+.plan-meal { font-size: 13px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.plan-more { display: flex; gap: 4px; }
+.ok-chip { display: inline-flex; align-items: center; gap: 6px; }
+.ok-chip[aria-pressed="true"] { background: var(--green); border-color: var(--green); }
+.plan-portions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.plan-picker { display: flex; flex-direction: column; gap: 8px; }
+.day-chip { padding: 0 12px; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.list-item small { display: block; font-size: 12px; font-weight: 600; color: var(--faint); margin-top: 2px; }
+.list-item .have { font-style: normal; font-size: 12px; font-weight: 800; color: #2D6A42; background: var(--green-soft); padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
+.fav-mark { color: var(--accent); display: inline-flex; vertical-align: -3px; margin-right: 4px; }
+.fav-mark svg { width: 16px; height: 16px; }
+.fav-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 1; }
+.fav-btn[aria-pressed="false"] svg { fill: none; stroke: currentColor; stroke-width: 2; }
+.fav-btn[aria-pressed="true"] { color: var(--accent-text); border-color: var(--accent); }
+.have-hit { display: flex; flex-direction: column; gap: 4px; }

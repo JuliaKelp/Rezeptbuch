@@ -1,5 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, scaleIngredient } from './nutrition.js';
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, scaleIngredient, parseIngredient } from './nutrition.js';
 
 // Nährwerte der fertigen Rezepte aus den Zutaten berechnen (alle Rezepte sind für 1 Portion)
 for (const r of RECIPES) {
@@ -110,7 +110,9 @@ function defaultState() {
     pick: {},      // { meal: Index der aktuellen Idee }
     ownRecipes: [], // selbst eingetragene Rezepte
     pantry: {},    // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
-    rejected: {}   // { recipeId: true } abgelehnte Vorschläge
+    rejected: {},  // { recipeId: true } abgelehnte Vorschläge
+    favorites: {}, // { recipeId: true }
+    week: null     // { seed, meals, slots: { 'JJJJ-MM-TT|meal': { id, ok } }, bought: { key: true }, portions }
   };
 }
 
@@ -135,7 +137,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { rejecting: null, portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { rejecting: null, swapFrom: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -143,10 +145,7 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function todayKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+function todayKey() { return keyOf(new Date()); }
 
 function fmt(n) { return Math.round(n).toLocaleString('de-DE'); }
 
@@ -220,6 +219,7 @@ function ideasFor(meal) {
       if (x.mode === 'vorkochen') score -= 2;
       if (x.mode === 'vorkochen' && r.id === tipRecipe) score += 4; // passt zum Vorkoch-Tipp
       score += pantryScore(r) * 1.5; // Zutaten schon eingekauft
+      if (isFav(r)) score += 3;
       if (cookedToday.has(r.id)) score -= 10;
       score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
       return { ...x, score };
@@ -245,6 +245,223 @@ function prepTips() {
     tips.push({ recipe: null, text: 'Abends ist wenig Zeit: Koch am Wochenende ein Gericht mit Vorkoch-Tipp in doppelter Menge und friere Portionen ein.' });
   }
   return tips;
+}
+
+// ---------- Wochenplan ----------
+
+function keyOf(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function dateOf(key) { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d); }
+function addDays(key, n) { const d = dateOf(key); d.setDate(d.getDate() + n); return keyOf(d); }
+function weekDays() { const t = todayKey(); return [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(t, i)); }
+function dayName(key) {
+  if (key === todayKey()) return 'Heute';
+  if (key === addDays(todayKey(), 1)) return 'Morgen';
+  return dateOf(key).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' });
+}
+function shortDay(key) {
+  const d = dateOf(key);
+  return `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()]} ${d.getDate()}.`;
+}
+
+function recipeById(id) { return allRecipes().find((r) => r.id === id); }
+function isFav(r) { return !!(state.favorites && state.favorites[r.id]); }
+
+// Der Plan läuft immer über die nächsten 7 Tage ab heute. Leere Plätze füllt Ginger selbst.
+function ensureWeek() {
+  if (!state.week) state.week = { seed: 0, meals: MEALS.map((m) => m.id), slots: {}, bought: {} };
+  const w = state.week;
+  const days = weekDays();
+  const used = {};
+  for (const [k, s] of Object.entries(w.slots)) {
+    const r = recipeById(s.id);
+    if (k.split('|')[0] < days[0] || !r || !suitable(r)) delete w.slots[k];
+    else used[s.id] = (used[s.id] || 0) + 1;
+  }
+  for (const day of days) {
+    for (const meal of w.meals) {
+      const k = `${day}|${meal}`;
+      if (w.slots[k]) continue;
+      const r = weekCandidates(meal, day, used)[0];
+      if (!r) continue;
+      w.slots[k] = { id: r.id, ok: false };
+      used[r.id] = (used[r.id] || 0) + 1;
+    }
+  }
+  return w;
+}
+
+function weekCandidates(meal, day, used) {
+  const budget = state.profile.kcal * MEALS.find((m) => m.id === meal).share;
+  const seed = state.week.seed;
+  return allRecipes()
+    .filter((r) => r.meals.includes(meal) && suitable(r) && timeMode(r, meal))
+    .map((r) => {
+      let s = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80 + pantryScore(r);
+      if (isFav(r)) s += 4; // Favoriten kommen öfter dran
+      if (timeMode(r, meal) === 'vorkochen') s -= 2;
+      s -= (used[r.id] || 0) * 5; // Abwechslung über die Woche
+      s += (hashStr(seed + day + meal + r.id) % 100) / 40;
+      return { r, s };
+    })
+    .sort((a, b) => b.s - a.s)
+    .map((x) => x.r);
+}
+
+function slotFits(r, meal) { return r.meals.includes(meal) && !!timeMode(r, meal); }
+
+// Übernommenes Gericht für einen Tag und eine Mahlzeit
+function plannedRecipe(day, meal) {
+  const s = state.week && state.week.slots[`${day}|${meal}`];
+  if (!s || !s.ok || !state.week.meals.includes(meal)) return null;
+  const r = recipeById(s.id);
+  return r && suitable(r) ? r : null;
+}
+
+function acceptedSlots() {
+  const w = state.week;
+  if (!w) return [];
+  const days = weekDays();
+  return Object.entries(w.slots)
+    .filter(([k, s]) => s.ok && days.includes(k.split('|')[0]) && w.meals.includes(k.split('|')[1]))
+    .map(([k, s]) => ({ key: k, recipe: recipeById(s.id), n: s.n || weekPortions() }))
+    .filter((x) => x.recipe);
+}
+
+function portionStepper(action, n, attrs) {
+  return `<div class="stepper" role="group" aria-label="Portionen">
+    <button class="round" data-action="${action}" ${attrs} data-n="${n - 1}" aria-label="Eine Portion weniger" ${n <= 1 ? 'disabled' : ''}>−</button>
+    <span><b>${n}</b> ${n === 1 ? 'Portion' : 'Portionen'}</span>
+    <button class="round" data-action="${action}" ${attrs} data-n="${n + 1}" aria-label="Eine Portion mehr" ${n >= 12 ? 'disabled' : ''}>+</button>
+  </div>`;
+}
+
+function weekPortions() { return (state.week && state.week.portions) || state.profile.portions || 1; }
+
+// Zutaten aller übernommenen Gerichte zusammenzählen
+const STAPLES = ['Gewürze', 'Öl', 'Gemüsebrühe'];
+function shoppingList() {
+  const groups = new Map();
+  const staples = new Map();
+  const bought = new Set(pantryList().map((p) => p.food).filter(Boolean));
+  for (const { recipe, n } of acceptedSlots()) {
+    for (const line of scaledIngredients(recipe, 1)) {
+      const p = parseIngredient(line);
+      const food = findFood(p.name.replace(/[()]/g, ' '));
+      if (p.amount === null || (food && STAPLES.includes(food.name))) {
+        const name = p.amount === null ? line.replace(/^etwas\s+/i, '') : p.name;
+        for (const part of name.split(/,\s*|\s+und\s+/)) {
+          const t = part.trim();
+          if (t) staples.set(t.toLowerCase(), t.charAt(0).toUpperCase() + t.slice(1));
+        }
+        continue;
+      }
+      const key = `${food ? food.name : p.name.toLowerCase()}|${p.unit}`;
+      const g = groups.get(key) || { key, p, food, amount: 0, recipes: new Set() };
+      g.amount += p.amount * n;
+      g.recipes.add(recipe.name);
+      groups.set(key, g);
+    }
+  }
+  const items = [...groups.values()].map((g) => ({
+    key: g.key,
+    text: scaleIngredient(`1 ${g.p.unitWord ? g.p.unitWord + ' ' : ''}${g.p.name}`, g.amount),
+    have: !!(g.food && bought.has(g.food.name)),
+    recipes: [...g.recipes]
+  })).sort((a, b) => a.key.localeCompare(b.key, 'de'));
+  return { items, staples: [...staples.values()].sort((a, b) => a.localeCompare(b, 'de')) };
+}
+
+// Auswahl, an welchem Tag ein Rezept gegessen werden soll
+function planPicker(r) {
+  ensureWeek();
+  const meals = MEALS.filter((m) => r.meals.includes(m.id));
+  return `<div class="card plan-picker">
+    <div class="small" style="font-weight:800">Wann willst du es essen?</div>
+    ${meals.map((m) => `<div class="small muted">${m.name}</div>
+      <div class="chips">${weekDays().map((d) => {
+        const s = state.week.slots[`${d}|${m.id}`];
+        return `<button class="chip day-chip" data-action="plan-at" data-recipe="${r.id}" data-day="${d}" data-meal="${m.id}" aria-pressed="${!!(s && s.id === r.id && s.ok && state.week.meals.includes(m.id))}">${shortDay(d)}</button>`;
+      }).join('')}</div>`).join('')}
+    <button class="link-btn" style="align-self:flex-start" data-action="plan-open" data-recipe="">Fertig</button>
+  </div>`;
+}
+
+function viewWoche() {
+  const w = ensureWeek();
+  save();
+  const days = weekDays();
+  const shown = days.flatMap((d) => w.meals.map((m) => w.slots[`${d}|${m}`]).filter(Boolean));
+  const okCount = shown.filter((s) => s.ok).length;
+  const from = ui.swapFrom && w.slots[ui.swapFrom];
+  const fromRecipe = from && recipeById(from.id);
+  const slot = (day, meal) => {
+    const k = `${day}|${meal}`;
+    const s = w.slots[k];
+    if (!s) return `<div class="plan-slot"><div class="plan-meal">${mealName(meal)}</div><div class="card small muted">Kein passendes Rezept gefunden.</div></div>`;
+    const r = recipeById(s.id);
+    let actions;
+    if (ui.swapFrom === k) {
+      actions = '<span class="small muted">Wähle den Platz zum Tauschen</span><button class="link-btn" data-action="week-swap">Abbrechen</button>';
+    } else if (from) {
+      actions = slotFits(fromRecipe, meal) && slotFits(r, ui.swapFrom.split('|')[1])
+        ? `<button class="btn dark small-btn" data-action="week-swap-to" data-slot="${k}">Hierher tauschen</button>`
+        : '<span class="small muted">Passt hier nicht hin</span>';
+    } else {
+      actions = `<button class="chip ok-chip" data-action="week-ok" data-slot="${k}" aria-pressed="${s.ok}">${s.ok ? `${ICONS.check} Übernommen` : 'Übernehmen'}</button>
+        <span class="plan-more">
+          <button class="link-btn" data-action="week-other" data-slot="${k}">Andere</button>
+          <button class="link-btn" data-action="week-swap" data-slot="${k}">Tauschen</button>
+        </span>`;
+    }
+    const n = s.n || weekPortions();
+    return `<div class="plan-slot${s.ok ? ' ok' : ''}${ui.swapFrom === k ? ' swapping' : ''}">
+      <div class="plan-meal">${mealName(meal)}</div>
+      ${recipeCard(r, { meal, mode: timeMode(r, meal) })}
+      <div class="plan-actions">${actions}</div>
+      ${s.ok && !from ? `<div class="plan-portions"><span class="small muted">Wie viele Portionen kochst du?</span>${portionStepper('slot-portions', n, `data-slot="${k}"`)}</div>` : ''}
+    </div>`;
+  };
+  return `<main class="screen with-nav">
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Hier ist mein Plan für die nächsten 7 Tage. Übernimm, was dir schmeckt. Daraus schreibe ich dir die Einkaufsliste.</div></div>
+    <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${MEALS.map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
+    <div class="card week-sum">
+      <div style="font-weight:800">${okCount} von ${shown.length} Gerichten übernommen</div>
+      <div class="input-row">
+        <button class="btn secondary small-btn" data-action="${okCount === shown.length ? 'week-none' : 'week-all'}">${okCount === shown.length ? 'Keins übernehmen' : 'Alle übernehmen'}</button>
+        <button class="btn secondary small-btn" data-action="week-new">Rest neu mischen</button>
+      </div>
+      <div class="plan-portions"><span class="small muted">Portionen pro Gericht, wenn du nichts änderst</span>${portionStepper('week-portions', weekPortions(), '')}</div>
+      <a class="btn" href="#/liste">Einkaufsliste${okCount ? ` (${okCount} Gerichte)` : ''}</a>
+    </div>
+    ${days.map((d) => `<section class="meal-block"><div class="meal-head"><h2>${dayName(d)}</h2>${d === days[0] || d === days[1] ? `<span class="small muted">${shortDay(d)}</span>` : ''}</div>
+      ${w.meals.map((m) => slot(d, m)).join('')}
+    </section>`).join('')}
+  </main>${nav('woche')}`;
+}
+
+function viewListe() {
+  ensureWeek();
+  const { items, staples } = shoppingList();
+  const slots = acceptedSlots();
+  const bought = state.week.bought;
+  const open = items.filter((x) => !bought[x.key]);
+  const done = items.filter((x) => bought[x.key]);
+  const row = (x) => `<label class="step list-item"><input type="checkbox" data-action="list-check" data-key="${esc(x.key)}" ${bought[x.key] ? 'checked' : ''}>
+    <span>${esc(x.text)}${x.have ? ' <em class="have">schon mal gekauft</em>' : ''}<small>${esc(x.recipes.join(', '))}</small></span></label>`;
+  return `<main class="screen with-nav">
+    <a class="back" href="#/woche">${ICONS.back}Wochenplan</a>
+    <h1>Einkaufsliste</h1>
+    ${items.length ? `
+      <p class="small muted">Für ${slots.length} übernommene Gerichte mit zusammen ${slots.reduce((a, x) => a + x.n, 0)} Portionen. Die Portionen stellst du im Wochenplan ein.</p>
+      <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
+      ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>` : ''}
+      ${staples.length ? `<h2>Vorrat prüfen</h2><p class="small muted">${esc(staples.join(', '))}</p>` : ''}
+      <button class="btn secondary" data-action="list-copy">Liste kopieren</button>`
+      : `<div class="card small muted">Noch nichts übernommen. Tipp im Wochenplan bei den Gerichten auf „Übernehmen“, dann schreibe ich dir hier alles auf.</div>
+      <a class="btn" href="#/woche">Zum Wochenplan</a>`}
+  </main>${nav('woche')}`;
 }
 
 // ---------- Ginger ----------
@@ -361,6 +578,7 @@ const ICONS = {
   home: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 L12 4 L21 11"/><path d="M5 10 V20 H19 V10"/></svg>',
   book: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5 H10 A2 2 0 0 1 12 7 V20 A2 2 0 0 0 10 18 H4 Z"/><path d="M20 5 H14 A2 2 0 0 0 12 7 V20 A2 2 0 0 1 14 18 H20 Z"/></svg>',
   stamp: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 12 L11 14.5 L15.5 9.5"/></svg>',
+  week: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10 H20 M9 3 V7 M15 3 V7"/></svg>',
   me: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20 A8 8 0 0 1 20 20"/></svg>'
 };
 
@@ -447,6 +665,7 @@ function nav(active) {
   return `<nav class="nav" aria-label="Hauptmenü"><div class="nav-inner">
     ${item('heute', 'Heute', 'home')}
     ${item('rezepte', 'Rezepte', 'book')}
+    ${item('woche', 'Woche', 'week')}
     ${item('einkauf', 'Einkauf', 'cart')}
     ${item('stempel', 'Stempel', 'stamp')}
     ${item('ich', 'Ich', 'me')}
@@ -470,7 +689,7 @@ function recipeCard(recipe, { meal, mode } = {}) {
   const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}`;
   return `<a class="recipe-card" href="${href}">
     <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
-    <div class="info"><div class="title">${esc(recipe.name)}</div><div class="meta">${meta}</div></div>
+    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div></div>
     ${badge}
   </a>`;
 }
@@ -596,7 +815,9 @@ function viewHeute() {
         ${eatenHere.map(eatenCard).join('')}
       </section>`;
     }
-    const ideas = ideasFor(m.id);
+    let ideas = ideasFor(m.id);
+    const planned = plannedRecipe(todayKey(), m.id);
+    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
     if (!ideas.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
         <div class="card small muted">Ginger findet gerade kein passendes Rezept. Vielleicht sind zu viele Zutaten auf „mag ich nicht“?</div></section>`;
@@ -604,7 +825,7 @@ function viewHeute() {
     const i = (state.pick[m.id] || 0) % ideas.length;
     const idea = ideas[i];
     return `<section class="meal-block">
-      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${state.profile.times[m.id]} Min Zeit</span></div>
+      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
         <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
@@ -647,20 +868,72 @@ function viewHeute() {
 // ---------- Rezepte ----------
 
 function viewRezepte() {
-  const f = ui.recipeFilter;
-  const byMeal = (r) => f === 'alle' || r.meals.includes(f);
-  const own = state.ownRecipes.filter(byMeal);
-  const list = RECIPES.filter(suitable).filter(byMeal)
-    .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
-  const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS];
-  return `<main class="screen with-nav">
-    <h1>Rezepte</h1>
-    <p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
+  const tab = ui.recipeTab;
+  const tabs = `<div class="seg tabs" role="tablist">${[['alle', 'Alle'], ['habe', 'Ich habe …'], ['fav', 'Favoriten']]
+    .map(([id, name]) => `<button role="tab" data-action="recipe-tab" data-id="${id}" aria-pressed="${tab === id}" aria-selected="${tab === id}">${name}</button>`).join('')}</div>`;
+  let body;
+  if (tab === 'habe') body = viewHabe();
+  else if (tab === 'fav') body = viewFavoriten();
+  else {
+    const f = ui.recipeFilter;
+    const byMeal = (r) => f === 'alle' || r.meals.includes(f);
+    const own = state.ownRecipes.filter(byMeal);
+    const list = RECIPES.filter(suitable).filter(byMeal)
+      .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
+    const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS];
+    body = `<p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
     <a class="btn secondary" href="#/neu">+ Eigenes Rezept eintragen</a>
     <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
     ${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}<h2>Gingers Rezepte</h2>` : ''}
-    ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}
+    ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}`;
+  }
+  return `<main class="screen with-nav">
+    <h1>Rezepte</h1>
+    ${tabs}
+    ${body}
   </main>${nav('rezepte')}`;
+}
+
+// Welche der eingegebenen Lebensmittel kommen im Rezept vor?
+function haveMatches(r, terms) {
+  const text = textOf(r);
+  const foods = new Set(r.ingredients.map((l) => (findFood(parseIngredient(l).name.replace(/[()]/g, ' ')) || {}).name).filter(Boolean));
+  return terms.filter((t) => {
+    if (text.includes(t.toLowerCase())) return true;
+    const f = findFood(t);
+    return f && f.name !== 'Gewürze' && foods.has(f.name);
+  });
+}
+
+function viewHabe() {
+  const terms = ui.have;
+  const fromPantry = pantryKeys().filter((k) => !terms.includes(k)).slice(0, 8);
+  const results = terms.length ? allRecipes().filter(suitable)
+    .map((r) => ({ r, hit: haveMatches(r, terms) }))
+    .filter((x) => x.hit.length)
+    .sort((a, b) => b.hit.length - a.hit.length || isFav(b.r) - isFav(a.r) || likeScore(b.r) - likeScore(a.r) || a.r.time - b.r.time) : [];
+  return `<p class="lead">Sag mir, was weg muss oder worauf du Lust hast. Ich suche Gerichte, die dazu und zu dir passen.</p>
+    <div class="input-row">
+      <label class="sr-only" for="have">Lebensmittel</label>
+      <input id="have" class="input" list="foodlist3" placeholder="z. B. Zucchini" value="${esc(ui.haveDraft)}" data-input="haveDraft" autocomplete="off">
+      <button class="btn dark small-btn" data-action="have-add">Dazu</button>
+    </div>
+    <datalist id="foodlist3">${FOODS.filter((x) => x.name !== 'Gewürze').map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
+    ${terms.length ? `<div class="chips">${terms.map((t) => `<button class="chip" aria-pressed="true" data-action="have-remove" data-food="${esc(t)}" aria-label="${esc(t)} entfernen">${esc(t)} ✕</button>`).join('')}</div>` : ''}
+    ${fromPantry.length ? `<div class="small muted">Aus deinem Einkauf:</div><div class="chips">${fromPantry.map((t) => `<button class="chip" data-action="have-chip" data-food="${esc(t)}">+ ${esc(t)}</button>`).join('')}</div>` : ''}
+    ${!terms.length ? '' : results.length
+      ? `<h2>Passt dazu</h2>${results.map((x) => `<div class="have-hit">${recipeCard(x.r)}<div class="small muted">${terms.length > 1 ? `${x.hit.length} von ${terms.length}: ` : 'Mit '}${esc(x.hit.join(', '))}</div></div>`).join('')}`
+      : '<div class="card small muted">Dazu habe ich kein passendes Rezept. Versuch ein anderes Lebensmittel oder trag ein eigenes Rezept ein.</div>'}`;
+}
+
+function viewFavoriten() {
+  const favs = allRecipes().filter((r) => isFav(r));
+  if (!favs.length) return `<div class="ginger-says">${ginger(70)}<div class="bubble">Tipp bei einem Rezept auf „Zu Favoriten“. Dann landet es hier und kommt öfter in deinen Wochenplan.</div></div>`;
+  return `<p class="lead">Deine Lieblinge kommen öfter in den Wochenplan. Mit „Einplanen“ legst du selbst einen Tag fest.</p>
+    ${favs.map((r) => `<div class="have-hit">${recipeCard(r)}
+      <div class="idea-actions"><button class="link-btn" data-action="plan-open" data-recipe="${r.id}">Einplanen</button>
+      <button class="link-btn" data-action="fav" data-recipe="${r.id}">Aus Favoriten nehmen</button></div>
+      ${ui.planning === r.id ? planPicker(r) : ''}</div>`).join('')}`;
 }
 
 // ---------- Rezept und Kochen ----------
@@ -676,7 +949,7 @@ function viewRezept(id, meal) {
   let note = '';
   if (r.prep) note = `<div class="hint">${ICONS.paw}<span>Am Vorabend vorbereiten, dann ist es morgens sofort fertig.</span></div>`;
   else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>${r.own && r.portions >= 2 ? `Vorkoch-Tipp: Das Rezept reicht für ${r.portions} Portionen. Den Rest kannst du am nächsten Tag essen.` : 'Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.'}</span></div>`;
-  const backHref = meal ? '#/heute' : '#/rezepte';
+  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute'].includes(ui.prevPage) ? ui.prevPage : meal ? '#/heute' : '#/rezepte';
 
   return `<main class="screen">
     <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
@@ -685,6 +958,11 @@ function viewRezept(id, meal) {
       <h1>${esc(r.name)}</h1>
       <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal pro Portion · ${dietName(r.diet)}</div>
     </div>
+    <div class="input-row">
+      <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
+      <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
+    </div>
+    ${ui.planning === r.id ? planPicker(r) : ''}
     ${note}
     <section class="card"><div class="meal-head" style="margin-bottom:6px"><h2>Du brauchst</h2>
         <div class="stepper" role="group" aria-label="Portionen">
@@ -1224,6 +1502,7 @@ function viewEinkauf() {
       <input id="ean" class="input" inputmode="numeric" placeholder="Barcode-Nummer eintippen" value="${esc(ui.codeDraft)}" data-input="codeDraft">
       <button class="btn dark small-btn" data-action="enter-code">Suchen</button>
     </div>
+    <a class="btn secondary" href="#/liste">Einkaufsliste aus dem Wochenplan</a>
     ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
     <h2>Mein Einkauf ${items.length ? `<span class="small muted">${items.length} Produkte</span>` : ''}</h2>
     ${items.length ? items.map(card).join('') : '<div class="card small muted">Noch nichts gescannt.</div>'}
@@ -1253,6 +1532,8 @@ function render() {
   else if (page === 'ich') html = viewIch();
   else if (page === 'neu') html = viewNeu(a);
   else if (page === 'einkauf') html = viewEinkauf();
+  else if (page === 'woche') html = viewWoche();
+  else if (page === 'liste') html = viewListe();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
@@ -1272,7 +1553,10 @@ function toast(text) {
   toast.t = setTimeout(() => { ui.toast = ''; render(); }, 2200);
 }
 
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', (e) => {
+  // Woher kam man? Damit „Zurück“ auf der Rezeptseite dorthin führt
+  const old = (e.oldURL || '').split('#')[1] || '';
+  if (!old.startsWith('/rezept/')) ui.prevPage = old ? '#' + old : '';
   if (ui.scanning) stopScanner();
   ui.scanMsg = '';
   ui.lastCode = null;
@@ -1283,6 +1567,8 @@ window.addEventListener('hashchange', () => {
   ui.confirmReset = false;
   ui.confirmDelete = false;
   ui.rejecting = null;
+  ui.swapFrom = null;
+  ui.planning = null;
   ui.formError = '';
   if (!location.hash.startsWith('#/neu')) ui.form = null;
   render();
@@ -1343,6 +1629,84 @@ const actions = {
     toast(`Gemerkt: kein ${el.dataset.food} mehr.`);
   },
   'unreject'(el) { delete state.rejected[el.dataset.recipe]; },
+  'week-ok'(el) { const s = state.week.slots[el.dataset.slot]; s.ok = !s.ok; },
+  'week-all'() { const w = state.week; for (const d of weekDays()) for (const m of w.meals) { const s = w.slots[`${d}|${m}`]; if (s) s.ok = true; } },
+  'week-none'() { for (const s of Object.values(state.week.slots)) s.ok = false; },
+  'week-new'() {
+    const w = state.week;
+    w.seed = (w.seed || 0) + 1;
+    for (const [k, s] of Object.entries(w.slots)) if (!s.ok) delete w.slots[k];
+    ui.otherSeen = {};
+  },
+  'week-other'(el) {
+    const k = el.dataset.slot;
+    const w = state.week;
+    const [day, meal] = k.split('|');
+    const used = {};
+    for (const [key, s] of Object.entries(w.slots)) if (key !== k) used[s.id] = (used[s.id] || 0) + 1;
+    const seen = ui.otherSeen[k] || (ui.otherSeen[k] = [w.slots[k].id]);
+    const list = weekCandidates(meal, day, used);
+    let next = list.find((r) => !seen.includes(r.id));
+    if (!next) { ui.otherSeen[k] = [w.slots[k].id]; next = list.find((r) => r.id !== w.slots[k].id); }
+    if (!next) { toast('Mehr passende Rezepte habe ich gerade nicht.'); return 'skip'; }
+    ui.otherSeen[k].push(next.id);
+    w.slots[k] = { id: next.id, ok: false };
+  },
+  'week-swap'(el) { ui.swapFrom = el.dataset.slot && ui.swapFrom !== el.dataset.slot ? el.dataset.slot : null; },
+  'week-swap-to'(el) {
+    const w = state.week;
+    const a = ui.swapFrom;
+    const b = el.dataset.slot;
+    [w.slots[a], w.slots[b]] = [w.slots[b], w.slots[a]];
+    ui.swapFrom = null;
+  },
+  'week-meal'(el) {
+    const w = state.week;
+    const m = el.dataset.meal;
+    if (w.meals.includes(m)) { if (w.meals.length > 1) w.meals = w.meals.filter((x) => x !== m); }
+    else w.meals = MEALS.map((x) => x.id).filter((x) => x === m || w.meals.includes(x));
+  },
+  'week-portions'(el) { state.week.portions = Math.max(1, Math.min(12, Number(el.dataset.n))); },
+  'slot-portions'(el) { state.week.slots[el.dataset.slot].n = Math.max(1, Math.min(12, Number(el.dataset.n))); },
+  'list-check'(el) {
+    const b = state.week.bought;
+    if (b[el.dataset.key]) delete b[el.dataset.key]; else b[el.dataset.key] = true;
+  },
+  'list-copy'() {
+    const { items, staples } = shoppingList();
+    const text = items.filter((x) => !state.week.bought[x.key]).map((x) => `- ${x.text}`).join('\n')
+      + (staples.length ? `\n\nVorrat prüfen: ${staples.join(', ')}` : '');
+    const done = () => toast('Liste kopiert.');
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => toast('Kopieren hat nicht geklappt.'));
+    else toast('Kopieren geht in diesem Browser nicht.');
+    return 'skip';
+  },
+  fav(el) {
+    const id = el.dataset.recipe;
+    if (state.favorites[id]) delete state.favorites[id]; else state.favorites[id] = true;
+  },
+  'plan-open'(el) { ui.planning = el.dataset.recipe && ui.planning !== el.dataset.recipe ? el.dataset.recipe : null; },
+  'plan-at'(el) {
+    const w = ensureWeek();
+    const { recipe: id, day, meal } = el.dataset;
+    const k = `${day}|${meal}`;
+    if (w.slots[k] && w.slots[k].id === id && w.slots[k].ok && w.meals.includes(meal)) {
+      w.slots[k].ok = false;
+      toast('Wieder ausgeplant.');
+      return;
+    }
+    w.slots[k] = { id, ok: true };
+    if (!w.meals.includes(meal)) w.meals = MEALS.map((x) => x.id).filter((x) => x === meal || w.meals.includes(x));
+    toast(`Eingeplant: ${dayName(day)}, ${mealName(meal)}`);
+  },
+  'recipe-tab'(el) { ui.recipeTab = el.dataset.id; },
+  'have-add'() {
+    const t = ui.haveDraft.trim();
+    if (t && !ui.have.some((x) => x.toLowerCase() === t.toLowerCase())) ui.have.push(t);
+    ui.haveDraft = '';
+  },
+  'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
+  'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + 1; },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   'show-manual'() { ui.showManual = true; },
@@ -1527,7 +1891,7 @@ app.addEventListener('input', (e) => {
     return;
   }
   const key = e.target.dataset.input;
-  if (['draft', 'manualKcal', 'codeDraft', 'productDraft'].includes(key)) ui[key] = e.target.value;
+  if (['draft', 'manualKcal', 'codeDraft', 'productDraft', 'haveDraft'].includes(key)) ui[key] = e.target.value;
 });
 
 app.addEventListener('keydown', (e) => {
@@ -1536,6 +1900,7 @@ app.addEventListener('keydown', (e) => {
   if (key === 'draft') { actions['add-food'](); save(); render(); document.getElementById('eigenes')?.focus(); }
   if (key === 'manualKcal') { actions['add-manual'](); save(); render(); }
   if (key === 'codeDraft') actions['enter-code']();
+  if (key === 'haveDraft') { actions['have-add'](); render(); document.getElementById('have')?.focus(); }
   if (key === 'productDraft') { actions['name-product'](); save(); render(); }
 });
 

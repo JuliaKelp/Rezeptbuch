@@ -1394,7 +1394,49 @@ function viewIch() {
     <div class="bottom">${ui.confirmReset
       ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
-      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}</div>
+      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
+      <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
+  </main>${nav('ich')}`;
+}
+
+// ---------- Quellen und Lizenzen ----------
+
+const SOURCES = [
+  { group: 'In der App enthalten', items: [
+    { name: 'html5-qrcode 2.3.8', what: 'Barcode-Scanner im Reiter Einkauf (Datei vendor/html5-qrcode.min.js).', who: 'Minhaz (mebjas)', license: 'Apache License 2.0', link: 'https://github.com/mebjas/html5-qrcode', note: 'Lizenztext liegt bei: vendor/html5-qrcode-LICENSE' },
+    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes, steckt in html5-qrcode mit drin.', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library' }
+  ] },
+  { group: 'Aus dem Internet geladen', items: [
+    { name: 'Schrift Nunito', what: 'Die Schrift der ganzen App, geladen von Google Fonts.', who: 'The Nunito Project Authors (Vernon Adams u. a.)', license: 'SIL Open Font License 1.1', link: 'https://github.com/googlefonts/nunito', note: 'Beim Laden der Schrift sieht Google deine IP-Adresse.' },
+    { name: 'Open Food Facts', what: 'Produktdaten beim Barcode-Scan: Name, Marke, Nährwerte, Allergene, Zutaten-Hinweise, Kategorien. Produktfotos nutzt die App nicht.', who: 'Open Food Facts und Mitwirkende', license: 'Datenbank: Open Database License (ODbL) 1.0 · einzelne Einträge: Database Contents License (DbCL) 1.0', link: 'https://world.openfoodfacts.org/terms-of-use', note: 'Beim Scannen wird nur die Barcode-Nummer an Open Food Facts geschickt.' }
+  ] },
+  { group: 'Grundlage für Zahlen', items: [
+    { name: 'DGE-Referenzwerte', what: 'Kalorien-Startwerte, Eiweiß (0,8 g pro kg), Fett 30 % der Kalorien, Ballaststoffe 30 g am Tag.', who: 'Deutsche Gesellschaft für Ernährung', license: 'nur als Richtwert übernommen, keine Texte kopiert', link: 'https://www.dge.de/wissenschaft/referenzwerte/' },
+    { name: 'WHO-Leitlinie zu Zucker (2015)', what: 'Zugesetzter („freier“) Zucker höchstens 10 % der Kalorien.', who: 'Weltgesundheitsorganisation', license: 'nur als Richtwert übernommen', link: 'https://www.who.int/publications/i/item/9789241549028' },
+    { name: 'Nährwerte der Zutaten', what: 'Kalorien und Nährwerte pro 100 g in nutrition.js und die kcal der Rezepte.', who: 'von Claude geschätzt', license: 'eigene Inhalte', note: 'Gerundete Durchschnittswerte aus allgemeinem Wissen, nicht aus einer geprüften Nährwert-Datenbank abgeschrieben. Deshalb nur Schätzungen.' }
+  ] },
+  { group: 'Selbst gemacht', items: [
+    { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
+    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Julias Fotos ihrer Katze', license: 'eigene Inhalte' },
+    { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
+    { name: 'Programmcode der App', what: 'app.js, styles.css, index.html, sw.js.', who: 'von Claude für Julia geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+  ] }
+];
+
+function viewQuellen() {
+  const item = (s) => `<div class="card source">
+      <h3>${esc(s.name)}</h3>
+      <p class="small muted">${esc(s.what)}</p>
+      <p class="small"><span class="muted">Von:</span> ${esc(s.who)}</p>
+      <p class="small"><span class="muted">Lizenz:</span> ${esc(s.license)}</p>
+      ${s.note ? `<p class="small muted">${esc(s.note)}</p>` : ''}
+      ${s.link ? `<a class="link-btn source-link" href="${s.link}" target="_blank" rel="noopener">${esc(s.link.replace(/^https:\/\/(www\.)?/, ''))}</a>` : ''}
+    </div>`;
+  return `<main class="screen with-nav">
+    <a class="back" href="#/ich">${ICONS.back}Ich</a>
+    <h1>Quellen und Lizenzen</h1>
+    <p class="lead">Alles, was die App von anderen benutzt, und was selbst gemacht ist.</p>
+    ${SOURCES.map((g) => `<section class="source-group"><h2>${esc(g.group)}</h2>${g.items.map(item).join('')}</section>`).join('')}
   </main>${nav('ich')}`;
 }
 
@@ -1766,6 +1808,7 @@ function render() {
   else if (page === 'einkauf') html = viewEinkauf();
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
+  else if (page === 'quellen') html = viewQuellen();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen

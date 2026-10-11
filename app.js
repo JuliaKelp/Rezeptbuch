@@ -137,7 +137,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { rejecting: null, swapFrom: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -388,44 +388,64 @@ function planPicker(r) {
   </div>`;
 }
 
+// Darf das Gericht von Platz a nach b und umgekehrt?
+function canSwap(a, b) {
+  const w = state.week;
+  if (!a || !b || a === b || !w.slots[a] || !w.slots[b]) return false;
+  const ra = recipeById(w.slots[a].id);
+  const rb = recipeById(w.slots[b].id);
+  return !!(ra && rb && slotFits(ra, b.split('|')[1]) && slotFits(rb, a.split('|')[1]));
+}
+
 function viewWoche() {
   const w = ensureWeek();
   save();
   const days = weekDays();
   const shown = days.flatMap((d) => w.meals.map((m) => w.slots[`${d}|${m}`]).filter(Boolean));
   const okCount = shown.filter((s) => s.ok).length;
-  const from = ui.swapFrom && w.slots[ui.swapFrom];
-  const fromRecipe = from && recipeById(from.id);
-  const slot = (day, meal) => {
+  if (ui.cell && !w.slots[ui.cell]) ui.cell = null;
+  const cell = (day, meal) => {
     const k = `${day}|${meal}`;
     const s = w.slots[k];
-    if (!s) return `<div class="plan-slot"><div class="plan-meal">${mealName(meal)}</div><div class="card small muted">Kein passendes Rezept gefunden.</div></div>`;
+    if (!s) return '<td class="wk-cell empty">–</td>';
     const r = recipeById(s.id);
-    let actions;
-    if (ui.swapFrom === k) {
-      actions = '<span class="small muted">Wähle den Platz zum Tauschen</span><button class="link-btn" data-action="week-swap">Abbrechen</button>';
-    } else if (from) {
-      actions = slotFits(fromRecipe, meal) && slotFits(r, ui.swapFrom.split('|')[1])
-        ? `<button class="btn dark small-btn" data-action="week-swap-to" data-slot="${k}">Hierher tauschen</button>`
-        : '<span class="small muted">Passt hier nicht hin</span>';
-    } else {
-      actions = `<button class="chip ok-chip" data-action="week-ok" data-slot="${k}" aria-pressed="${s.ok}">${s.ok ? `${ICONS.check} Übernommen` : 'Übernehmen'}</button>
-        <span class="plan-more">
-          <button class="link-btn" data-action="week-other" data-slot="${k}">Andere</button>
-          <button class="link-btn" data-action="week-swap" data-slot="${k}">Tauschen</button>
-        </span>`;
-    }
-    const n = s.n || weekPortions();
-    return `<div class="plan-slot${s.ok ? ' ok' : ''}${ui.swapFrom === k ? ' swapping' : ''}">
-      <div class="plan-meal">${mealName(meal)}</div>
-      ${recipeCard(r, { meal, mode: timeMode(r, meal) })}
-      <div class="plan-actions">${actions}</div>
-      ${s.ok && !from ? `<div class="plan-portions"><span class="small muted">Wie viele Portionen kochst du?</span>${portionStepper('slot-portions', n, `data-slot="${k}"`)}</div>` : ''}
-    </div>`;
+    let cls = s.ok ? ' ok' : '';
+    if (ui.cell === k) cls += ' sel';
+    if (ui.swapFrom && ui.swapFrom !== k) cls += canSwap(ui.swapFrom, k) ? ' target' : ' off';
+    const label = ui.swapFrom && ui.swapFrom !== k && canSwap(ui.swapFrom, k) ? `${r.name} tauschen` : r.name;
+    return `<td class="wk-cell${cls}"><button data-action="cell" data-slot="${k}" aria-label="${esc(label)}${s.ok ? ', übernommen' : ''}" aria-pressed="${ui.cell === k}">
+      <span class="wk-name">${esc(r.name)}</span>
+      ${s.ok ? `<span class="wk-ok">${ICONS.check}${s.n || weekPortions()}×</span>` : ''}
+    </button></td>`;
   };
+  const detail = (k) => {
+    const s = w.slots[k];
+    const [day, meal] = k.split('|');
+    const r = recipeById(s.id);
+    const n = s.n || weekPortions();
+    return `<tr class="wk-detail"><td colspan="${w.meals.length + 1}">
+      <div class="small muted" style="font-weight:800">${dayName(day)} · ${mealName(meal)}</div>
+      ${recipeCard(r, { meal, mode: timeMode(r, meal) })}
+      ${ui.swapFrom === k
+        ? '<div class="plan-actions"><span class="small muted">Tipp in der Tabelle auf den Platz zum Tauschen.</span><button class="link-btn" data-action="week-swap">Abbrechen</button></div>'
+        : `<div class="plan-actions">
+          <button class="chip ok-chip" data-action="week-ok" data-slot="${k}" aria-pressed="${s.ok}">${s.ok ? `${ICONS.check} Übernommen` : 'Übernehmen'}</button>
+          <span class="plan-more">
+            <button class="link-btn" data-action="week-other" data-slot="${k}">Andere</button>
+            <button class="link-btn" data-action="week-swap" data-slot="${k}">Tauschen</button>
+          </span>
+        </div>
+        ${s.ok ? `<div class="plan-portions"><span class="small muted">Wie viele Portionen kochst du?</span>${portionStepper('slot-portions', n, `data-slot="${k}"`)}</div>` : ''}`}
+    </td></tr>`;
+  };
+  const selDay = ui.cell && ui.cell.split('|')[0];
   return `<main class="screen with-nav">
-    <div class="ginger-says">${ginger(70)}<div class="bubble">Hier ist mein Plan für die nächsten 7 Tage. Übernimm, was dir schmeckt. Daraus schreibe ich dir die Einkaufsliste.</div></div>
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Mein Plan für die nächsten 7 Tage. Tipp ein Gericht an, um es zu übernehmen, zu tauschen oder ein anderes zu bekommen.</div></div>
     <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${MEALS.map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
+    <div class="wk-wrap"><table class="wk">
+      <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
+      <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
+    </table></div>
     <div class="card week-sum">
       <div style="font-weight:800">${okCount} von ${shown.length} Gerichten übernommen</div>
       <div class="input-row">
@@ -435,9 +455,6 @@ function viewWoche() {
       <div class="plan-portions"><span class="small muted">Portionen pro Gericht, wenn du nichts änderst</span>${portionStepper('week-portions', weekPortions(), '')}</div>
       <a class="btn" href="#/liste">Einkaufsliste${okCount ? ` (${okCount} Gerichte)` : ''}</a>
     </div>
-    ${days.map((d) => `<section class="meal-block"><div class="meal-head"><h2>${dayName(d)}</h2>${d === days[0] || d === days[1] ? `<span class="small muted">${shortDay(d)}</span>` : ''}</div>
-      ${w.meals.map((m) => slot(d, m)).join('')}
-    </section>`).join('')}
   </main>${nav('woche')}`;
 }
 
@@ -1440,10 +1457,20 @@ async function startScanner() {
     const lib = await loadScannerLib();
     const F = lib.Html5QrcodeSupportedFormats;
     scanner = new lib.Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false });
-    await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 140 } }, async (text) => {
+    let found = false;
+    await scanner.start({ facingMode: 'environment' }, {
+      fps: 20,
+      qrbox: { width: 260, height: 140 },
+      disableFlip: true,
+      // Höhere Auflösung und Dauer-Autofokus, damit Barcodes schneller scharf werden
+      videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: 'continuous' }] }
+    }, async (text) => {
+      if (found) return;
+      found = true;
       await stopScanner();
       handleCode(text);
     }, () => {});
+    tuneCamera();
   } catch (e) {
     await stopScanner();
     ui.scanMsg = 'Die Kamera ließ sich nicht starten. Erlaube den Kamerazugriff oder tipp die Zahlen unter dem Barcode ein.';
@@ -1451,11 +1478,80 @@ async function startScanner() {
   }
 }
 
+// Kamera nachjustieren: Autofokus, etwas Zoom (dann darf das Handy weiter weg, und die Kamera stellt schneller scharf)
+// und Taschenlampe, wenn es zu dunkel ist. Was das Handy nicht kann, wird einfach übersprungen.
+let lightTimer = null;
+const torch = { supported: false, on: false, manual: false };
+
+function videoTrack() {
+  const v = document.querySelector('#reader video');
+  return v && v.srcObject ? v.srcObject.getVideoTracks()[0] : null;
+}
+
+async function tuneCamera() {
+  const track = videoTrack();
+  if (!track || !track.getCapabilities) return;
+  const caps = track.getCapabilities();
+  const adv = {};
+  if ((caps.focusMode || []).includes('continuous')) adv.focusMode = 'continuous';
+  if (caps.zoom && caps.zoom.max >= 1.5) adv.zoom = Math.min(2, caps.zoom.max);
+  if (Object.keys(adv).length) { try { await track.applyConstraints({ advanced: [adv] }); } catch (e) { /* nicht unterstützt */ } }
+  torch.supported = !!caps.torch;
+  torch.on = false;
+  torch.manual = false;
+  updateTorchButton();
+  if (torch.supported) watchBrightness();
+}
+
+async function setTorch(on) {
+  const track = videoTrack();
+  if (!track) return;
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on }] });
+    torch.on = on;
+  } catch (e) { torch.supported = false; }
+  updateTorchButton();
+}
+
+function updateTorchButton() {
+  const btn = document.getElementById('torch');
+  if (!btn) return;
+  btn.hidden = !torch.supported;
+  btn.setAttribute('aria-pressed', String(torch.on));
+  btn.textContent = torch.on ? 'Licht aus' : 'Licht an';
+}
+
+// Mittlere Helligkeit des Kamerabilds messen; bei Dunkelheit Licht an
+function watchBrightness() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  const c = canvas.getContext('2d', { willReadFrequently: true });
+  let dark = 0;
+  clearInterval(lightTimer);
+  lightTimer = setInterval(() => {
+    const v = document.querySelector('#reader video');
+    if (!v || !scanner) { clearInterval(lightTimer); return; }
+    if (torch.on || torch.manual || v.readyState < 2) return;
+    c.drawImage(v, 0, 0, 32, 32);
+    const px = c.getImageData(0, 0, 32, 32).data;
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    dark = sum / (px.length / 4) < 60 ? dark + 1 : 0;
+    if (dark >= 2) setTorch(true);
+  }, 600);
+}
+
 async function stopScanner() {
   const s = scanner;
   scanner = null;
   ui.scanning = false;
+  clearInterval(lightTimer);
+  torch.on = false;
+  // Kamera sicher ausschalten, auch wenn die Bibliothek beim Stoppen hängt
+  const v = document.querySelector('#reader video');
+  const tracks = v && v.srcObject ? v.srcObject.getTracks() : [];
   if (s) { try { await s.stop(); } catch (e) { /* lief schon nicht mehr */ } }
+  tracks.forEach((t) => t.stop());
 }
 
 function viewEinkauf() {
@@ -1487,7 +1583,8 @@ function viewEinkauf() {
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">${esc(bubble)}</div></div>
     ${ui.scanning
-      ? `<div id="reader" class="reader"></div><button class="btn secondary" data-action="stop-scan">Fertig mit Scannen</button>`
+      ? `<div id="reader" class="reader"></div>
+        <div class="input-row"><button id="torch" class="btn secondary small-btn" data-action="torch" aria-pressed="false" hidden>Licht an</button><button class="btn secondary small-btn" style="flex:1" data-action="stop-scan">Fertig mit Scannen</button></div>`
       : '<button class="btn" data-action="scan">Barcode scannen</button>'}
     ${ui.scanMsg ? `<div class="hint">${ICONS.paw}<span>${esc(ui.scanMsg)}</span></div>` : ''}
     ${ui.unknownCode
@@ -1633,6 +1730,7 @@ const actions = {
   'week-all'() { const w = state.week; for (const d of weekDays()) for (const m of w.meals) { const s = w.slots[`${d}|${m}`]; if (s) s.ok = true; } },
   'week-none'() { for (const s of Object.values(state.week.slots)) s.ok = false; },
   'week-new'() {
+    ui.cell = null;
     const w = state.week;
     w.seed = (w.seed || 0) + 1;
     for (const [k, s] of Object.entries(w.slots)) if (!s.ok) delete w.slots[k];
@@ -1653,12 +1751,18 @@ const actions = {
     w.slots[k] = { id: next.id, ok: false };
   },
   'week-swap'(el) { ui.swapFrom = el.dataset.slot && ui.swapFrom !== el.dataset.slot ? el.dataset.slot : null; },
-  'week-swap-to'(el) {
-    const w = state.week;
-    const a = ui.swapFrom;
-    const b = el.dataset.slot;
-    [w.slots[a], w.slots[b]] = [w.slots[b], w.slots[a]];
-    ui.swapFrom = null;
+  cell(el) {
+    const k = el.dataset.slot;
+    if (ui.swapFrom) {
+      if (canSwap(ui.swapFrom, k)) {
+        const w = state.week;
+        [w.slots[ui.swapFrom], w.slots[k]] = [w.slots[k], w.slots[ui.swapFrom]];
+        ui.cell = k;
+      }
+      ui.swapFrom = null;
+      return;
+    }
+    ui.cell = ui.cell === k ? null : k;
   },
   'week-meal'(el) {
     const w = state.week;
@@ -1753,6 +1857,11 @@ const actions = {
     return 'skip';
   },
   'stop-scan'() { stopScanner(); },
+  torch() {
+    torch.manual = true;
+    setTorch(!torch.on);
+    return 'skip';
+  },
   'enter-code'() {
     const code = ui.codeDraft;
     ui.codeDraft = '';

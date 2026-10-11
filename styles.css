@@ -384,3 +384,28 @@ textarea.input { resize: vertical; font: inherit; }
 .fav-btn[aria-pressed="false"] svg { fill: none; stroke: currentColor; stroke-width: 2; }
 .fav-btn[aria-pressed="true"] { color: var(--accent-text); border-color: var(--accent); }
 .have-hit { display: flex; flex-direction: column; gap: 4px; }
+
+/* Wochenplan als Tabelle */
+.wk-wrap { margin: 0 -8px; }
+.wk { width: 100%; border-collapse: separate; border-spacing: 4px; table-layout: fixed; }
+.wk thead th { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; padding: 2px; hyphens: manual; }
+.wk thead th:first-child { width: 44px; }
+.wk tbody th { font-size: 12px; font-weight: 800; color: var(--muted); text-align: left; vertical-align: middle; line-height: 1.2; padding: 0 2px; }
+.wk tbody th.today { color: var(--accent-text); }
+.wk-cell { padding: 0; vertical-align: top; }
+.wk-cell button {
+  width: 100%; min-height: 72px; height: 100%; padding: 6px; text-align: left;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 4px;
+  background: var(--card); border: 2px solid var(--line); border-radius: 14px; color: var(--ink);
+}
+.wk-name { font-size: 12px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.wk-ok { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 900; color: #2D6A42; }
+.wk-ok svg { width: 12px; height: 12px; }
+.wk-cell.ok button { background: var(--green-soft); border-color: #B9D9C2; }
+.wk-cell.sel button { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.wk-cell.target button { border-style: dashed; border-color: var(--accent); }
+.wk-cell.off button { opacity: 0.35; }
+.wk-cell.empty { text-align: center; color: var(--faint); }
+.wk-detail td { padding: 4px 0 10px; }
+.wk-detail td > * + * { margin-top: 8px; }
+[hidden] { display: none !important; }

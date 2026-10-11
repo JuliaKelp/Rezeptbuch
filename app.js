@@ -2525,6 +2525,20 @@ app.addEventListener('keydown', (e) => {
 
 render();
 
+// Updates: Beim Öffnen und jedes Mal, wenn die App wieder in den Vordergrund kommt, nach einer neuen Version fragen.
+// Übernimmt eine neue Version, lädt die Seite einmal neu (nicht beim allerersten Installieren und nicht mitten im Scannen).
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    if (ui.scanning) { toast('Neue Version da. Sie lädt beim nächsten Öffnen.'); return; }
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update().catch(() => {});
+    });
+  }).catch(() => {});
 }

@@ -140,7 +140,7 @@ function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
 }
 
-function allRecipes() { return [...state.ownRecipes, ...RECIPES]; }
+function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
 const ui = { rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
@@ -374,6 +374,14 @@ function shoppingList() {
   const staples = new Map();
   const bought = new Set(pantryList().map((p) => p.food).filter(Boolean));
   for (const { recipe, n } of acceptedSlots()) {
+    if (recipe.product) {
+      const key = `p|${recipe.code}`;
+      const g = groups.get(key) || { key, product: recipe, amount: 0, recipes: new Set() };
+      g.amount += n;
+      g.recipes.add('Snack');
+      groups.set(key, g);
+      continue;
+    }
     for (const line of scaledIngredients(recipe, 1)) {
       const p = parseIngredient(line);
       const food = findFood(p.name.replace(/[()]/g, ' '));
@@ -394,8 +402,8 @@ function shoppingList() {
   }
   const items = [...groups.values()].map((g) => ({
     key: g.key,
-    text: scaleIngredient(`1 ${g.p.unitWord ? g.p.unitWord + ' ' : ''}${g.p.name}`, g.amount),
-    have: !!(g.food && bought.has(g.food.name)),
+    text: g.product ? `${g.amount}× ${g.product.name}${g.product.brand ? ` (${g.product.brand})` : ''}` : scaleIngredient(`1 ${g.p.unitWord ? g.p.unitWord + ' ' : ''}${g.p.name}`, g.amount),
+    have: g.product ? true : !!(g.food && bought.has(g.food.name)),
     recipes: [...g.recipes]
   })).sort((a, b) => a.key.localeCompare(b.key, 'de'));
   return { items, staples: [...staples.values()].sort((a, b) => a.localeCompare(b, 'de')) };
@@ -499,7 +507,7 @@ function viewListe() {
     <a class="back" href="#/woche">${ICONS.back}Wochenplan</a>
     <h1>Einkaufsliste</h1>
     ${items.length ? `
-      <p class="small muted">Für ${slots.length} übernommene Gerichte mit zusammen ${slots.reduce((a, x) => a + x.n, 0)} Portionen. Die Portionen stellst du im Wochenplan ein.</p>
+      <p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>
       <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
       ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>` : ''}
       ${staples.length ? `<h2>Vorrat prüfen</h2><p class="small muted">${esc(staples.join(', '))}</p>` : ''}
@@ -673,6 +681,7 @@ function nutrientTable(n, { title = 'Nährwerte pro Portion', partial = false } 
 
 // Zutaten für eine gewünschte Portionenzahl
 function scaledIngredients(r, n) {
+  if (r.product) return [`${n}× ${r.name}${r.brand ? ` (${r.brand})` : ''}`];
   if (r.own && r.rows) {
     const f = n / (r.portions || 1);
     return r.rows.map((row) => {
@@ -730,6 +739,7 @@ function recipeCard(recipe, { meal, mode } = {}) {
     : '<div class="badge new">Neu</div>';
   let meta = `${recipe.time} Min · ca. ${recipe.kcal} kcal`;
   if (mode === 'prep') { badge = '<div class="badge prep">Vorbereiten</div>'; meta = `Am Vorabend ${recipe.time} Min · ca. ${recipe.kcal} kcal`; }
+  if (recipe.product) { badge = '<div class="badge new">Gekauft</div>'; meta = `${recipe.servingGuess ? 'ca. ' : ''}${fmt(recipe.serving)} g · ca. ${recipe.kcal} kcal`; }
   if (mode === 'vorkochen') { badge = '<div class="badge prep">Vorkochen</div>'; meta = `Vorher doppelt kochen · ca. ${recipe.kcal} kcal`; }
   const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}`;
   return `<a class="recipe-card" href="${href}">
@@ -957,13 +967,16 @@ function viewRezepte() {
     const f = ui.recipeFilter;
     const byMeal = (r) => f === 'alle' || r.meals.includes(f);
     const own = state.ownRecipes.filter(byMeal);
+    const bought = f === 'alle' || f === 'snack' ? productSnacks().filter(suitable) : [];
     const list = RECIPES.filter(suitable).filter(byMeal)
       .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
     const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS, { id: 'snack', name: 'Snacks' }];
     body = `<p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
     <a class="btn secondary" href="#/neu">+ Eigenes Rezept eintragen</a>
     <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
-    ${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}<h2>Gingers Rezepte</h2>` : ''}
+    ${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}` : ''}
+    ${bought.length ? `<h2>Snacks aus deinem Einkauf</h2>${bought.map((r) => recipeCard(r)).join('')}` : ''}
+    ${own.length || bought.length ? '<h2>Gingers Rezepte</h2>' : ''}
     ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}`;
   }
   return `<main class="screen with-nav">
@@ -1017,9 +1030,33 @@ function viewFavoriten() {
 
 // ---------- Rezept und Kochen ----------
 
+function viewProdukt(r, meal) {
+  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute'].includes(ui.prevPage) ? ui.prevPage : '#/heute';
+  return `<main class="screen">
+    <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
+    <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
+    <div>
+      <h1>${esc(r.name)}</h1>
+      <div class="small muted" style="margin-top:4px">${[r.brand, `Snack aus deinem Einkauf`, `${r.servingGuess ? 'ca. ' : ''}${fmt(r.serving)} g pro Portion`].filter(Boolean).map(esc).join(' · ')}</div>
+    </div>
+    <div class="input-row">
+      <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
+      <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
+    </div>
+    ${ui.planning === r.id ? planPicker(r) : ''}
+    ${nutrientTable(r.nutrients)}
+    ${r.servingGuess || r.addedGuess ? `<p class="small muted">${r.servingGuess ? 'Die Packung nennt keine Portionsgröße, ich rechne mit 40 g. ' : ''}${r.addedGuess ? 'Zugesetzten Zucker meldet das Produkt nicht, gezeigt ist der ganze Zucker.' : ''}</p>` : ''}
+    <div class="bottom">
+      <button class="btn" data-action="eat-product" data-recipe="${r.id}" data-meal="${meal || 'snack'}">Gegessen</button>
+      <button class="link-btn" data-action="pantry-snack" data-code="${esc(r.code)}">Nicht mehr als Snack vorschlagen</button>
+    </div>
+  </main>`;
+}
+
 function viewRezept(id, meal) {
   const r = allRecipes().find((x) => x.id === id);
   if (!r) return viewHeute();
+  if (r.product) return viewProdukt(r, meal);
   const done = new Set(state.cooking[r.id] || []);
   const doneCount = r.steps.filter((_, i) => done.has(i)).length;
   const allDone = doneCount === r.steps.length;
@@ -1383,6 +1420,37 @@ const CATEGORY_FOODS = {
 };
 
 // Süßstoffe und Zuckeraustauschstoffe nach E-Nummer (Open Food Facts liefert sie als additives_tags)
+// Kategorien bei Open Food Facts, die als Snack zählen (Riegel, Nüsse, Schokolade …)
+const SNACK_CATEGORIES = ['en:snacks', 'en:sweet-snacks', 'en:salty-snacks', 'en:bars', 'en:cereal-bars', 'en:protein-bars',
+  'en:energy-bars', 'en:fruit-bars', 'en:nut-bars', 'en:chocolates', 'en:biscuits', 'en:nuts', 'en:dried-fruits', 'en:crisps', 'en:rice-cakes'];
+
+// Gescannte Snack-Produkte werden wie Rezepte vorgeschlagen (eine Packungsportion)
+function productRecipe(p) {
+  const g = p.serving || 40;
+  const n = { ...emptyNutrients(), kcal: (p.kcal100 * g) / 100 };
+  const n100 = p.n100 || {};
+  for (const k of ['protein', 'kh', 'zucker', 'fruktose', 'fett', 'ballast']) if (n100[k] !== null && n100[k] !== undefined) n[k] = (n100[k] * g) / 100;
+  // Ohne Angabe zählt der ganze Zucker als zugesetzt (Obergrenze)
+  n.zugesetzt = n100.zugesetzt !== null && n100.zugesetzt !== undefined ? (n100.zugesetzt * g) / 100 : n.zucker;
+  const diet = { vegan: 'vegan', tierisch: 'vegetarisch', fleisch: 'fleisch' }[p.diet] || (p.snackManual ? 'vegan' : 'fleisch');
+  const key = tasteKey(p.food);
+  return {
+    id: `p-${p.code}`, product: true, code: p.code,
+    name: p.name, brand: p.brand,
+    meals: ['snack'], time: 0,
+    kcal: Math.round(n.kcal / 10) * 10,
+    diet, allergens: p.allergens || [],
+    foods: key ? [key] : [],
+    ingredients: [`1 ${p.name}`], steps: [],
+    serving: g, servingGuess: !p.serving, addedGuess: n100.zugesetzt === null || n100.zugesetzt === undefined,
+    nutrients: n, tint: '#EFE3D3'
+  };
+}
+
+function productSnacks() {
+  return Object.values(state.pantry || {}).filter((p) => p.snack && p.kcal100).map(productRecipe);
+}
+
 const SWEETENERS = {
   'en:e420': 'Sorbit', 'en:e421': 'Mannit', 'en:e950': 'Acesulfam', 'en:e951': 'Aspartam', 'en:e952': 'Cyclamat', 'en:e953': 'Isomalt',
   'en:e954': 'Saccharin', 'en:e955': 'Sucralose', 'en:e957': 'Thaumatin', 'en:e959': 'Neohesperidin', 'en:e960': 'Steviol', 'en:e961': 'Neotam',
@@ -1428,7 +1496,7 @@ function productWarnings(p) {
 }
 
 async function lookupProduct(code) {
-  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags,additives_tags';
+  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags,additives_tags,serving_quantity,product_quantity';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
@@ -1451,12 +1519,16 @@ async function lookupProduct(code) {
     const kcal = Number(nu['energy-kcal_100g']);
     const num = (k) => (nu[k] === undefined || nu[k] === '' ? null : Math.round(Number(nu[k]) * 10) / 10);
     const sweeteners = (pr.additives_tags || []).map((a) => SWEETENERS[a.replace(/[a-z]$/, '')]).filter(Boolean);
+    const serving = Number(pr.serving_quantity) > 0 ? Number(pr.serving_quantity)
+      : Number(pr.product_quantity) > 0 && Number(pr.product_quantity) <= 100 ? Number(pr.product_quantity) : null;
     return {
       name: name || (food ? food.name : 'Unbekanntes Produkt'),
       brand: (pr.brands || '').split(',')[0].trim(),
       food: food ? food.name : null,
       kcal100: kcal > 0 ? Math.round(kcal) : (food ? food.kcal : null),
-      n100: { protein: num('proteins_100g'), kh: num('carbohydrates_100g'), zucker: num('sugars_100g'), fruktose: num('fructose_100g'), fett: num('fat_100g'), ballast: num('fiber_100g') },
+      n100: { protein: num('proteins_100g'), kh: num('carbohydrates_100g'), zucker: num('sugars_100g'), zugesetzt: num('added-sugars_100g'), fruktose: num('fructose_100g'), fett: num('fat_100g'), ballast: num('fiber_100g') },
+      serving,
+      snack: cats.some((c) => SNACK_CATEGORIES.includes(c)),
       sweeteners: [...new Set(sweeteners)],
       allergens: [...new Set((pr.allergens_tags || []).map((a) => OFF_ALLERGENS[a]).filter(Boolean))],
       diet
@@ -1631,11 +1703,12 @@ function viewEinkauf() {
         ${p.sweeteners && p.sweeteners.length ? `<span class="sweet-tag">Süßstoff: ${esc(p.sweeteners.join(', '))}</span>` : ''}
         ${warn.length ? `<div class="warn-text">${esc(warn.join(' · '))}</div>` : ''}
       </div>
+      <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.code)}" aria-pressed="${!!p.snack}" ${p.kcal100 ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
       <button class="round" data-action="remove-product" data-code="${esc(p.code)}" aria-label="${esc(p.name)} entfernen">${ICONS.cross}</button>
     </div>`;
   };
-  const ideas = allRecipes().filter(suitable).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
+  const ideas = allRecipes().filter((r) => !r.product && suitable(r)).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
   let bubble = 'Scann deinen Einkauf. Dann weiß ich, was du da hast und was du gern kaufst.';
   if (last) {
@@ -1897,6 +1970,22 @@ const actions = {
     ui.justStamped = r.id;
     save();
     if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) toast('Ginger hat ihre Kochmütze bekommen!');
+  },
+  'eat-product'(el) {
+    const r = recipeById(el.dataset.recipe);
+    if (!r) return;
+    state.log[todayKey()] = [...todayLog(), { recipeId: r.id, product: true, meal: el.dataset.meal || 'snack', kcal: r.kcal, name: r.name, n: r.nutrients }];
+    save();
+    go('#/heute');
+    toast(`${r.name} eingetragen.`);
+    return 'skip';
+  },
+  'pantry-snack'(el) {
+    const p = state.pantry[el.dataset.code];
+    if (!p) return;
+    p.snack = !p.snack;
+    p.snackManual = true;
+    if (!p.snack && location.hash.startsWith('#/rezept/')) { save(); go('#/heute'); toast('Okay, kommt nicht mehr als Snack.'); return 'skip'; }
   },
   'undo-eaten'(el) {
     const key = todayKey();

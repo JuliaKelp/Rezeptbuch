@@ -409,3 +409,5 @@ textarea.input { resize: vertical; font: inherit; }
 .wk-detail td { padding: 4px 0 10px; }
 .wk-detail td > * + * { margin-top: 8px; }
 [hidden] { display: none !important; }
+.snack-chip { min-height: 36px; padding: 0 10px; font-size: 13px; flex-shrink: 0; }
+.snack-chip:disabled { opacity: 0.4; }

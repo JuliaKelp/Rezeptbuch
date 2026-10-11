@@ -1,0 +1,717 @@
+import { RECIPES, TASTE_FOODS } from './recipes.js';
+
+// ---------- Grunddaten ----------
+
+const STORAGE_KEY = 'rezeptbuch-v1';
+
+const MEALS = [
+  { id: 'fruehstueck', name: 'Frühstück', share: 0.25 },
+  { id: 'mittag', name: 'Mittagessen', share: 0.35 },
+  { id: 'abend', name: 'Abendessen', share: 0.4 }
+];
+
+const DIETS = [
+  { id: 'vegan', name: 'Vegan', allows: ['vegan'] },
+  { id: 'vegetarisch', name: 'Vegetarisch', allows: ['vegan', 'vegetarisch'] },
+  { id: 'pescetarisch', name: 'Pescetarisch', allows: ['vegan', 'vegetarisch', 'fisch'] },
+  { id: 'alles', name: 'Ich esse alles', allows: ['vegan', 'vegetarisch', 'fisch', 'fleisch'] }
+];
+
+const ALLERGIES = [
+  { id: 'nuesse', name: 'Nüsse' },
+  { id: 'gluten', name: 'Gluten' },
+  { id: 'laktose', name: 'Laktose' },
+  { id: 'ei', name: 'Ei' },
+  { id: 'soja', name: 'Soja' },
+  { id: 'fisch', name: 'Fisch' }
+];
+
+const GOALS = [
+  { id: 'abnehmen', name: 'Abnehmen', kcal: 1700 },
+  { id: 'halten', name: 'Gewicht halten', kcal: 2000 },
+  { id: 'zunehmen', name: 'Zunehmen', kcal: 2400 }
+];
+
+const TIME_OPTIONS = [5, 10, 15, 30, 45];
+const SHORT_TIME = 10;
+const XP_PER_RECIPE = 40;
+const STAMPS_FOR_HAT = 10;
+const LEVEL_NAMES = ['Küchenkätzchen', 'Schnurr-Köchin', 'Küchenkatze', 'Pfannen-Profi', 'Meisterkatze'];
+
+// Lebensmittel, die bei einer Ernährungsform oder Allergie gar nicht erst abgefragt werden
+const HIDE_FOR_DIET = {
+  vegan: ['Eier', 'Käse', 'Feta', 'Joghurt', 'Quark', 'Hähnchen', 'Lachs', 'Thunfisch'],
+  vegetarisch: ['Hähnchen', 'Lachs', 'Thunfisch'],
+  pescetarisch: ['Hähnchen'],
+  alles: []
+};
+const HIDE_FOR_ALLERGY = {
+  ei: ['Eier'],
+  laktose: ['Käse', 'Feta', 'Joghurt', 'Quark'],
+  fisch: ['Lachs', 'Thunfisch'],
+  soja: ['Tofu'],
+  gluten: [],
+  nuesse: []
+};
+
+function defaultState() {
+  return {
+    onboarded: false,
+    profile: {
+      diet: 'vegetarisch',
+      allergies: [],
+      goal: 'halten',
+      kcal: 2000,
+      taste: {},
+      times: { fruehstueck: 5, mittag: 15, abend: 30 }
+    },
+    log: {},       // { 'JJJJ-MM-TT': [{ recipeId, meal, kcal, name }] }
+    stamps: {},    // { recipeId: Anzahl gekocht }
+    xp: 0,
+    cooking: {},   // { recipeId: [erledigte Schritt-Indizes] }
+    pick: {}       // { meal: Index der aktuellen Idee }
+  };
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+    const saved = JSON.parse(raw);
+    const base = defaultState();
+    return { ...base, ...saved, profile: { ...base.profile, ...saved.profile, times: { ...base.profile.times, ...(saved.profile || {}).times } } };
+  } catch (e) {
+    return defaultState();
+  }
+}
+
+let state = load();
+
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
+}
+
+// Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
+const ui = { confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+
+// ---------- Hilfsfunktionen ----------
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function fmt(n) { return Math.round(n).toLocaleString('de-DE'); }
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function mealName(id) { return (MEALS.find((m) => m.id === id) || {}).name || ''; }
+function dietName(id) { return { vegan: 'vegan', vegetarisch: 'vegetarisch', fisch: 'mit Fisch', fleisch: 'mit Fleisch' }[id]; }
+
+function todayLog() { return state.log[todayKey()] || []; }
+function eatenToday() { return todayLog().reduce((s, e) => s + e.kcal, 0); }
+function stampCount() { return Object.keys(state.stamps).length; }
+function level() { return Math.floor(state.xp / 100) + 1; }
+function levelName() { return LEVEL_NAMES[Math.min(level(), LEVEL_NAMES.length) - 1]; }
+
+// ---------- Rezeptauswahl ----------
+
+function textOf(recipe) {
+  return (recipe.foods.join(' ') + ' ' + recipe.ingredients.join(' ') + ' ' + recipe.name).toLowerCase();
+}
+
+function suitable(recipe) {
+  const p = state.profile;
+  const diet = DIETS.find((d) => d.id === p.diet) || DIETS[3];
+  if (!diet.allows.includes(recipe.diet)) return false;
+  if (recipe.allergens.some((a) => p.allergies.includes(a))) return false;
+  const text = textOf(recipe);
+  for (const [food, v] of Object.entries(p.taste)) {
+    if (v === 'no' && text.includes(food.toLowerCase())) return false;
+  }
+  return true;
+}
+
+function likeScore(recipe) {
+  const text = textOf(recipe);
+  return Object.entries(state.profile.taste).filter(([food, v]) => v === 'like' && text.includes(food.toLowerCase())).length;
+}
+
+// Wie passt ein Rezept in die verfügbare Zeit? 'fits', 'prep' (am Vorabend), 'vorkochen' (doppelt kochen) oder null
+function timeMode(recipe, meal) {
+  const t = state.profile.times[meal];
+  if (recipe.prep) return recipe.serve <= t ? 'prep' : null;
+  if (recipe.time <= t) return 'fits';
+  if (recipe.mealprep) return 'vorkochen';
+  return null;
+}
+
+function ideasFor(meal) {
+  const budget = state.profile.kcal * MEALS.find((m) => m.id === meal).share;
+  const day = todayKey();
+  const cookedToday = new Set(todayLog().map((e) => e.recipeId));
+  const tipRecipe = meal === 'mittag' ? (prepTips().find((t) => t.recipe && t.recipe.mealprep) || {}).recipe?.id : null;
+  return RECIPES
+    .filter((r) => r.meals.includes(meal) && suitable(r))
+    .map((r) => ({ recipe: r, mode: timeMode(r, meal) }))
+    .filter((x) => x.mode)
+    .map((x) => {
+      const r = x.recipe;
+      let score = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80;
+      if (x.mode === 'vorkochen') score -= 2;
+      if (x.mode === 'vorkochen' && r.id === tipRecipe) score += 4; // passt zum Vorkoch-Tipp
+      if (cookedToday.has(r.id)) score -= 10;
+      score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
+      return { ...x, score };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+function prepTips() {
+  const times = state.profile.times;
+  const tips = [];
+  if (times.fruehstueck <= SHORT_TIME) {
+    const oats = RECIPES.filter((r) => r.prep && r.meals.includes('fruehstueck') && suitable(r))
+      .sort((a, b) => likeScore(b) - likeScore(a))[0];
+    if (oats) tips.push({ recipe: oats, text: `Setz heute Abend nebenbei ${oats.name} für morgen früh an. Dauert nur ${oats.time} Min.` });
+  }
+  const dinnerDone = todayLog().some((e) => e.meal === 'abend');
+  if (times.mittag <= SHORT_TIME && !dinnerDone) {
+    const mp = RECIPES.filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
+      .sort((a, b) => likeScore(b) - likeScore(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
+    if (mp) tips.push({ recipe: mp, text: `Koch heute Abend ${mp.name} doppelt und nimm eine Portion morgen zum Mittagessen mit.` });
+  }
+  if (times.abend <= SHORT_TIME) {
+    tips.push({ recipe: null, text: 'Abends ist wenig Zeit: Koch am Wochenende ein Gericht mit Vorkoch-Tipp in doppelter Menge und friere Portionen ein.' });
+  }
+  return tips;
+}
+
+// ---------- Ginger ----------
+
+function ginger(size, opts = {}) {
+  const happy = opts.mood === 'happy';
+  const hat = opts.hat ?? stampCount() >= STAMPS_FOR_HAT;
+  const eyes = happy
+    ? '<path d="M31 55 Q37 49 43 55 M57 55 Q63 49 69 55" stroke="#2E2018" stroke-width="3" fill="none" stroke-linecap="round"/>'
+    : '<circle cx="37" cy="54" r="5.5" fill="#2E2018"/><circle cx="63" cy="54" r="5.5" fill="#2E2018"/><circle cx="39" cy="52" r="1.8" fill="#FFF"/><circle cx="65" cy="52" r="1.8" fill="#FFF"/>';
+  const mouth = happy
+    ? '<path d="M42 69 Q50 76 58 69" stroke="#2E2018" stroke-width="2" fill="none" stroke-linecap="round"/>'
+    : '<path d="M50 67 Q46 72 42 69 M50 67 Q54 72 58 69" stroke="#2E2018" stroke-width="2" fill="none" stroke-linecap="round"/>';
+  const hatSvg = hat
+    ? '<path d="M30 30 Q26 14 38 14 Q40 4 50 6 Q60 4 62 14 Q74 14 70 30 Z" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/><rect x="30" y="26" width="40" height="8" rx="3" fill="#FFFFFF" stroke="#E2CFBF" stroke-width="1.5"/>'
+    : '';
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true">
+    <path d="M16 46 L20 8 L46 30 Z" fill="#E8925A"/>
+    <path d="M84 46 L80 8 L54 30 Z" fill="#E8925A"/>
+    <path d="M23 34 L25 18 L37 29 Z" fill="#F6C3B5"/>
+    <path d="M77 34 L75 18 L63 29 Z" fill="#F6C3B5"/>
+    <ellipse cx="50" cy="57" rx="37" ry="33" fill="#E8925A"/>
+    <path d="M40 27 Q50 22 60 27 L56 36 Q50 33 44 36 Z" fill="#D0743D"/>
+    <ellipse cx="30" cy="66" rx="7" ry="4.5" fill="#F6A99A"/>
+    <ellipse cx="70" cy="66" rx="7" ry="4.5" fill="#F6A99A"/>
+    ${eyes}
+    <path d="M46 63 L54 63 L50 67 Z" fill="#C9564A"/>
+    ${mouth}
+    <path d="M14 58 L28 61 M14 66 L28 65 M86 58 L72 61 M86 66 L72 65" stroke="#2E2018" stroke-width="1.5" stroke-linecap="round"/>
+    ${hatSvg}
+  </svg>`;
+}
+
+function gingerPeek(width) {
+  return `<svg viewBox="0 0 100 60" width="${width}" height="${Math.round(width * 0.6)}" aria-hidden="true">
+    <path d="M14 46 L18 8 L40 28 Z" fill="#E8925A"/>
+    <path d="M86 46 L82 8 L60 28 Z" fill="#E8925A"/>
+    <ellipse cx="50" cy="60" rx="38" ry="34" fill="#E8925A"/>
+    <circle cx="37" cy="48" r="5" fill="#2E2018"/>
+    <circle cx="63" cy="48" r="5" fill="#2E2018"/>
+    <circle cx="38.5" cy="46.5" r="1.6" fill="#FFF"/>
+    <circle cx="64.5" cy="46.5" r="1.6" fill="#FFF"/>
+    <path d="M46 56 L54 56 L50 59 Z" fill="#C9564A"/>
+  </svg>`;
+}
+
+const ICONS = {
+  heart: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 20 C5 15 3 12 3 8.5 A4.5 4.5 0 0 1 12 6.5 A4.5 4.5 0 0 1 21 8.5 C21 12 19 15 12 20 Z"/></svg>',
+  cross: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 L10 17 L19 7"/></svg>',
+  paw: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><ellipse cx="12" cy="15" rx="5" ry="4" fill="#B4481A"/><circle cx="6" cy="9" r="2.2" fill="#B4481A"/><circle cx="10" cy="6" r="2.2" fill="#B4481A"/><circle cx="14" cy="6" r="2.2" fill="#B4481A"/><circle cx="18" cy="9" r="2.2" fill="#B4481A"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9 V13 L15 15"/><path d="M9 2 H15"/></svg>',
+  back: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg>',
+  home: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 L12 4 L21 11"/><path d="M5 10 V20 H19 V10"/></svg>',
+  book: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5 H10 A2 2 0 0 1 12 7 V20 A2 2 0 0 0 10 18 H4 Z"/><path d="M20 5 H14 A2 2 0 0 0 12 7 V20 A2 2 0 0 1 14 18 H20 Z"/></svg>',
+  stamp: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.5 12 L11 14.5 L15.5 9.5"/></svg>',
+  me: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20 A8 8 0 0 1 20 20"/></svg>'
+};
+
+// ---------- Bausteine ----------
+
+function nav(active) {
+  const item = (id, label, icon) =>
+    `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${ICONS[icon]}${label}</a>`;
+  return `<nav class="nav" aria-label="Hauptmenü"><div class="nav-inner">
+    ${item('heute', 'Heute', 'home')}
+    ${item('rezepte', 'Rezepte', 'book')}
+    ${item('stempel', 'Stempel', 'stamp')}
+    ${item('ich', 'Ich', 'me')}
+  </div></nav>`;
+}
+
+function stepsBar(n) {
+  return `<div class="steps-bar" aria-label="Schritt ${n} von 3">
+    <span class="${n >= 1 ? 'on' : ''}"></span><span class="${n >= 2 ? 'on' : ''}"></span><span class="${n >= 3 ? 'on' : ''}"></span>
+    <b>${n} von 3</b></div>`;
+}
+
+function recipeCard(recipe, { meal, mode } = {}) {
+  const cooked = !!state.stamps[recipe.id];
+  let badge = cooked
+    ? `<div class="stamp-mini" title="Schon gekocht">${ICONS.check}<span class="sr-only">Schon gekocht</span></div>`
+    : '<div class="badge new">Neu</div>';
+  let meta = `${recipe.time} Min · ca. ${recipe.kcal} kcal`;
+  if (mode === 'prep') { badge = '<div class="badge prep">Vorbereiten</div>'; meta = `Am Vorabend ${recipe.time} Min · ca. ${recipe.kcal} kcal`; }
+  if (mode === 'vorkochen') { badge = '<div class="badge prep">Vorkochen</div>'; meta = `Vorher doppelt kochen · ca. ${recipe.kcal} kcal`; }
+  const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}`;
+  return `<a class="recipe-card" href="${href}">
+    <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
+    <div class="info"><div class="title">${esc(recipe.name)}</div><div class="meta">${meta}</div></div>
+    ${badge}
+  </a>`;
+}
+
+// ---------- Start-Ablauf ----------
+
+function viewStart1(edit) {
+  const p = state.profile;
+  return `<main class="screen">
+    ${edit ? '' : stepsBar(1)}
+    <div class="ginger-says">${ginger(78)}<div class="bubble">Hallo, ich bin Ginger! Wie isst du, und was verträgst du nicht?</div></div>
+    <section class="field"><h2>Ich ernähre mich</h2>
+      <div class="chips">${DIETS.map((d) => `<button class="chip" data-action="diet" data-id="${d.id}" aria-pressed="${p.diet === d.id}">${d.name}</button>`).join('')}</div>
+    </section>
+    <section class="field"><h2>Allergien und Unverträglichkeiten</h2>
+      <div class="chips">${ALLERGIES.map((a) => `<button class="chip danger" data-action="allergy" data-id="${a.id}" aria-pressed="${p.allergies.includes(a.id)}">${a.name}</button>`).join('')}</div>
+    </section>
+    <section class="field"><h2>Mein Ziel</h2>
+      <div class="chips">${GOALS.map((g) => `<button class="chip" data-action="goal" data-id="${g.id}" aria-pressed="${p.goal === g.id}">${g.name}</button>`).join('')}</div>
+      <div class="row" style="margin-top:6px">
+        <label for="kcal" class="small muted">Kalorien pro Tag</label>
+        <input id="kcal" class="input number-input" type="number" inputmode="numeric" min="1000" max="5000" step="50" value="${p.kcal}" data-input="kcal">
+      </div>
+      <p class="small muted">Ein grober Startwert. Später kommt er aus deinem Kalorientracker.</p>
+    </section>
+    <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/2'}">${edit ? 'Speichern' : 'Weiter'}</a></div>
+  </main>`;
+}
+
+function tasteFoods() {
+  const p = state.profile;
+  const hidden = new Set([...(HIDE_FOR_DIET[p.diet] || []), ...p.allergies.flatMap((a) => HIDE_FOR_ALLERGY[a] || [])]);
+  const custom = Object.keys(p.taste).filter((f) => !TASTE_FOODS.includes(f));
+  return [...TASTE_FOODS.filter((f) => !hidden.has(f)), ...custom];
+}
+
+function viewStart2(edit) {
+  const p = state.profile;
+  const rows = tasteFoods().map((f) => {
+    const v = p.taste[f];
+    return `<div class="taste-row"><div class="name">${esc(f)}</div>
+      <button class="round like" data-action="taste" data-food="${esc(f)}" data-value="like" aria-pressed="${v === 'like'}" aria-label="${esc(f)} mag ich sehr">${ICONS.heart}</button>
+      <button class="round no" data-action="taste" data-food="${esc(f)}" data-value="no" aria-pressed="${v === 'no'}" aria-label="${esc(f)} mag ich nicht">${ICONS.cross}</button>
+    </div>`;
+  }).join('');
+  const dietTag = DIETS.find((d) => d.id === p.diet).name;
+  const allergyTags = p.allergies.map((a) => `<span class="tag red">Allergie: ${ALLERGIES.find((x) => x.id === a).name}</span>`).join('');
+  return `<main class="screen">
+    ${edit ? '' : stepsBar(2)}
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Herz für Lieblingsessen, Kreuz für alles, was nie auf den Teller soll.</div></div>
+    <div class="chips"><span class="tag green">${dietTag}</span>${allergyTags}</div>
+    <div class="taste-list">${rows}</div>
+    <div class="field">
+      <label for="eigenes">Fehlt was? Selbst eintragen</label>
+      <div class="input-row">
+        <input id="eigenes" class="input" placeholder="z. B. Kürbis" value="${esc(ui.draft)}" data-input="draft" autocomplete="off">
+        <button class="btn dark small-btn" data-action="add-food">Dazu</button>
+      </div>
+    </div>
+    <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/3'}">${edit ? 'Speichern' : 'Weiter'}</a></div>
+  </main>`;
+}
+
+const TIME_TIPS = {
+  fruehstueck: 'Nur so kurz? Ginger schlägt Overnight Oats vor, die du am Vorabend ansetzt.',
+  mittag: 'Knapp! Ginger plant, dass du abends doppelt kochst und eine Portion mitnimmst.',
+  abend: 'Wenig Zeit am Abend: Ginger schlägt Gerichte zum Vorkochen am Wochenende vor.'
+};
+
+function viewStart3(edit) {
+  const t = state.profile.times;
+  const blocks = MEALS.map((m) => `<div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="meal-head"><h3>${m.name}</h3><span class="small" style="color:var(--accent-text)">${t[m.id]} Min</span></div>
+      <div class="seg" role="group" aria-label="Zeit für ${m.name}">
+        ${TIME_OPTIONS.map((n) => `<button data-action="time" data-meal="${m.id}" data-min="${n}" aria-pressed="${t[m.id] === n}">${n}</button>`).join('')}
+      </div>
+      ${t[m.id] <= SHORT_TIME ? `<div class="hint">${ICONS.paw}<span>${TIME_TIPS[m.id]}</span></div>` : ''}
+    </div>`).join('');
+  return `<main class="screen">
+    ${edit ? '' : stepsBar(3)}
+    <h1>Wie viel Zeit hast du zum Kochen?</h1>
+    <p class="lead">Pro Mahlzeit, in Minuten. Wenn es knapp wird, plant Ginger Vorbereitung an Zeiten mit mehr Luft ein.</p>
+    ${blocks}
+    <div class="bottom"><button class="btn" data-action="${edit ? 'go-ich' : 'finish-start'}">${edit ? 'Speichern' : 'Fertig'}</button></div>
+  </main>`;
+}
+
+// ---------- Heute ----------
+
+function viewHeute() {
+  const target = state.profile.kcal;
+  const eaten = eatenToday();
+  const rest = Math.max(0, target - eaten);
+  const frac = Math.min(1, eaten / target);
+  const circ = 2 * Math.PI * 50;
+  const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const log = todayLog();
+
+  const tips = prepTips().map((tip) => tip.recipe
+    ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
+    : `<div class="prep-banner">${ICONS.clock}<span><b>Tipp:</b> ${esc(tip.text)}</span></div>`).join('');
+
+  const meals = MEALS.map((m) => {
+    const eatenHere = log.filter((e) => e.meal === m.id);
+    if (eatenHere.length) {
+      return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3><span class="small muted">gegessen</span></div>
+        ${eatenHere.map((e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div><div class="stamp-mini">${ICONS.check}</div></div>`).join('')}
+      </section>`;
+    }
+    const ideas = ideasFor(m.id);
+    if (!ideas.length) {
+      return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
+        <div class="card small muted">Ginger findet gerade kein passendes Rezept. Vielleicht sind zu viele Zutaten auf „mag ich nicht“?</div></section>`;
+    }
+    const i = (state.pick[m.id] || 0) % ideas.length;
+    const idea = ideas[i];
+    return `<section class="meal-block">
+      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${state.profile.times[m.id]} Min Zeit</span></div>
+      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
+      ${ideas.length > 1 ? `<button class="link-btn" style="align-self:flex-end" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
+    </section>`;
+  }).join('');
+
+  return `<main class="screen with-nav">
+    <div class="top-row">
+      <div><div class="small muted">${date}</div><h1>Hallo!</h1></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div class="level-pill">Level ${level()} · ${levelName()}</div>
+        <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
+      </div>
+    </div>
+    <div class="card kcal-card">
+      <div class="peek">${gingerPeek(96)}</div>
+      <svg class="ring" viewBox="0 0 120 120" width="112" height="112" role="img" aria-label="${fmt(eaten)} von ${fmt(target)} Kilokalorien">
+        <circle cx="60" cy="60" r="50" fill="none" stroke="#F1E3D6" stroke-width="14"/>
+        ${eaten > 0 ? `<circle cx="60" cy="60" r="50" fill="none" stroke="#C2551F" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(frac * circ).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 60 60)"/>` : ''}
+        <text x="60" y="58" text-anchor="middle" font-size="22" font-weight="900" fill="#3B2A20" font-family="Nunito, sans-serif">${fmt(eaten)}</text>
+        <text x="60" y="76" text-anchor="middle" font-size="11" font-weight="700" fill="#6B5444" font-family="Nunito, sans-serif">von ${fmt(target)} kcal</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:16px;font-weight:800">Noch ${fmt(rest)} kcal frei</div>
+        ${ui.showManual
+          ? `<div class="input-row"><label class="sr-only" for="manual">Kalorien</label><input id="manual" class="input" style="width:90px;flex:none" type="number" inputmode="numeric" placeholder="kcal" value="${esc(ui.manualKcal)}" data-input="manualKcal"><button class="btn dark small-btn" data-action="add-manual">Dazu</button></div>`
+          : '<button class="link-btn" style="text-align:left;padding:0" data-action="show-manual">Etwas anderes gegessen?</button>'}
+      </div>
+    </div>
+    ${tips}
+    <h2>Gingers Vorschläge für heute</h2>
+    ${meals}
+  </main>${nav('heute')}`;
+}
+
+// ---------- Rezepte ----------
+
+function viewRezepte() {
+  const f = ui.recipeFilter;
+  const list = RECIPES.filter(suitable).filter((r) => f === 'alle' || r.meals.includes(f))
+    .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
+  const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS];
+  return `<main class="screen with-nav">
+    <h1>Rezepte</h1>
+    <p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
+    <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
+    ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}
+  </main>${nav('rezepte')}`;
+}
+
+// ---------- Rezept und Kochen ----------
+
+function viewRezept(id, meal) {
+  const r = RECIPES.find((x) => x.id === id);
+  if (!r) return viewHeute();
+  const done = new Set(state.cooking[r.id] || []);
+  const doneCount = r.steps.filter((_, i) => done.has(i)).length;
+  const allDone = doneCount === r.steps.length;
+  const cheer = allDone ? 'Alles erledigt! Hol dir deinen Stempel.' : doneCount === 0 ? 'Los geht’s, ich schau zu!' : 'Super, weiter so!';
+  const stampedNow = ui.justStamped === r.id;
+  let note = '';
+  if (r.prep) note = `<div class="hint">${ICONS.paw}<span>Am Vorabend vorbereiten, dann ist es morgens sofort fertig.</span></div>`;
+  else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.</span></div>`;
+  const backHref = meal ? '#/heute' : '#/rezepte';
+
+  return `<main class="screen">
+    <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
+    <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
+    <div>
+      <h1>${esc(r.name)}</h1>
+      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal · ${dietName(r.diet)}</div>
+    </div>
+    ${note}
+    <section class="card"><h2 style="margin-bottom:6px">Du brauchst</h2>
+      <ul class="ing-list">${r.ingredients.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    </section>
+    <h2>So geht’s</h2>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
+      <div class="small muted">${doneCount} von ${r.steps.length} Schritten geschafft</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${r.steps.map((s, i) => `<label class="step"><input type="checkbox" data-action="step" data-recipe="${r.id}" data-step="${i}" ${done.has(i) ? 'checked' : ''}><span>${esc(s)}</span></label>`).join('')}
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:10px">
+      ${ginger(64, { mood: allDone ? 'happy' : 'normal' })}
+      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP` : cheer}</div>
+      ${stampedNow ? '<div class="stamp-big">Gekocht!</div>' : ''}
+    </div>
+    <div class="bottom">
+      ${stampedNow
+        ? '<a class="btn" href="#/stempel">Zum Stempelheft</a>'
+        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+    </div>
+  </main>`;
+}
+
+// ---------- Stempelheft ----------
+
+function viewStempel() {
+  const colors = ['#C2551F', '#3E8E5E', '#7A4FB5'];
+  const rots = [-8, 6, -3, 10, -12, 4, -6, 8, -10, 3];
+  const got = RECIPES.filter((r) => state.stamps[r.id]);
+  const total = RECIPES.filter(suitable).length;
+  const cells = [];
+  got.forEach((r, i) => cells.push(`<div class="stamp" style="border-color:${colors[i % 3]};color:${colors[i % 3]};transform:rotate(${rots[i % rots.length]}deg)" title="${state.stamps[r.id]}× gekocht">${esc(r.name)}</div>`));
+  const empty = Math.max(3 - (got.length % 3 || 3) + 3, 3);
+  for (let i = 0; i < empty; i++) cells.push('<div class="stamp locked" aria-hidden="true">?</div>');
+  const n = got.length;
+  const toHat = Math.max(0, STAMPS_FOR_HAT - n);
+  const hatText = toHat > 0
+    ? `Noch ${toHat} Stempel, dann bekommt Ginger eine Kochmütze.`
+    : 'Ginger trägt jetzt stolz ihre Kochmütze!';
+  return `<main class="screen with-nav">
+    <h1>Mein Stempelheft</h1>
+    <div class="card" style="display:flex;gap:12px;align-items:center">
+      ${ginger(58)}
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:15px;font-weight:800;line-height:1.3">${hatText}</div>
+        <div class="bar"><div style="width:${Math.min(100, (n / STAMPS_FOR_HAT) * 100)}%"></div></div>
+      </div>
+    </div>
+    <div class="stamp-grid">${cells.join('')}</div>
+    <p class="small muted" style="text-align:center">${n} von ${total} passenden Rezepten gekocht · ${state.xp} XP · Level ${level()}</p>
+  </main>${nav('stempel')}`;
+}
+
+// ---------- Ich ----------
+
+function viewIch() {
+  const p = state.profile;
+  const likes = Object.entries(p.taste).filter(([, v]) => v === 'like').map(([f]) => f);
+  const nos = Object.entries(p.taste).filter(([, v]) => v === 'no').map(([f]) => f);
+  const allergies = p.allergies.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ') || 'keine';
+  return `<main class="screen with-nav">
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
+    <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
+      <h3>Ernährung und Ziel</h3>
+      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag</div>
+    </a>
+    <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
+      <h3>Geschmack</h3>
+      <div class="small muted">Mag ich: ${esc(likes.join(', ') || 'noch nichts')}</div>
+      <div class="small muted">Mag ich nicht: ${esc(nos.join(', ') || 'nichts')}</div>
+    </a>
+    <a class="card" href="#/edit/3" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
+      <h3>Zeit zum Kochen</h3>
+      <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')}</div>
+    </a>
+    <div class="bottom">${ui.confirmReset
+      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
+         <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
+      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}</div>
+  </main>${nav('ich')}`;
+}
+
+// ---------- Router ----------
+
+function route() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (!state.onboarded && parts[0] !== 'start') return ['start', '1'];
+  return parts.length ? parts : ['heute'];
+}
+
+const app = document.getElementById('app');
+
+function render() {
+  const [page, a, b] = route();
+  let html;
+  if (page === 'start') html = a === '3' ? viewStart3(false) : a === '2' ? viewStart2(false) : viewStart1(false);
+  else if (page === 'edit') html = a === '3' ? viewStart3(true) : a === '2' ? viewStart2(true) : viewStart1(true);
+  else if (page === 'rezepte') html = viewRezepte();
+  else if (page === 'rezept') html = viewRezept(a, b);
+  else if (page === 'stempel') html = viewStempel();
+  else if (page === 'ich') html = viewIch();
+  else html = viewHeute();
+  if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
+  app.innerHTML = html;
+}
+
+function go(hash) {
+  if (location.hash === hash) render();
+  else location.hash = hash;
+}
+
+function toast(text) {
+  ui.toast = text;
+  render();
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { ui.toast = ''; render(); }, 2200);
+}
+
+window.addEventListener('hashchange', () => {
+  if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
+  ui.justStamped = null;
+  ui.showManual = false;
+  ui.confirmReset = false;
+  render();
+  window.scrollTo(0, 0);
+});
+
+// ---------- Aktionen ----------
+
+const actions = {
+  diet(el) { state.profile.diet = el.dataset.id; },
+  allergy(el) {
+    const id = el.dataset.id;
+    const list = state.profile.allergies;
+    state.profile.allergies = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+  },
+  goal(el) {
+    const g = GOALS.find((x) => x.id === el.dataset.id);
+    state.profile.goal = g.id;
+    state.profile.kcal = g.kcal;
+  },
+  taste(el) {
+    const food = el.dataset.food;
+    const v = el.dataset.value;
+    state.profile.taste[food] = state.profile.taste[food] === v ? null : v;
+    if (!state.profile.taste[food] && TASTE_FOODS.includes(food)) delete state.profile.taste[food];
+  },
+  'add-food'() {
+    const v = ui.draft.trim().replace(/\s+/g, ' ');
+    if (!v) return;
+    const name = v.charAt(0).toUpperCase() + v.slice(1);
+    state.profile.taste[name] = 'like';
+    ui.draft = '';
+  },
+  time(el) { state.profile.times[el.dataset.meal] = Number(el.dataset.min); },
+  'finish-start'() { state.onboarded = true; save(); go('#/heute'); return 'skip'; },
+  'go-ich'() { save(); go('#/ich'); return 'skip'; },
+  'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + 1; },
+  filter(el) { ui.recipeFilter = el.dataset.id; },
+  'show-manual'() { ui.showManual = true; },
+  'add-manual'() {
+    const n = Math.round(Number(ui.manualKcal));
+    if (!n || n <= 0 || n > 5000) return;
+    const key = todayKey();
+    state.log[key] = [...todayLog(), { recipeId: null, meal: 'extra', kcal: n, name: 'Etwas anderes' }];
+    ui.manualKcal = '';
+    ui.showManual = false;
+  },
+  cooked(el) {
+    const r = RECIPES.find((x) => x.id === el.dataset.recipe);
+    const meal = el.dataset.meal || currentMeal();
+    const key = todayKey();
+    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name }];
+    const before = stampCount();
+    state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
+    state.xp += XP_PER_RECIPE;
+    ui.justStamped = r.id;
+    save();
+    if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) toast('Ginger hat ihre Kochmütze bekommen!');
+  },
+  'ask-reset'() { ui.confirmReset = true; },
+  'cancel-reset'() { ui.confirmReset = false; },
+  reset() {
+    ui.confirmReset = false;
+    state = defaultState();
+    save();
+    go('#/start/1');
+    return 'skip';
+  }
+};
+
+function currentMeal() {
+  const h = new Date().getHours();
+  return h < 11 ? 'fruehstueck' : h < 16 ? 'mittag' : 'abend';
+}
+
+app.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el || el.dataset.action === 'step') return;
+  const fn = actions[el.dataset.action];
+  if (!fn) return;
+  e.preventDefault();
+  if (fn(el) === 'skip') return;
+  save();
+  render();
+});
+
+app.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.dataset.action === 'step') {
+    const id = el.dataset.recipe;
+    const i = Number(el.dataset.step);
+    const set = new Set(state.cooking[id] || []);
+    if (el.checked) set.add(i); else set.delete(i);
+    state.cooking[id] = [...set];
+    save();
+    render();
+  } else if (el.dataset.input === 'kcal') {
+    const n = Math.round(Number(el.value));
+    if (n >= 1000 && n <= 5000) { state.profile.kcal = n; save(); }
+    else el.value = state.profile.kcal;
+  }
+});
+
+app.addEventListener('input', (e) => {
+  const key = e.target.dataset.input;
+  if (key === 'draft' || key === 'manualKcal') ui[key] = e.target.value;
+});
+
+app.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const key = e.target.dataset.input;
+  if (key === 'draft') { actions['add-food'](); save(); render(); document.getElementById('eigenes')?.focus(); }
+  if (key === 'manualKcal') { actions['add-manual'](); save(); render(); }
+});
+
+render();
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}

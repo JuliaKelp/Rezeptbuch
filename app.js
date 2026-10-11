@@ -16,6 +16,10 @@ const MEALS = [
   { id: 'mittag', name: 'Mittagessen', share: 0.35 },
   { id: 'abend', name: 'Abendessen', share: 0.4 }
 ];
+// Bei 2 Mahlzeiten am Tag: lieber zwei Snacks als riesige Portionen
+const SNACK = { id: 'snack', name: 'Snack' };
+const SNACKS_PER_DAY = 2;
+const MEAL_ORDER = ['fruehstueck', 'mittag', 'snack', 'abend'];
 
 const DIETS = [
   { id: 'vegan', name: 'Vegan', allows: ['vegan'] },
@@ -100,6 +104,8 @@ function defaultState() {
       kcal: 2000,
       sex: 'x',
       portions: 1,
+      mealCount: 3,          // 2 oder 3 Mahlzeiten am Tag
+      skip: 'fruehstueck',   // welche Mahlzeit bei 2 ausfällt
       taste: {},
       times: { fruehstueck: 5, mittag: 15, abend: 30 }
     },
@@ -155,7 +161,25 @@ function hashStr(s) {
   return Math.abs(h);
 }
 
-function mealName(id) { return (MEALS.find((m) => m.id === id) || {}).name || ''; }
+function mealName(id) { return ([...MEALS, SNACK].find((m) => m.id === id) || {}).name || ''; }
+
+function mainMeals() {
+  const p = state.profile;
+  return p.mealCount === 2 ? MEALS.filter((m) => m.id !== p.skip) : MEALS;
+}
+// Hauptmahlzeiten plus Snacks, in Tagesreihenfolge
+function dayMeals() {
+  const list = state.profile.mealCount === 2 ? [...mainMeals(), SNACK] : mainMeals();
+  return list.sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id));
+}
+// Kalorienbudget für eine Mahlzeit. Bei 2 Mahlzeiten bleiben die Portionen normal groß (je 35 %),
+// den Rest decken zwei Snacks mit je 15 %.
+function mealBudget(meal) {
+  const p = state.profile;
+  if (p.mealCount === 2) return p.kcal * (meal === 'snack' ? 0.15 : 0.35);
+  if (meal === 'snack') return p.kcal * 0.1;
+  return p.kcal * (MEALS.find((m) => m.id === meal) || MEALS[1]).share;
+}
 function dietName(id) { return { vegan: 'vegan', vegetarisch: 'vegetarisch', fisch: 'mit Fisch', fleisch: 'mit Fleisch' }[id]; }
 
 function todayLog() { return state.log[todayKey()] || []; }
@@ -197,7 +221,7 @@ function likeScore(recipe) {
 
 // Wie passt ein Rezept in die verfügbare Zeit? 'fits', 'prep' (am Vorabend), 'vorkochen' (doppelt kochen) oder null
 function timeMode(recipe, meal) {
-  const t = state.profile.times[meal];
+  const t = meal === 'snack' ? 10 : state.profile.times[meal];
   if (recipe.prep) return recipe.serve <= t ? 'prep' : null;
   if (recipe.time <= t) return 'fits';
   if (recipe.mealprep) return 'vorkochen';
@@ -205,7 +229,7 @@ function timeMode(recipe, meal) {
 }
 
 function ideasFor(meal) {
-  const budget = state.profile.kcal * MEALS.find((m) => m.id === meal).share;
+  const budget = mealBudget(meal);
   const day = todayKey();
   const cookedToday = new Set(todayLog().map((e) => e.recipeId));
   const tipRecipe = meal === 'mittag' ? (prepTips().find((t) => t.recipe && t.recipe.mealprep) || {}).recipe?.id : null;
@@ -230,18 +254,19 @@ function ideasFor(meal) {
 function prepTips() {
   const times = state.profile.times;
   const tips = [];
-  if (times.fruehstueck <= SHORT_TIME) {
+  const eats = mainMeals().map((m) => m.id);
+  if (eats.includes('fruehstueck') && times.fruehstueck <= SHORT_TIME) {
     const oats = allRecipes().filter((r) => r.prep && r.meals.includes('fruehstueck') && suitable(r))
       .sort((a, b) => likeScore(b) - likeScore(a))[0];
     if (oats) tips.push({ recipe: oats, text: `Setz heute Abend nebenbei ${oats.name} für morgen früh an. Dauert nur ${oats.time} Min.` });
   }
   const dinnerDone = todayLog().some((e) => e.meal === 'abend');
-  if (times.mittag <= SHORT_TIME && !dinnerDone) {
+  if (eats.includes('mittag') && eats.includes('abend') && times.mittag <= SHORT_TIME && !dinnerDone) {
     const mp = allRecipes().filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
       .sort((a, b) => likeScore(b) - likeScore(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
     if (mp) tips.push({ recipe: mp, text: `Koch heute Abend ${mp.name} doppelt und nimm eine Portion morgen zum Mittagessen mit.` });
   }
-  if (times.abend <= SHORT_TIME) {
+  if (eats.includes('abend') && times.abend <= SHORT_TIME) {
     tips.push({ recipe: null, text: 'Abends ist wenig Zeit: Koch am Wochenende ein Gericht mit Vorkoch-Tipp in doppelter Menge und friere Portionen ein.' });
   }
   return tips;
@@ -270,8 +295,11 @@ function isFav(r) { return !!(state.favorites && state.favorites[r.id]); }
 
 // Der Plan läuft immer über die nächsten 7 Tage ab heute. Leere Plätze füllt Ginger selbst.
 function ensureWeek() {
-  if (!state.week) state.week = { seed: 0, meals: MEALS.map((m) => m.id), slots: {}, bought: {} };
+  if (!state.week) state.week = { seed: 0, meals: [], slots: {}, bought: {} };
   const w = state.week;
+  // Mahlzeiten im Plan folgen dem Profil (2 oder 3 Mahlzeiten), bis man sie im Plan selbst ändert
+  const mealsKey = `${state.profile.mealCount}|${state.profile.skip}`;
+  if (w.mealsKey !== mealsKey) { w.meals = dayMeals().map((m) => m.id); w.mealsKey = mealsKey; }
   const days = weekDays();
   const used = {};
   for (const [k, s] of Object.entries(w.slots)) {
@@ -293,7 +321,7 @@ function ensureWeek() {
 }
 
 function weekCandidates(meal, day, used) {
-  const budget = state.profile.kcal * MEALS.find((m) => m.id === meal).share;
+  const budget = mealBudget(meal);
   const seed = state.week.seed;
   return allRecipes()
     .filter((r) => r.meals.includes(meal) && suitable(r) && timeMode(r, meal))
@@ -376,7 +404,7 @@ function shoppingList() {
 // Auswahl, an welchem Tag ein Rezept gegessen werden soll
 function planPicker(r) {
   ensureWeek();
-  const meals = MEALS.filter((m) => r.meals.includes(m.id));
+  const meals = [...MEALS, SNACK].filter((m) => r.meals.includes(m.id));
   return `<div class="card plan-picker">
     <div class="small" style="font-weight:800">Wann willst du es essen?</div>
     ${meals.map((m) => `<div class="small muted">${m.name}</div>
@@ -441,9 +469,9 @@ function viewWoche() {
   const selDay = ui.cell && ui.cell.split('|')[0];
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Mein Plan für die nächsten 7 Tage. Tipp ein Gericht an, um es zu übernehmen, zu tauschen oder ein anderes zu bekommen.</div></div>
-    <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${MEALS.map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
+    <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${[...MEALS, SNACK].sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id)).map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
     <div class="wk-wrap"><table class="wk">
-      <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
+      <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', snack: 'Snack', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
       <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
     </table></div>
     <div class="card week-sum">
@@ -783,7 +811,19 @@ const TIME_TIPS = {
 
 function viewStart3(edit) {
   const t = state.profile.times;
-  const blocks = MEALS.map((m) => `<div class="card" style="display:flex;flex-direction:column;gap:10px">
+  const p = state.profile;
+  const count = `<div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="meal-head"><h3>Wie oft isst du am Tag?</h3></div>
+      <div class="seg" role="group" aria-label="Mahlzeiten am Tag">
+        ${[2, 3].map((n) => `<button data-action="meal-count" data-n="${n}" aria-pressed="${p.mealCount === n}">${n} Mahlzeiten</button>`).join('')}
+      </div>
+      ${p.mealCount === 2 ? `<div class="small muted" style="font-weight:700">Welche lässt du aus?</div>
+      <div class="seg" role="group" aria-label="Ausgelassene Mahlzeit">
+        ${MEALS.map((m) => `<button data-action="skip-meal" data-id="${m.id}" aria-pressed="${p.skip === m.id}">${m.name.replace('essen', '')}</button>`).join('')}
+      </div>
+      <div class="hint">${ICONS.paw}<span>Deine Mahlzeiten bleiben normal groß. Was dann noch an Kalorien fehlt, schlägt Ginger dir als zwei kleine Snacks vor.</span></div>` : ''}
+    </div>`;
+  const blocks = mainMeals().map((m) => `<div class="card" style="display:flex;flex-direction:column;gap:10px">
       <div class="meal-head"><h3>${m.name}</h3><span class="small" style="color:var(--accent-text)">${t[m.id]} Min</span></div>
       <div class="seg" role="group" aria-label="Zeit für ${m.name}">
         ${TIME_OPTIONS.map((n) => `<button data-action="time" data-meal="${m.id}" data-min="${n}" aria-pressed="${t[m.id] === n}">${n}</button>`).join('')}
@@ -794,6 +834,7 @@ function viewStart3(edit) {
     ${edit ? '' : stepsBar(3)}
     <h1>Wie viel Zeit hast du zum Kochen?</h1>
     <p class="lead">Pro Mahlzeit, in Minuten. Wenn es knapp wird, plant Ginger Vorbereitung an Zeiten mit mehr Luft ein.</p>
+    ${count}
     ${blocks}
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
       <div class="meal-head"><h3>Ich koche meist für</h3><span class="small" style="color:var(--accent-text)">${state.profile.portions || 1} ${(state.profile.portions || 1) === 1 ? 'Portion' : 'Portionen'}</span></div>
@@ -807,6 +848,23 @@ function viewStart3(edit) {
 }
 
 // ---------- Heute ----------
+
+// Zwei kleine Snacks, wenn man nur 2 Mahlzeiten am Tag isst
+function snackBlock(eatenHere, eatenCard) {
+  const need = Math.max(0, SNACKS_PER_DAY - eatenHere.length);
+  const planned = plannedRecipe(todayKey(), 'snack');
+  let ideas = ideasFor('snack');
+  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+  const start = ideas.length ? (state.pick.snack || 0) % ideas.length : 0;
+  const shown = [];
+  for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
+  return `<section class="meal-block">
+    <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
+    ${eatenHere.map(eatenCard).join('')}
+    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack' })).join('')}
+    ${need && ideas.length > need ? '<div class="idea-actions"><span></span><button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button></div>' : ''}
+  </section>`;
+}
 
 function viewHeute() {
   const target = state.profile.kcal;
@@ -824,15 +882,18 @@ function viewHeute() {
   const eatenCard = (e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div>
       <button class="round" data-action="undo-eaten" data-index="${e.index}" aria-label="${esc(e.name)} wieder austragen">${ICONS.cross}</button></div>`;
   const indexed = log.map((e, index) => ({ ...e, index }));
-  const extras = indexed.filter((e) => !MEALS.some((m) => m.id === e.meal));
-  const meals = MEALS.map((m) => {
+  const extras = indexed.filter((e) => !dayMeals().some((m) => m.id === e.meal));
+  const shownToday = new Set();
+  const meals = dayMeals().map((m) => {
     const eatenHere = indexed.filter((e) => e.meal === m.id);
+    if (m.id === 'snack') return snackBlock(eatenHere, eatenCard);
     if (eatenHere.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3><span class="small muted">gegessen</span></div>
         ${eatenHere.map(eatenCard).join('')}
       </section>`;
     }
-    let ideas = ideasFor(m.id);
+    // Dasselbe Gericht nicht mittags und abends vorschlagen
+    let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
     const planned = plannedRecipe(todayKey(), m.id);
     if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
     if (!ideas.length) {
@@ -841,6 +902,7 @@ function viewHeute() {
     }
     const i = (state.pick[m.id] || 0) % ideas.length;
     const idea = ideas[i];
+    shownToday.add(idea.recipe.id);
     return `<section class="meal-block">
       <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
@@ -897,7 +959,7 @@ function viewRezepte() {
     const own = state.ownRecipes.filter(byMeal);
     const list = RECIPES.filter(suitable).filter(byMeal)
       .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
-    const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS];
+    const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS, { id: 'snack', name: 'Snacks' }];
     body = `<p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
     <a class="btn secondary" href="#/neu">+ Eigenes Rezept eintragen</a>
     <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
@@ -1286,7 +1348,7 @@ function viewIch() {
     </a>
     <a class="card" href="#/edit/3" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Zeit und Portionen</h3>
-      <div class="small muted">${MEALS.map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
+      <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
@@ -1708,6 +1770,8 @@ const actions = {
     state.profile.taste[name] = 'like';
     ui.draft = '';
   },
+  'meal-count'(el) { state.profile.mealCount = Number(el.dataset.n); },
+  'skip-meal'(el) { state.profile.skip = el.dataset.id; },
   time(el) { state.profile.times[el.dataset.meal] = Number(el.dataset.min); },
   'finish-start'() { state.onboarded = true; save(); go('#/heute'); return 'skip'; },
   'go-ich'() { save(); go('#/ich'); return 'skip'; },
@@ -1768,7 +1832,7 @@ const actions = {
     const w = state.week;
     const m = el.dataset.meal;
     if (w.meals.includes(m)) { if (w.meals.length > 1) w.meals = w.meals.filter((x) => x !== m); }
-    else w.meals = MEALS.map((x) => x.id).filter((x) => x === m || w.meals.includes(x));
+    else w.meals = MEAL_ORDER.filter((x) => x === m || w.meals.includes(x));
   },
   'week-portions'(el) { state.week.portions = Math.max(1, Math.min(12, Number(el.dataset.n))); },
   'slot-portions'(el) { state.week.slots[el.dataset.slot].n = Math.max(1, Math.min(12, Number(el.dataset.n))); },
@@ -1800,7 +1864,7 @@ const actions = {
       return;
     }
     w.slots[k] = { id, ok: true };
-    if (!w.meals.includes(meal)) w.meals = MEALS.map((x) => x.id).filter((x) => x === meal || w.meals.includes(x));
+    if (!w.meals.includes(meal)) w.meals = MEAL_ORDER.filter((x) => x === meal || w.meals.includes(x));
     toast(`Eingeplant: ${dayName(day)}, ${mealName(meal)}`);
   },
   'recipe-tab'(el) { ui.recipeTab = el.dataset.id; },
@@ -1811,7 +1875,7 @@ const actions = {
   },
   'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
   'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
-  'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + 1; },
+  'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (m === 'snack' ? SNACKS_PER_DAY : 1); },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   'show-manual'() { ui.showManual = true; },
   'add-manual'() {

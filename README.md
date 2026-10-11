@@ -12,6 +12,7 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
 - Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Gerichte übernehmen, gegen andere tauschen oder zwischen Tagen tauschen, Portionen pro Gericht einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
 - „Ich habe …“: Lebensmittel eingeben und passende Rezepte finden.
+- 2 oder 3 Mahlzeiten: Wer nur zweimal am Tag isst, bekommt normale Portionen und dazu zwei kleine Snacks statt größerer Mahlzeiten.
 - Favoriten: kommen öfter in den Wochenplan und lassen sich auf einen Tag einplanen.
 - Eigene Rezepte eintragen: Ginger schätzt die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge (Mengen anpassen, Tauschideen wie Milch statt Sahne).
 

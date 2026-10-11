@@ -1,5 +1,5 @@
 // Rezepte: einfach, max. 30 Minuten, ohne ausgefallene Zutaten.
-// kcal sind grobe Schätzwerte pro Portion.
+// kcal und Nährwerte werden beim Start aus den Zutaten berechnet (BLS 4.0, siehe nutrition.js).
 //
 // diet:      'vegan' | 'vegetarisch' | 'fisch' | 'fleisch'
 // allergens: 'gluten' | 'laktose' | 'ei' | 'soja' | 'nuesse' | 'fisch'

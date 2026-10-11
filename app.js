@@ -339,16 +339,41 @@ function weekCandidates(meal, day, used) {
 
 function slotFits(r, meal) { return r.meals.includes(meal) && !!timeMode(r, meal); }
 
-// Mengenfaktor für einen Platz im Plan: das Gericht wird so hoch- oder heruntergerechnet,
-// dass es zum Kalorienrahmen der Mahlzeit passt (0,7× bis 1,4×). Gekaufte Produkte bleiben, wie sie sind.
-function fitFactor(r, meal) {
-  if (!r || r.product || !r.kcal || (state.week && state.week.fit === false)) return 1;
-  const f = Math.round((mealBudget(meal) / r.kcal) * 10) / 10;
-  return Math.min(1.4, Math.max(0.7, f));
+// Mengenfaktoren für einen Tag im Plan: Die Gerichte werden so hoch- oder heruntergerechnet,
+// dass der ganze Tag höchstens 5 % vom Kalorienziel der geplanten Mahlzeiten abweicht.
+// Jedes Gericht bleibt zwischen 0,6× und 1,6× der Rezeptmenge; gekaufte Produkte bleiben, wie sie sind.
+const FIT_MIN = 0.6;
+const FIT_MAX = 1.6;
+const DAY_TOLERANCE = 0.05;
+function dayFactors(day) {
+  const w = state.week;
+  const out = {};
+  const items = w.meals.map((m) => {
+    const k = `${day}|${m}`;
+    const r = w.slots[k] && recipeById(w.slots[k].id);
+    return r ? { k, r, budget: mealBudget(m), f: 1 } : null;
+  }).filter(Boolean);
+  if (w.fit === false) { for (const x of items) out[x.k] = 1; return out; }
+  const target = items.reduce((a, x) => a + x.budget, 0);
+  const fixed = items.filter((x) => x.r.product || !x.r.kcal);
+  const free = items.filter((x) => !x.r.product && x.r.kcal);
+  // Erst jedes Gericht auf seinen Platz, dann den Tag als Ganzes nachziehen
+  for (const x of free) x.f = Math.min(FIT_MAX, Math.max(FIT_MIN, x.budget / x.r.kcal));
+  const fixedKcal = fixed.reduce((a, x) => a + x.r.kcal, 0);
+  for (let i = 0; i < 6; i++) {
+    const sum = free.reduce((a, x) => a + x.r.kcal * x.f, 0);
+    if (!sum) break;
+    const ratio = (target - fixedKcal) / sum;
+    if (Math.abs(ratio - 1) < 0.005) break;
+    for (const x of free) x.f = Math.min(FIT_MAX, Math.max(FIT_MIN, x.f * ratio));
+  }
+  for (const x of free) x.f = Math.round(x.f * 20) / 20;
+  for (const x of items) out[x.k] = x.f;
+  return out;
 }
 function slotFactor(k) {
-  const s = state.week && state.week.slots[k];
-  return s ? fitFactor(recipeById(s.id), k.split('|')[1]) : 1;
+  if (!state.week || !state.week.slots[k]) return 1;
+  return dayFactors(k.split('|')[0])[k] || 1;
 }
 function fmtFactor(f) { return String(f).replace('.', ','); }
 
@@ -475,7 +500,7 @@ function viewWoche() {
     return `<tr class="wk-detail"><td colspan="${w.meals.length + 1}">
       <div class="small muted" style="font-weight:800">${dayName(day)} · ${mealName(meal)}</div>
       ${recipeCard(r, { meal, mode: timeMode(r, meal), factor: slotFactor(k) })}
-      ${slotFactor(k) !== 1 ? `<div class="small muted">Menge ${fmtFactor(slotFactor(k))}× Rezept, damit es zu ${mealName(meal)} passt (ca. ${fmt(Math.round(mealBudget(meal) / 10) * 10)} kcal).</div>` : ''}
+      ${slotFactor(k) !== 1 ? `<div class="small muted">Menge ${fmtFactor(slotFactor(k))}× Rezept, damit der Tag zu deinem Kalorienziel passt.</div>` : ''}
       ${ui.swapFrom === k
         ? '<div class="plan-actions"><span class="small muted">Tipp in der Tabelle auf den Platz zum Tauschen.</span><button class="link-btn" data-action="week-swap">Abbrechen</button></div>'
         : `<div class="plan-actions">
@@ -501,7 +526,7 @@ function viewWoche() {
       goal += mealBudget(m);
     }
     if (!sum) return '';
-    const off = Math.abs(sum - goal) / goal > 0.1;
+    const off = Math.abs(sum - goal) / goal > DAY_TOLERANCE;
     return `<span class="wk-sum${off ? ' off' : ''}" title="Ziel ca. ${fmt(Math.round(goal / 10) * 10)} kcal">${fmt(Math.round(sum / 10) * 10)}<small>kcal</small></span>`;
   }
   return `<main class="screen with-nav">
@@ -1087,7 +1112,7 @@ function viewProdukt(r, meal) {
 function viewRezept(id, meal, factorParam) {
   const r = allRecipes().find((x) => x.id === id);
   // Aus dem Wochenplan kann eine angepasste Menge mitkommen (z. B. 1.2)
-  const f = Math.min(1.4, Math.max(0.7, Number(factorParam) || 1));
+  const f = Math.min(FIT_MAX, Math.max(FIT_MIN, Number(factorParam) || 1));
   if (!r) return viewHeute();
   if (r.product) return viewProdukt(r, meal);
   const done = new Set(state.cooking[r.id] || []);
@@ -1112,7 +1137,7 @@ function viewRezept(id, meal, factorParam) {
       <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
     </div>
     ${ui.planning === r.id ? planPicker(r) : ''}
-    ${f !== 1 ? `<div class="hint">${ICONS.paw}<span>Für deinen Plan nimmst du ${fmtFactor(f)}× die Rezeptmenge, damit die Kalorien zur Mahlzeit passen. Die Zutaten unten sind schon umgerechnet.</span></div>` : ''}
+    ${f !== 1 ? `<div class="hint">${ICONS.paw}<span>Für deinen Plan nimmst du ${fmtFactor(f)}× die Rezeptmenge, damit der Tag zu deinem Kalorienziel passt. Die Zutaten unten sind schon umgerechnet.</span></div>` : ''}
     ${note}
     <section class="card"><div class="meal-head" style="margin-bottom:6px"><h2>Du brauchst</h2>
         <div class="stepper" role="group" aria-label="Portionen">

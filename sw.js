@@ -1,5 +1,5 @@
 // Speichert die App auf dem Handy, damit sie auch ohne Internet startet.
-const CACHE = 'rezeptbuch-v4';
+const CACHE = 'rezeptbuch-v5';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'recipes.js', 'nutrition.js', 'vendor/html5-qrcode.min.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

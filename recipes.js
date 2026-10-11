@@ -425,6 +425,98 @@ export const RECIPES = [
       'Alles in die Tortillas füllen und einrollen.'
     ],
     tint: '#F3C9A8'
+  },
+  // ---------- Snacks (bei 2 Mahlzeiten am Tag) ----------
+  {
+    id: 'snack-apfel-erdnuss',
+    name: 'Apfel mit Erdnussbutter',
+    meals: ['snack'],
+    time: 2,
+    kcal: 190,
+    diet: 'vegan',
+    allergens: ['nuesse'],
+    foods: ['Apfel'],
+    ingredients: ['1 Apfel', '1 EL Erdnussbutter'],
+    steps: ['Apfel in Spalten schneiden.', 'Mit Erdnussbutter zum Dippen essen.'],
+    tint: '#DCE8C8'
+  },
+  {
+    id: 'snack-joghurt-beeren',
+    name: 'Joghurt mit Beeren',
+    meals: ['snack'],
+    time: 2,
+    kcal: 180,
+    diet: 'vegetarisch',
+    allergens: ['laktose'],
+    foods: ['Joghurt', 'Beeren'],
+    ingredients: ['150 g Joghurt', '1 Handvoll Beeren (auch TK)', '1 TL Honig'],
+    steps: ['Joghurt in eine Schale geben.', 'Beeren und Honig darüber.'],
+    tint: '#F2D4DC'
+  },
+  {
+    id: 'snack-hummus-sticks',
+    name: 'Gemüsesticks mit Hummus',
+    meals: ['snack'],
+    time: 5,
+    kcal: 170,
+    diet: 'vegan',
+    allergens: [],
+    foods: ['Gurke'],
+    ingredients: ['1 Möhre', '½ Gurke', '3 EL Hummus'],
+    steps: ['Möhre schälen, Möhre und Gurke in Stifte schneiden.', 'In Hummus dippen.'],
+    tint: '#F7D2B0'
+  },
+  {
+    id: 'snack-quark-banane',
+    name: 'Quark mit Banane und Zimt',
+    meals: ['snack'],
+    time: 3,
+    kcal: 220,
+    diet: 'vegetarisch',
+    allergens: ['laktose'],
+    foods: ['Quark', 'Banane'],
+    ingredients: ['150 g Magerquark', '1 Banane', 'etwas Zimt'],
+    steps: ['Quark mit einem Schluck Wasser cremig rühren.', 'Banane in Scheiben drauf, Zimt darüber.'],
+    tint: '#F5E1A4'
+  },
+  {
+    id: 'snack-nuesse-banane',
+    name: 'Nüsse und eine Banane',
+    meals: ['snack'],
+    time: 1,
+    kcal: 260,
+    diet: 'vegan',
+    allergens: ['nuesse'],
+    foods: ['Banane'],
+    ingredients: ['25 g Nüsse', '1 Banane'],
+    steps: ['Nüsse abwiegen, Banane schälen, fertig.'],
+    tint: '#E3DCF2'
+  },
+  {
+    id: 'snack-kaesebrot',
+    name: 'Käsebrot mit Gurke',
+    meals: ['snack'],
+    time: 3,
+    kcal: 230,
+    diet: 'vegetarisch',
+    allergens: ['gluten', 'laktose'],
+    foods: ['Käse', 'Brot', 'Gurke'],
+    ingredients: ['1 Scheibe Vollkornbrot', '1 Scheibe Käse', '½ Gurke'],
+    steps: ['Brot mit Käse belegen.', 'Gurke in Scheiben schneiden und dazu essen.'],
+    tint: '#DDEAF4'
+  },
+  {
+    id: 'snack-eier-tomate',
+    name: 'Gekochte Eier mit Tomate',
+    meals: ['snack'],
+    time: 10,
+    kcal: 180,
+    diet: 'vegetarisch',
+    allergens: ['ei'],
+    foods: ['Eier', 'Tomaten'],
+    ingredients: ['2 Eier', '1 Tomate', 'Salz, Pfeffer'],
+    steps: ['Eier 8 Minuten kochen, kalt abschrecken.', 'Pellen und mit Tomate, Salz und Pfeffer essen.'],
+    tint: '#F3C9A8'
   }
 ];
 

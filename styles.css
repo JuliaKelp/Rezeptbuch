@@ -411,3 +411,12 @@ textarea.input { resize: vertical; font: inherit; }
 [hidden] { display: none !important; }
 .snack-chip { min-height: 36px; padding: 0 10px; font-size: 13px; flex-shrink: 0; }
 .snack-chip:disabled { opacity: 0.4; }
+
+/* Kalorien im Wochenplan */
+.wk-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.wk-kcal { font-size: 11px; font-weight: 800; color: var(--muted); }
+.wk-sum { display: block; margin-top: 4px; font-size: 11px; font-weight: 900; color: #2D6A42; }
+.wk-sum small { display: block; font-size: 10px; font-weight: 700; }
+.wk-sum.off { color: #9A3324; }
+.fit-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.fit-row input { width: 22px; height: 22px; accent-color: var(--green); }

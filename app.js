@@ -339,6 +339,19 @@ function weekCandidates(meal, day, used) {
 
 function slotFits(r, meal) { return r.meals.includes(meal) && !!timeMode(r, meal); }
 
+// Mengenfaktor für einen Platz im Plan: das Gericht wird so hoch- oder heruntergerechnet,
+// dass es zum Kalorienrahmen der Mahlzeit passt (0,7× bis 1,4×). Gekaufte Produkte bleiben, wie sie sind.
+function fitFactor(r, meal) {
+  if (!r || r.product || !r.kcal || (state.week && state.week.fit === false)) return 1;
+  const f = Math.round((mealBudget(meal) / r.kcal) * 10) / 10;
+  return Math.min(1.4, Math.max(0.7, f));
+}
+function slotFactor(k) {
+  const s = state.week && state.week.slots[k];
+  return s ? fitFactor(recipeById(s.id), k.split('|')[1]) : 1;
+}
+function fmtFactor(f) { return String(f).replace('.', ','); }
+
 // Übernommenes Gericht für einen Tag und eine Mahlzeit
 function plannedRecipe(day, meal) {
   const s = state.week && state.week.slots[`${day}|${meal}`];
@@ -353,7 +366,7 @@ function acceptedSlots() {
   const days = weekDays();
   return Object.entries(w.slots)
     .filter(([k, s]) => s.ok && days.includes(k.split('|')[0]) && w.meals.includes(k.split('|')[1]))
-    .map(([k, s]) => ({ key: k, recipe: recipeById(s.id), n: s.n || weekPortions() }))
+    .map(([k, s]) => ({ key: k, recipe: recipeById(s.id), n: s.n || weekPortions(), f: slotFactor(k) }))
     .filter((x) => x.recipe);
 }
 
@@ -373,7 +386,7 @@ function shoppingList() {
   const groups = new Map();
   const staples = new Map();
   const bought = new Set(pantryList().map((p) => p.food).filter(Boolean));
-  for (const { recipe, n } of acceptedSlots()) {
+  for (const { recipe, n, f } of acceptedSlots()) {
     if (recipe.product) {
       const key = `p|${recipe.code}`;
       const g = groups.get(key) || { key, product: recipe, amount: 0, recipes: new Set() };
@@ -395,7 +408,7 @@ function shoppingList() {
       }
       const key = `${food ? food.name : p.name.toLowerCase()}|${p.unit}`;
       const g = groups.get(key) || { key, p, food, amount: 0, recipes: new Set() };
-      g.amount += p.amount * n;
+      g.amount += p.amount * n * f;
       g.recipes.add(recipe.name);
       groups.set(key, g);
     }
@@ -451,7 +464,7 @@ function viewWoche() {
     const label = ui.swapFrom && ui.swapFrom !== k && canSwap(ui.swapFrom, k) ? `${r.name} tauschen` : r.name;
     return `<td class="wk-cell${cls}"><button data-action="cell" data-slot="${k}" aria-label="${esc(label)}${s.ok ? ', übernommen' : ''}" aria-pressed="${ui.cell === k}">
       <span class="wk-name">${esc(r.name)}</span>
-      ${s.ok ? `<span class="wk-ok">${ICONS.check}${s.n || weekPortions()}×</span>` : ''}
+      <span class="wk-foot"><span class="wk-kcal">${fmt(Math.round((r.kcal * slotFactor(k)) / 10) * 10)}</span>${s.ok ? `<span class="wk-ok">${ICONS.check}${s.n || weekPortions()}×</span>` : ''}</span>
     </button></td>`;
   };
   const detail = (k) => {
@@ -461,7 +474,8 @@ function viewWoche() {
     const n = s.n || weekPortions();
     return `<tr class="wk-detail"><td colspan="${w.meals.length + 1}">
       <div class="small muted" style="font-weight:800">${dayName(day)} · ${mealName(meal)}</div>
-      ${recipeCard(r, { meal, mode: timeMode(r, meal) })}
+      ${recipeCard(r, { meal, mode: timeMode(r, meal), factor: slotFactor(k) })}
+      ${slotFactor(k) !== 1 ? `<div class="small muted">Menge ${fmtFactor(slotFactor(k))}× Rezept, damit es zu ${mealName(meal)} passt (ca. ${fmt(Math.round(mealBudget(meal) / 10) * 10)} kcal).</div>` : ''}
       ${ui.swapFrom === k
         ? '<div class="plan-actions"><span class="small muted">Tipp in der Tabelle auf den Platz zum Tauschen.</span><button class="link-btn" data-action="week-swap">Abbrechen</button></div>'
         : `<div class="plan-actions">
@@ -475,12 +489,27 @@ function viewWoche() {
     </td></tr>`;
   };
   const selDay = ui.cell && ui.cell.split('|')[0];
+  // Summe des Tages und Abweichung vom Ziel der geplanten Mahlzeiten
+  function dayTotal(d) {
+    let sum = 0;
+    let goal = 0;
+    for (const m of w.meals) {
+      const k = `${d}|${m}`;
+      const r = w.slots[k] && recipeById(w.slots[k].id);
+      if (!r) continue;
+      sum += r.kcal * slotFactor(k);
+      goal += mealBudget(m);
+    }
+    if (!sum) return '';
+    const off = Math.abs(sum - goal) / goal > 0.1;
+    return `<span class="wk-sum${off ? ' off' : ''}" title="Ziel ca. ${fmt(Math.round(goal / 10) * 10)} kcal">${fmt(Math.round(sum / 10) * 10)}<small>kcal</small></span>`;
+  }
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Mein Plan für die nächsten 7 Tage. Tipp ein Gericht an, um es zu übernehmen, zu tauschen oder ein anderes zu bekommen.</div></div>
     <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${[...MEALS, SNACK].sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id)).map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
     <div class="wk-wrap"><table class="wk">
       <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', snack: 'Snack', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
-      <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
+      <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}${dayTotal(d)}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
     </table></div>
     <div class="card week-sum">
       <div style="font-weight:800">${okCount} von ${shown.length} Gerichten übernommen</div>
@@ -488,6 +517,7 @@ function viewWoche() {
         <button class="btn secondary small-btn" data-action="${okCount === shown.length ? 'week-none' : 'week-all'}">${okCount === shown.length ? 'Keins übernehmen' : 'Alle übernehmen'}</button>
         <button class="btn secondary small-btn" data-action="week-new">Rest neu mischen</button>
       </div>
+      <label class="row fit-row"><input type="checkbox" data-action="week-fit" ${w.fit === false ? '' : 'checked'}><span class="small">Mengen an mein Kalorienziel anpassen</span></label>
       <div class="plan-portions"><span class="small muted">Portionen pro Gericht, wenn du nichts änderst</span>${portionStepper('week-portions', weekPortions(), '')}</div>
       <a class="btn" href="#/liste">Einkaufsliste${okCount ? ` (${okCount} Gerichte)` : ''}</a>
     </div>
@@ -732,7 +762,7 @@ function stepsBar(n) {
     <b>${n} von 3</b></div>`;
 }
 
-function recipeCard(recipe, { meal, mode } = {}) {
+function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
   const cooked = !!state.stamps[recipe.id];
   let badge = cooked
     ? `<div class="stamp-mini" title="Schon gekocht">${ICONS.check}<span class="sr-only">Schon gekocht</span></div>`
@@ -741,7 +771,8 @@ function recipeCard(recipe, { meal, mode } = {}) {
   if (mode === 'prep') { badge = '<div class="badge prep">Vorbereiten</div>'; meta = `Am Vorabend ${recipe.time} Min · ca. ${recipe.kcal} kcal`; }
   if (recipe.product) { badge = '<div class="badge new">Gekauft</div>'; meta = `${recipe.servingGuess ? 'ca. ' : ''}${fmt(recipe.serving)} g · ca. ${recipe.kcal} kcal`; }
   if (mode === 'vorkochen') { badge = '<div class="badge prep">Vorkochen</div>'; meta = `Vorher doppelt kochen · ca. ${recipe.kcal} kcal`; }
-  const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}`;
+  if (factor !== 1) meta = meta.replace(`ca. ${recipe.kcal} kcal`, `ca. ${Math.round((recipe.kcal * factor) / 10) * 10} kcal (${fmtFactor(factor)}× Menge)`);
+  const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}${meal && factor !== 1 ? '/' + factor : ''}`;
   return `<a class="recipe-card" href="${href}">
     <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
     <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div></div>
@@ -864,14 +895,14 @@ function snackBlock(eatenHere, eatenCard) {
   const need = Math.max(0, SNACKS_PER_DAY - eatenHere.length);
   const planned = plannedRecipe(todayKey(), 'snack');
   let ideas = ideasFor('snack');
-  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true, factor: slotFactor(`${todayKey()}|snack`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
   const start = ideas.length ? (state.pick.snack || 0) % ideas.length : 0;
   const shown = [];
   for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
   return `<section class="meal-block">
     <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
     ${eatenHere.map(eatenCard).join('')}
-    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack' })).join('')}
+    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
     ${need && ideas.length > need ? '<div class="idea-actions"><span></span><button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button></div>' : ''}
   </section>`;
 }
@@ -905,7 +936,7 @@ function viewHeute() {
     // Dasselbe Gericht nicht mittags und abends vorschlagen
     let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
     const planned = plannedRecipe(todayKey(), m.id);
-    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true, factor: slotFactor(`${todayKey()}|${m.id}`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
     if (!ideas.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
         <div class="card small muted">Ginger findet gerade kein passendes Rezept. Vielleicht sind zu viele Zutaten auf „mag ich nicht“?</div></section>`;
@@ -915,7 +946,7 @@ function viewHeute() {
     shownToday.add(idea.recipe.id);
     return `<section class="meal-block">
       <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
-      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode })}
+      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
         <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
         ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
@@ -1053,8 +1084,10 @@ function viewProdukt(r, meal) {
   </main>`;
 }
 
-function viewRezept(id, meal) {
+function viewRezept(id, meal, factorParam) {
   const r = allRecipes().find((x) => x.id === id);
+  // Aus dem Wochenplan kann eine angepasste Menge mitkommen (z. B. 1.2)
+  const f = Math.min(1.4, Math.max(0.7, Number(factorParam) || 1));
   if (!r) return viewHeute();
   if (r.product) return viewProdukt(r, meal);
   const done = new Set(state.cooking[r.id] || []);
@@ -1072,13 +1105,14 @@ function viewRezept(id, meal) {
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
-      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${r.kcal} kcal pro Portion · ${dietName(r.diet)}</div>
+      <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${Math.round((r.kcal * f) / 10) * 10} kcal pro Portion · ${dietName(r.diet)}</div>
     </div>
     <div class="input-row">
       <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
       <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
     </div>
     ${ui.planning === r.id ? planPicker(r) : ''}
+    ${f !== 1 ? `<div class="hint">${ICONS.paw}<span>Für deinen Plan nimmst du ${fmtFactor(f)}× die Rezeptmenge, damit die Kalorien zur Mahlzeit passen. Die Zutaten unten sind schon umgerechnet.</span></div>` : ''}
     ${note}
     <section class="card"><div class="meal-head" style="margin-bottom:6px"><h2>Du brauchst</h2>
         <div class="stepper" role="group" aria-label="Portionen">
@@ -1086,9 +1120,9 @@ function viewRezept(id, meal) {
           <span><b>${portionsOf(r)}</b> ${portionsOf(r) === 1 ? 'Portion' : 'Portionen'}</span>
           <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) + 1}" aria-label="Eine Portion mehr" ${portionsOf(r) >= 12 ? 'disabled' : ''}>+</button>
         </div></div>
-      <ul class="ing-list">${scaledIngredients(r, portionsOf(r)).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
     </section>
-    ${nutrientTable(recipeNutrients(r))}
+    ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f))}
     <h2>So geht’s</h2>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
@@ -1105,7 +1139,7 @@ function viewRezept(id, meal) {
     <div class="bottom">
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
-        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -1759,7 +1793,7 @@ function render() {
   if (page === 'start') html = a === '3' ? viewStart3(false) : a === '2' ? viewStart2(false) : viewStart1(false);
   else if (page === 'edit') html = a === '3' ? viewStart3(true) : a === '2' ? viewStart2(true) : viewStart1(true);
   else if (page === 'rezepte') html = viewRezepte();
-  else if (page === 'rezept') html = viewRezept(a, b);
+  else if (page === 'rezept') html = viewRezept(a, b, route()[3]);
   else if (page === 'stempel') html = viewStempel();
   else if (page === 'ich') html = viewIch();
   else if (page === 'neu') html = viewNeu(a);
@@ -1907,6 +1941,7 @@ const actions = {
     if (w.meals.includes(m)) { if (w.meals.length > 1) w.meals = w.meals.filter((x) => x !== m); }
     else w.meals = MEAL_ORDER.filter((x) => x === m || w.meals.includes(x));
   },
+  'week-fit'() { state.week.fit = state.week.fit === false; },
   'week-portions'(el) { state.week.portions = Math.max(1, Math.min(12, Number(el.dataset.n))); },
   'slot-portions'(el) { state.week.slots[el.dataset.slot].n = Math.max(1, Math.min(12, Number(el.dataset.n))); },
   'list-check'(el) {
@@ -1963,7 +1998,8 @@ const actions = {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
     const key = todayKey();
-    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: r.kcal, name: r.name, n: recipeNutrients(r) }];
+    const f = Number(el.dataset.factor) || 1;
+    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: Math.round(r.kcal * f), name: r.name, n: addNutrients(emptyNutrients(), recipeNutrients(r), f) }];
     const before = stampCount();
     state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
     state.xp += XP_PER_RECIPE;

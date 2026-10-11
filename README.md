@@ -10,7 +10,7 @@ Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 - Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
 - Einkauf scannen: Barcode mit der Handykamera scannen oder eintippen. Die Kamera nutzt Dauer-Autofokus und etwas Zoom, schaltet bei Dunkelheit das Licht ein (wo das Handy es erlaubt) und geht nach dem Scan aus. Die Produktdaten kommen von Open Food Facts. Eingekaufte Lebensmittel rutschen in den Vorschlägen nach oben, was dreimal gekauft wurde, zählt als Lieblingsessen.
 - Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
-- Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Gerichte übernehmen, gegen andere tauschen oder zwischen Tagen tauschen, Portionen pro Gericht einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
+- Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Jedes Gericht wird auf den Kalorienrahmen seines Platzes umgerechnet (0,7× bis 1,4× Menge), die Tabelle zeigt die Tagessumme. Gerichte übernehmen, gegen andere tauschen oder zwischen Tagen tauschen, Portionen pro Gericht einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
 - „Ich habe …“: Lebensmittel eingeben und passende Rezepte finden.
 - 2 oder 3 Mahlzeiten: Wer nur zweimal am Tag isst, bekommt normale Portionen und dazu zwei kleine Snacks statt größerer Mahlzeiten. Gescannte Snack-Produkte wie Riegel werden mit vorgeschlagen.
 - Favoriten: kommen öfter in den Wochenplan und lassen sich auf einen Tag einplanen.

@@ -663,3 +663,19 @@ h2 { font-weight: 800; }
 .tabbar .tab-home::before { content: '‹ '; }
 .toast { background: var(--ink); color: #FFFFFF; font-weight: 700; }
 input, select { background: #FFFFFF; }
+
+/* Einkauf scannen: Licht-Knopf und mitwachsende Liste */
+.scanner .torch { position: absolute; left: 10px; top: 10px; border: 0; border-radius: 999px; padding: 6px 12px; min-height: 34px; font: inherit; font-size: 0.78rem; font-weight: 700; background: rgba(255, 255, 255, 0.92); color: var(--ink); cursor: pointer; }
+.scanner .torch.on { background: var(--accent); color: var(--accent-ink); }
+.scan-head { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 8px; }
+.scan-list { display: flex; flex-direction: column; gap: 8px; }
+.scan-item { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px; }
+.scan-item.fresh { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.scan-item.missing, .scan-item.offline { border-style: dashed; }
+.si-main { flex: 1; min-width: 0; }
+.si-n { font-weight: 700; font-size: 0.9rem; overflow-wrap: anywhere; }
+.si-m { font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
+.si-w { font-size: 0.74rem; color: var(--warn); font-weight: 700; margin-top: 2px; }
+.si-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 1 1 100%; }
+.si-acts:empty { display: none; }
+.si-acts .chip { min-height: 32px; padding: 4px 10px; font-size: 0.74rem; }

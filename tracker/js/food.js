@@ -11,17 +11,122 @@ let foodQuery = '';
 let foodOpen = null; // Lebensmittel mit aufgeklappten Aktionen
 const PANTRY_MAX = 2000;
 
-function pantryAdd(food) {
+// Vormerken; count = wie oft schon gekauft (gescannt oder ausgewählt). replaceId: diese ältere Kopie fällt weg (korrigiertes Produkt).
+function pantryStore(food, replaceId) {
   const snap = foodSnap(food);
-  state.pantry = [Object.assign(snap, { added: Date.now() })].concat((state.pantry || []).filter((x) => x.id !== snap.id)).slice(0, PANTRY_MAX);
+  const list = state.pantry || [];
+  const old = list.find((x) => x.id === snap.id) || (replaceId && list.find((x) => x.id === replaceId));
+  const count = replaceId ? ((old && old.count) || 1) : ((old && old.count) || 0) + 1;
+  state.pantry = [Object.assign(snap, { added: Date.now(), count })].concat(list.filter((x) => x.id !== snap.id && x.id !== replaceId)).slice(0, PANTRY_MAX);
   if (pantryFav && !isFav(snap.id)) state.favs.unshift(foodSnap(food));
-  pantryCount++;
+  if (!replaceId) pantryCount++;
   save();
+}
+function pantryAdd(food) {
+  if (scanFix) { // aus der Scan-Liste bearbeitet oder neu angelegt: Eintrag dort ersetzen
+    const item = scanSession.find((x) => x.code === scanFix.code);
+    pantryStore(food, scanFix.oldId || undefined);
+    if (item) { item.food = food; item.state = 'ok'; }
+    scanFix = null;
+    toast('Korrigiert');
+    openPantry('scan');
+    return;
+  }
+  pantryStore(food);
   toast(`„${food.n}“ vorgemerkt`);
-  openPantry(addTab); // im gleichen Reiter weitermachen (Barcode: nächster Scan)
+  openPantry(addTab); // im gleichen Reiter weitermachen
+}
+
+/* ---------- Einkauf scannen: Kamera bleibt an, jedes Produkt wird sofort vorgemerkt und erscheint oben in der Liste ---------- */
+let scanSession = []; // [{ code, state: 'load' | 'ok' | 'missing' | 'offline', food, n }] dieses Durchgangs, neueste oben
+let scanFix = null;   // { code, oldId } während Bearbeiten/Anlegen aus der Liste
+function renderPantryScan() {
+  $('#addBody').innerHTML = `
+    <div class="scanner"><video id="video" playsinline muted></video><div class="frame"></div>${TORCH_BTN}</div>
+    <p class="small muted" style="margin-top:8px">Einfach nacheinander scannen. Jedes Produkt wird sofort vorgemerkt und erscheint unten. Prüf kurz, ob es stimmt. Nur der Barcode wird an Open Food Facts gesendet.</p>
+    <div class="row"><input id="code" type="text" inputmode="numeric" placeholder="Barcode eintippen" aria-label="Barcode eintippen"><button class="btn" id="lookup" style="flex:0 0 auto">Dazu</button></div>
+    <div class="scan-head"><strong id="scanN"></strong><span class="small muted">neueste oben</span></div>
+    <div class="scan-list" id="scanList"></div>
+    <button class="btn block" id="scanDone" style="margin-top:12px">Fertig</button>`;
+  $('#lookup').onclick = () => { const c = ($('#code').value || '').replace(/\D/g, ''); if (c) { $('#code').value = ''; scanHit(c); } };
+  $('#scanDone').onclick = () => $('#closeSheet').click();
+  drawScanList();
+  startScanner(scanHit);
+}
+async function scanHit(code) {
+  let item = scanSession.find((x) => x.code === code);
+  if (item && item.state === 'load') return;
+  if (item && item.state === 'ok') { // nochmal gekauft
+    item.n++; pantryStore(liveFood(item.food));
+    scanSession = [item].concat(scanSession.filter((x) => x !== item));
+    drawScanList(code); return;
+  }
+  if (!item) { item = { code, n: 1 }; scanSession.unshift(item); }
+  item.state = 'load'; drawScanList(code);
+  const r = await fetchProduct(code);
+  if (r.food) { item.food = r.food; item.state = 'ok'; pantryStore(r.food); }
+  else item.state = r.missing ? 'missing' : 'offline';
+  drawScanList(code);
+}
+// Hinweise wie im alten Rezeptbuch-Scanner: passt nicht zur Ernährungsform, Allergene, Süßstoffe
+function scanWarnings(f) {
+  const out = [];
+  if (state.diet.type === 'veg' && f.d === 0) out.push('nicht vegetarisch');
+  else if (state.diet.type === 'vegan' && f.d != null && f.d < 2) out.push('nicht vegan');
+  const bad = (f.a || []).filter((x) => state.diet.allergens.includes(x)).map((k) => (ALLERGENS.find((x) => x[0] === k) || [0, k])[1]);
+  if (bad.length) out.push('enthält ' + bad.join(', '));
+  if (f.sw && f.sw.length) out.push('Süßstoff: ' + f.sw.join(', '));
+  return out;
+}
+function drawScanList(fresh) {
+  const box = $('#scanList'); if (!box) return;
+  const ok = scanSession.filter((x) => x.state === 'ok').length;
+  $('#scanN').textContent = scanSession.length ? `${ok} vorgemerkt${scanSession.length > ok ? ` · ${scanSession.length - ok} offen` : ''}` : 'Noch nichts gescannt';
+  const bar = document.querySelector('.pantry-bar .small'); if (bar) bar.textContent = 'nur speichern, nicht ins Journal';
+  box.innerHTML = scanSession.map((x, i) => {
+    const f = x.food && liveFood(x.food);
+    const p = f && (state.pantry || []).find((y) => y.id === (f.ref || f.id));
+    let main, acts;
+    if (x.state === 'load') { main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-m">Suche bei Open Food Facts …</div>`; acts = ''; }
+    else if (x.state === 'ok') {
+      const warn = scanWarnings(f);
+      const meta = [f.brand, `${fmt(f.k)} kcal/100 ${unitOf(f)}`, x.n > 1 ? `${x.n}× gescannt` : p && p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ');
+      main = `<div class="si-n">${esc(f.n)}</div><div class="si-m">${meta}</div>${warn.length ? `<div class="si-w">${esc(warn.join(' · '))}</div>` : ''}`;
+      acts = `<button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Ins Journal</button>`;
+    } else if (x.state === 'missing') {
+      main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div>`;
+      acts = `<button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;
+    } else {
+      main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Keine Verbindung zu Open Food Facts</div>`;
+      acts = `<button type="button" class="chip" data-a="retry" data-i="${i}">Nochmal</button>`;
+    }
+    return `<div class="scan-item ${x.state}${x.code === fresh ? ' fresh' : ''}"><div class="si-main">${main}</div>
+      <div class="si-acts">${acts}${x.state === 'load' ? '' : `<button type="button" class="chip" data-a="del" data-i="${i}" aria-label="Entfernen">✕</button>`}</div></div>`;
+  }).join('');
+  box.querySelectorAll('[data-a]').forEach((b) => b.onclick = () => {
+    const x = scanSession[+b.dataset.i]; if (!x) return;
+    const a = b.dataset.a;
+    if (a === 'retry') { scanHit(x.code); return; }
+    if (a === 'del') {
+      if (x.food) { const id = x.food.ref || x.food.id; state.pantry = (state.pantry || []).filter((y) => y.id !== id); pantryCount = Math.max(0, pantryCount - x.n); save(); }
+      scanSession = scanSession.filter((y) => y !== x); toast(x.food ? 'Nicht mehr vorgemerkt' : 'Entfernt'); drawScanList(); return;
+    }
+    stopScanner();
+    if (a === 'new') { scanFix = { code: x.code, oldId: null }; openFoodForm({ barcode: x.code }); return; }
+    const f = liveFood(x.food);
+    if (a === 'edit') {
+      scanFix = { code: x.code, oldId: f.ref || f.id };
+      const own = state.custom.find((y) => y.id === (f.ref || f.id));
+      // Produkt aus Open Food Facts: als eigenes Lebensmittel mit gleichem Barcode speichern, das gilt dann beim nächsten Scan
+      openFoodForm(own || Object.assign({}, f, { id: null, src: 'custom', barcode: x.code }));
+      return;
+    }
+    if (a === 'eat') { pantryMode = false; addMeal = mealByTime(); openAmount(f, { direct: true, after: () => openPantry('scan') }); }
+  });
 }
 function openPantry(tab) {
   pantryMode = true;
+  scanFix = null;
   addTab = tab || 'scan';
   sheetMode = 'add';
   openSheet(`
@@ -29,7 +134,7 @@ function openPantry(tab) {
     <div class="seg two" id="addSeg"><button data-t="scan">Barcode</button><button data-t="search">Suche</button></div>
     <div class="pantry-bar"><label class="switch" style="margin:0"><input type="checkbox" id="pFav" ${pantryFav ? 'checked' : ''}> als Favorit</label><span class="small muted">${pantryCount ? `${pantryCount} vorgemerkt` : 'nur speichern, nicht ins Journal'}</span></div>
     <div id="addBody"></div>`);
-  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; closeSheet(); if (globalThis.rbPantryReturn) location.assign(globalThis.rbPantryReturn); }; // aus dem Rezeptbuch geöffnet: dorthin zurück
+  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; scanSession = []; scanFix = null; closeSheet(); if (globalThis.rbPantryReturn) location.assign(globalThis.rbPantryReturn); }; // aus dem Rezeptbuch geöffnet: dorthin zurück
   $('#pFav').onchange = (ev) => { pantryFav = ev.target.checked; };
   $('#addSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { addTab = b.dataset.t; renderAddTab(); });
   renderAddTab();

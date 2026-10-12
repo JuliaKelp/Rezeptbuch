@@ -13,7 +13,14 @@ const MEALS = [
   { id: 'snack', label: 'Snacks' },
 ];
 const NUTRIENTS = ['k', 'p', 'c', 'f', 'fi', 'su', 'fs']; // fs = freier Zucker (WHO-Definition), Teil von su
-const OFF_FIELDS = 'code,product_name,product_name_de,brands,nutriments,serving_quantity,serving_size,product_quantity,quantity,allergens_tags,ingredients_analysis_tags';
+const OFF_FIELDS = 'code,product_name,product_name_de,brands,nutriments,serving_quantity,serving_size,product_quantity,quantity,allergens_tags,ingredients_analysis_tags,additives_tags';
+// Süßstoffe und Zuckeraustauschstoffe nach E-Nummer (Open Food Facts liefert sie als additives_tags); aus dem Rezeptbuch-Scanner übernommen
+const SWEETENERS = {
+  'en:e420': 'Sorbit', 'en:e421': 'Mannit', 'en:e950': 'Acesulfam', 'en:e951': 'Aspartam', 'en:e952': 'Cyclamat', 'en:e953': 'Isomalt',
+  'en:e954': 'Saccharin', 'en:e955': 'Sucralose', 'en:e957': 'Thaumatin', 'en:e959': 'Neohesperidin', 'en:e960': 'Steviol', 'en:e961': 'Neotam',
+  'en:e962': 'Aspartam-Acesulfam', 'en:e964': 'Polyglycitol', 'en:e965': 'Maltit', 'en:e966': 'Lactit', 'en:e967': 'Xylit', 'en:e968': 'Erythrit', 'en:e969': 'Advantam'
+};
+const offSweeteners = (p) => [...new Set((p.additives_tags || []).map((a) => SWEETENERS[a.replace(/[a-z]$/, '')]).filter(Boolean))];
 
 /* ---------- Speicher ---------- */
 function emptyState() {
@@ -1260,7 +1267,7 @@ function openAmount(food, opts = {}) {
   const lc = document.querySelector('#portions [data-last]');
   if (lc) lc.onclick = () => { g.value = r1(+lc.dataset.last); upd(); lastChip = lc; document.querySelectorAll('#portions .chip').forEach((c) => c.classList.toggle('on', c === lc)); };
   g.addEventListener('input', () => { lastChip = null; document.querySelectorAll('#portions .chip').forEach((c) => c.classList.remove('on')); });
-  const back = () => { if (edit || opts.direct) closeSheet(); else openAdd(addMeal); };
+  const back = () => { if (opts.after) opts.after(); else if (edit || opts.direct) closeSheet(); else openAdd(addMeal); };
   $('#back').onclick = back;
   const ms = $('#meal'), th = $('#eTimeHint'); if (ms && th) ms.addEventListener('change', () => { th.textContent = mealTimeHint(ms.value); });
   $('#favBtn').onclick = () => {
@@ -1335,13 +1342,16 @@ function openQuick(meal, entry) {
 
 /* ---------- Barcode ---------- */
 function renderScan() {
+  if (pantryMode) { renderPantryScan(); return; } // Einkauf: Dauer-Scan mit Liste (food.js)
   $('#addBody').innerHTML = `
-    <div class="scanner"><video id="video" playsinline muted></video><div class="frame"></div></div>
+    <div class="scanner"><video id="video" playsinline muted></video><div class="frame"></div>${TORCH_BTN}</div>
     <p class="small muted" style="margin-top:8px">Barcode in den Rahmen halten, etwa 15–25 cm Abstand, gut beleuchtet. Nur der Barcode wird an Open Food Facts gesendet.</p>
     <label for="code">Oder Barcode eintippen</label>
     <div class="row"><input id="code" type="text" inputmode="numeric" placeholder="z. B. 4008400401621"><button class="btn" id="lookup" style="flex:0 0 auto">Suchen</button></div>
-    <div id="scanResult"></div>`;
+    <div id="scanResult"></div>
+    <button type="button" class="linkbtn" id="toPantryScan">Ganzen Einkauf scannen und vormerken</button>`;
   $('#lookup').onclick = () => { const c = ($('#code').value || '').replace(/\D/g, ''); if (c) lookupBarcode(c); };
+  $('#toPantryScan').onclick = () => openPantry('scan');
   startScanner();
 }
 /* Kamera: läuft nur, solange der Barcode-Reiter offen ist. Aus beim Scan-Treffer (weiter zum Mengendialog), beim Wechsel
@@ -1370,7 +1380,7 @@ async function getCamStream() {
   camStream = st;
   return st;
 }
-function startScanner() {
+function startScanner(onCode) {
   if (!window.ZXing || !navigator.mediaDevices) { $('#scanResult').innerHTML = '<p class="muted">Kamera nicht verfügbar – bitte Barcode eintippen.</p>'; return; }
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
@@ -1378,9 +1388,21 @@ function startScanner() {
   const reader = new ZXing.BrowserMultiFormatReader(hints, 150);
   scanner = reader;
   let done = false;
+  let seenCode = '', seenAt = 0;
   getCamStream().then((stream) => {
     if (scanner !== reader) return; // inzwischen geschlossen
+    tuneCamera(stream);
     return reader.decodeFromStream(stream, 'video', (result) => {
+      if (result && onCode) {
+        // Dauer-Scan (Einkauf): Kamera bleibt an. Derselbe Barcode zählt erst wieder, wenn er 3 s nicht im Bild war.
+        const code = result.getText(), now = Date.now();
+        const again = code === seenCode && now - seenAt < 3000;
+        seenCode = code; seenAt = now;
+        if (again) return;
+        if (navigator.vibrate) navigator.vibrate(60);
+        onCode(code);
+        return;
+      }
       if (result && !done) {
         done = true;
         if (navigator.vibrate) navigator.vibrate(60);
@@ -1392,7 +1414,42 @@ function startScanner() {
     });
   }).catch(() => { const r = $('#scanResult'); if (r) r.innerHTML = '<p class="muted">Kein Kamerazugriff. Erlaube die Kamera in den Safari-Einstellungen oder tippe den Barcode ein.</p>'; });
 }
+/* Aus dem Rezeptbuch-Scanner: etwas Zoom (das Handy darf weiter weg, der Fokus sitzt schneller), Licht-Knopf und
+   Licht automatisch an, wenn das Bild zu dunkel ist. Was das Handy nicht kann, wird übersprungen. */
+const TORCH_BTN = '<button type="button" class="torch" id="torchBtn" hidden>Licht an</button>';
+let lightTimer = null;
+const torch = { on: false, manual: false };
+async function setTorch(track, on) {
+  try { await track.applyConstraints({ advanced: [{ torch: on }] }); torch.on = on; } catch (e) { /* nicht unterstützt */ }
+  const b = document.getElementById('torchBtn'); if (b) { b.textContent = torch.on ? 'Licht aus' : 'Licht an'; b.classList.toggle('on', torch.on); }
+}
+async function tuneCamera(stream) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || !track.getCapabilities) return;
+  const caps = track.getCapabilities();
+  if (caps.zoom && caps.zoom.max >= 1.5) { try { await track.applyConstraints({ advanced: [{ zoom: Math.min(2, caps.zoom.max) }] }); } catch (e) { /* ok */ } }
+  if (!caps.torch) return;
+  torch.on = false; torch.manual = false;
+  const b = document.getElementById('torchBtn');
+  if (b) { b.hidden = false; b.onclick = () => { torch.manual = true; setTorch(track, !torch.on); }; }
+  const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+  const c = canvas.getContext('2d', { willReadFrequently: true });
+  let dark = 0;
+  clearInterval(lightTimer);
+  lightTimer = setInterval(() => {
+    const v = document.getElementById('video');
+    if (!v || !scanner) { clearInterval(lightTimer); return; }
+    if (torch.on || torch.manual || v.readyState < 2) return;
+    c.drawImage(v, 0, 0, 32, 32);
+    const px = c.getImageData(0, 0, 32, 32).data;
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    dark = sum / (px.length / 4) < 60 ? dark + 1 : 0;
+    if (dark >= 2) setTorch(track, true);
+  }, 600);
+}
 function stopScanner() {
+  clearInterval(lightTimer); torch.on = false;
   if (scanner) {
     try { scanner.stopContinuousDecode(); } catch (e) { /* ok */ }
     scanner = null;
@@ -1403,15 +1460,15 @@ function stopScanner() {
 // App verlassen → Kamera aus; zurück in die App mit offenem Barcode-Reiter → Scanner wieder starten
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { stopScanner(); return; }
-  if (sheetMode === 'add' && addTab === 'scan' && !scanner && document.getElementById('video')) startScanner();
+  if (sheetMode === 'add' && addTab === 'scan' && !scanner && document.getElementById('video')) startScanner(pantryMode ? scanHit : undefined);
 });
 
-async function lookupBarcode(code) {
-  const out = $('#scanResult');
+// Produkt zu einem Barcode: eigenes Lebensmittel, schon gescannt (Speicher) oder neu von Open Food Facts.
+// Ergebnis: { food } | { missing: true } | { offline: true }
+async function fetchProduct(code) {
   const own = state.custom.find((x) => x.barcode === code);
-  if (own) { openAmount(own); return; }
-  if (state.offCache[code]) { openAmount(state.offCache[code]); return; }
-  out.innerHTML = '<p class="muted">Suche bei Open Food Facts…</p>';
+  if (own) return { food: own };
+  if (state.offCache[code]) return { food: state.offCache[code] };
   try {
     const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`);
     const data = await res.json();
@@ -1419,12 +1476,7 @@ async function lookupBarcode(code) {
     const nm = p && p.nutriments;
     let k = nm && num(nm['energy-kcal_100g']);
     if (k == null && nm && num(nm['energy_100g']) != null) k = num(nm['energy_100g']) / 4.184;
-    if (!p || data.status !== 1 || k == null) {
-      out.innerHTML = `<div class="card" style="margin-top:12px"><p>Produkt ${esc(code)} nicht gefunden oder ohne Nährwerte.</p>
-        <button class="btn secondary block" id="createOwn">Als eigenes Lebensmittel anlegen</button></div>`;
-      $('#createOwn').onclick = () => openFoodForm({ barcode: code });
-      return;
-    }
+    if (!p || data.status !== 1 || k == null) return { missing: true };
     const food = {
       src: 'off', id: 'off:' + code, barcode: code,
       n: p.product_name_de || p.product_name || ('Produkt ' + code),
@@ -1435,12 +1487,26 @@ async function lookupBarcode(code) {
       pq: num(p.product_quantity) || null,
       sliceG: offSliceG(p.serving_size),
       liq: /\d\s*(ml|cl|l)\b/i.test(p.quantity || ''),
+      sw: offSweeteners(p),
     };
     state.offCache[code] = food; save();
-    openAmount(food);
+    return { food };
   } catch (e) {
-    out.innerHTML = '<p class="muted">Keine Verbindung zu Open Food Facts. Bitte später erneut versuchen.</p>';
+    return { offline: true };
   }
+}
+async function lookupBarcode(code) {
+  const out = () => $('#scanResult') || document.createElement('div');
+  if (!state.custom.some((x) => x.barcode === code) && !state.offCache[code]) out().innerHTML = '<p class="muted">Suche bei Open Food Facts…</p>';
+  const r = await fetchProduct(code);
+  if (r.food) { openAmount(r.food); return; }
+  if (r.missing) {
+    out().innerHTML = `<div class="card" style="margin-top:12px"><p>Produkt ${esc(code)} nicht gefunden oder ohne Nährwerte.</p>
+      <button class="btn secondary block" id="createOwn">Als eigenes Lebensmittel anlegen</button></div>`;
+    $('#createOwn').onclick = () => openFoodForm({ barcode: code });
+    return;
+  }
+  out().innerHTML = '<p class="muted">Keine Verbindung zu Open Food Facts. Bitte später erneut versuchen.</p>';
 }
 
 /* ---------- Neu: Schnelleintrag, Lebensmittel, Rezept ---------- */
@@ -1512,6 +1578,7 @@ function openFoodForm(existing) {
       d: $('#cDiet').value === '' ? null : +$('#cDiet').value,
       a: [...document.querySelectorAll('#cAll input:checked')].map((x) => x.value),
     };
+    if (e.sw && e.sw.length) food.sw = e.sw; // Süßstoffe aus dem gescannten Produkt behalten
     saveOwnFood(food);
     if (isEdit) { toast('Gespeichert'); openAmount(food); } else openAmount(food);
   };
@@ -1524,7 +1591,7 @@ function saveOwnFood(food) {
   if (i >= 0) state.custom[i] = food; else state.custom.push(food);
   // Favoriten/Zuletzt/Vorgemerkt-Kopien aktualisieren (bereits eingetragene Tage bleiben unverändert)
   state.favs = state.favs.map((x) => (x.id === food.id ? foodSnap(food) : x));
-  state.pantry = (state.pantry || []).map((x) => (x.id === food.id ? Object.assign(foodSnap(food), { added: x.added }) : x));
+  state.pantry = (state.pantry || []).map((x) => (x.id === food.id ? Object.assign(foodSnap(food), { added: x.added, count: x.count }) : x));
   state.recent = state.recent.map((x) => (x.id === food.id ? Object.assign(foodSnap(food), { lastGrams: x.lastGrams }) : x));
   save();
 }

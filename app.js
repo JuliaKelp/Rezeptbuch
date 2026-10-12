@@ -255,6 +255,63 @@ function likeScore(recipe) {
   return liked.filter((food) => text.includes(food.toLowerCase())).length;
 }
 
+// ---------- Aus abgelehnten Rezepten lernen ----------
+// Ähnlich = gleiche Hauptzutaten oder gleiche Wörter im Namen (z. B. „Overnight Oats“). Ähnliche Rezepte rutschen in den
+// Vorschlägen und im Wochenplan weit nach hinten; Zutaten, die in 2 oder mehr abgelehnten Rezepten stecken, werden seltener.
+const COMMON_FOODS = new Set(['Öl', 'Zwiebel', 'Knoblauch', 'Gewürze', 'Butter', 'Gemüsebrühe', 'Zitrone']);
+const NAME_FILLER = new Set(['mit', 'und', 'auf', 'aus', 'im', 'in', 'vom', 'dem', 'der', 'die', 'das', 'ein', 'eine', 'kleiner', 'kleines', 'kleine', 'schnelle', 'vegane', 'veganes', 'veganer', 'brot']);
+const keyCache = new WeakMap();
+function recipeKeys(r) {
+  if (keyCache.has(r)) return keyCache.get(r);
+  const foods = new Set();
+  for (const line of r.ingredients || []) {
+    const p = parseIngredient(line);
+    if (p.amount === null) continue;
+    const f = findFood(p.name.replace(/[()]/g, ' '));
+    if (f && !COMMON_FOODS.has(f.name)) foods.add(f.name);
+  }
+  const words = new Set(String(r.name).toLowerCase().split(/[\s\-–,]+/).filter((w) => w.length > 2 && !NAME_FILLER.has(w)));
+  const keys = { foods, words };
+  keyCache.set(r, keys);
+  return keys;
+}
+function overlap(a, b) {
+  if (!a.size || !b.size) return 0;
+  let both = 0;
+  for (const x of a) if (b.has(x)) both++;
+  return both / (a.size + b.size - both);
+}
+function rejectedRecipes() {
+  const all = allRecipes();
+  return Object.keys(state.rejected || {}).map((id) => all.find((r) => r.id === id)).filter(Boolean);
+}
+// Zutaten, die in mindestens 2 abgelehnten Rezepten vorkommen (außer als Lieblingszutat markierte)
+function learnedFoods() {
+  const count = {};
+  for (const r of rejectedRecipes()) for (const f of recipeKeys(r).foods) count[f] = (count[f] || 0) + 1;
+  const taste = state.profile.taste || {};
+  return Object.keys(count).filter((f) => count[f] >= 2 && taste[tasteKey(f)] !== 'like');
+}
+// 0 = gar nicht ähnlich, 1 = gleich
+function rejectSimilarity(recipe) {
+  const k = recipeKeys(recipe);
+  let best = 0;
+  for (const r of rejectedRecipes()) {
+    if (r.id === recipe.id) continue;
+    const rk = recipeKeys(r);
+    best = Math.max(best, overlap(k.foods, rk.foods), overlap(k.words, rk.words));
+  }
+  return best;
+}
+// Abzug für die Vorschlags-Punkte; ab 50 % Ähnlichkeit so viel, dass das Rezept praktisch nicht mehr vorgeschlagen wird
+function rejectPenalty(recipe) {
+  if (!Object.keys(state.rejected || {}).length) return 0;
+  const sim = rejectSimilarity(recipe);
+  const learned = learnedFoods();
+  const foods = recipeKeys(recipe).foods;
+  return (sim >= 0.5 ? 20 : sim * 10) + 2 * learned.filter((f) => foods.has(f)).length;
+}
+
 // Wie passt ein Rezept in die verfügbare Zeit? 'fits', 'prep' (am Vorabend), 'vorkochen' (doppelt kochen) oder null
 function timeMode(recipe, meal) {
   const t = meal === 'snack' ? 10 : state.profile.times[meal];
@@ -282,6 +339,7 @@ function ideasFor(meal) {
       score += macroScore(r); // passt zu deinen Makro-Zielen
       if (isFav(r)) score += 3;
       if (cookedToday.has(r.id)) score -= 10;
+      score -= rejectPenalty(r); // ähnlich wie abgelehnte Rezepte
       score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
       return { ...x, score };
     })
@@ -294,13 +352,13 @@ function prepTips() {
   const eats = mainMeals().map((m) => m.id);
   if (eats.includes('fruehstueck') && times.fruehstueck <= SHORT_TIME) {
     const oats = allRecipes().filter((r) => r.prep && r.meals.includes('fruehstueck') && suitable(r))
-      .sort((a, b) => likeScore(b) - likeScore(a))[0];
+      .sort((a, b) => likeScore(b) - rejectPenalty(b) - likeScore(a) + rejectPenalty(a))[0];
     if (oats) tips.push({ recipe: oats, text: `Setz heute Abend nebenbei ${oats.name} für morgen früh an. Dauert nur ${oats.time} Min.` });
   }
   const dinnerDone = journal().some((e) => e.meal === 'abend');
   if (eats.includes('mittag') && eats.includes('abend') && times.mittag <= SHORT_TIME && !dinnerDone) {
     const mp = allRecipes().filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
-      .sort((a, b) => likeScore(b) - likeScore(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
+      .sort((a, b) => likeScore(b) - rejectPenalty(b) - likeScore(a) + rejectPenalty(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
     if (mp) tips.push({ recipe: mp, text: `Koch heute Abend ${mp.name} doppelt und nimm eine Portion morgen zum Mittagessen mit.` });
   }
   if (eats.includes('abend') && times.abend <= SHORT_TIME) {
@@ -367,6 +425,7 @@ function weekCandidates(meal, day, used) {
       if (isFav(r)) s += 4; // Favoriten kommen öfter dran
       if (timeMode(r, meal) === 'vorkochen') s -= 2;
       s -= (used[r.id] || 0) * 5; // Abwechslung über die Woche
+      s -= rejectPenalty(r); // ähnlich wie abgelehnte Rezepte
       s += (hashStr(seed + day + meal + r.id) % 100) / 40;
       return { r, s };
     })
@@ -1491,6 +1550,7 @@ function viewIch() {
     <a class="btn secondary" href="tracker/">Tracker öffnen</a>
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
+      <div class="small muted">Ähnliche Rezepte schlage ich dir seltener vor.${learnedFoods().length ? ` Gelernt: weniger mit ${esc(learnedFoods().join(', '))}.` : ''}</div>
       ${Object.keys(state.rejected).map((id) => allRecipes().find((r) => r.id === id)).filter(Boolean).map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.name)}</span><button class="link-btn" data-action="unreject" data-recipe="${r.id}">Wieder vorschlagen</button></div>`).join('')}
     </section>` : ''}
     <div class="bottom">${ui.confirmReset

@@ -92,7 +92,7 @@ function drawScanList(fresh) {
       const warn = scanWarnings(f);
       const meta = [f.brand, `${fmt(f.k)} kcal/100 ${unitOf(f)}`, x.n > 1 ? `${x.n}× gescannt` : p && p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ');
       main = `<div class="si-n">${esc(f.n)}</div><div class="si-m">${meta}</div>${warn.length ? `<div class="si-w">${esc(warn.join(' · '))}</div>` : ''}`;
-      acts = `<button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Ins Journal</button>`;
+      acts = `<button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Gegessen</button>`;
     } else if (x.state === 'missing') {
       main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div>`;
       acts = `<button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;

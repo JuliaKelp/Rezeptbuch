@@ -679,3 +679,19 @@ input, select { background: #FFFFFF; }
 .si-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 1 1 100%; }
 .si-acts:empty { display: none; }
 .si-acts .chip { min-height: 32px; padding: 4px 10px; font-size: 0.74rem; }
+
+/* Menü wie im Rezeptbuch (Entwurf B, 12.10.): Unterleiste oben, 4 Reiter unten, Scan-Knopf; Einstellungen nur über „Ich“ */
+.tabbar { display: none; }
+.hero .gear { display: none; }
+.subbar { position: sticky; top: 0; z-index: 9; display: flex; gap: 4px; margin: 0 auto; max-width: 560px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: var(--bg); }
+.subbar button { flex: 1 1 0; min-width: 0; min-height: 40px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font: inherit; font-size: 0.82rem; font-weight: 800; cursor: pointer; }
+.subbar button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.subbar button[hidden] { display: none; }
+body:not(.in-settings) { padding-top: 0; }
+.rbnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; justify-content: center; background: var(--panel); padding: 8px 8px calc(env(safe-area-inset-bottom) + 10px); box-shadow: 0 -4px 20px rgba(80, 40, 10, 0.06); }
+.rbnav-in { display: flex; justify-content: space-around; width: 100%; max-width: 480px; }
+.rbnav a { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 64px; min-height: 44px; text-decoration: none; color: var(--muted); font-size: 12px; font-weight: 700; }
+.rbnav a[aria-current="page"] { color: #B4481A; font-weight: 800; }
+.scan-fab { position: fixed; right: max(16px, calc(50% - 224px)); bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 11; width: 56px; height: 56px; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: 0 6px 18px rgba(80, 40, 10, 0.25); cursor: pointer; }
+body.in-settings .subbar, body.in-settings .rbnav, body.in-settings .scan-fab { display: none; }
+#view { padding-bottom: 90px; }

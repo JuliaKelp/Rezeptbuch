@@ -880,18 +880,25 @@ function rejectPanel(r) {
 
 // ---------- Bausteine ----------
 
+// Menü (Entwurf B, 12.10.): 4 Reiter, Rezepte mit Unterleiste, Scan-Knopf unten rechts. Der Tracker hat dieselbe Leiste.
+const REZEPTE_PAGES = ['rezepte', 'woche', 'einkauf', 'stempel'];
 function nav(active) {
+  const main = REZEPTE_PAGES.includes(active) ? 'rezepte' : active;
   const item = (id, label, icon) =>
-    `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${ICONS[icon]}${label}</a>`;
+    `<a href="#/${id}" ${main === id ? 'aria-current="page"' : ''}>${ICONS[icon]}${label}</a>`;
+  const back = (location.hash.replace(/^#\/?/, '').split('/')[0] || 'heute').replace(/[^a-z0-9]/g, '');
   return `<nav class="nav" aria-label="Hauptmenü"><div class="nav-inner">
     ${item('heute', 'Heute', 'home')}
     ${item('rezepte', 'Rezepte', 'book')}
-    ${item('woche', 'Woche', 'week')}
-    ${item('einkauf', 'Einkauf', 'cart')}
-    ${item('stempel', 'Stempel', 'stamp')}
     <a href="tracker/">${ICONS.tracker}Tracker</a>
     ${item('ich', 'Ich', 'me')}
-  </div></nav>`;
+  </div></nav>
+  <a class="scan-fab" href="tracker/?zurueck=${back}#einkauf" aria-label="Einkauf scannen">${ICONS.cart}</a>`;
+}
+// Unterleiste der Rezepte-Seiten
+function subnav(active) {
+  const item = (id, label) => `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${label}</a>`;
+  return `<nav class="subnav" aria-label="Rezepte-Bereiche">${item('rezepte', 'Rezepte')}${item('woche', 'Woche')}${item('einkauf', 'Einkauf')}${item('stempel', 'Stempel')}</nav>`;
 }
 
 function stepsBar(n) {
@@ -921,6 +928,10 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
 // ---------- Start-Ablauf ----------
 
 // Ernährung, Allergien und Kalorienziel kommen aus dem Tracker; hier sieht man sie und springt zum Einstellen hin.
+// Einstellungen des Trackers, wie dort gruppiert; „Ich“ verlinkt direkt auf den jeweiligen Bereich
+const TRACKER_SETTINGS = [['Ziele', ['Tagesziel', 'Gewichtsziel']], ['Über mich', ['Ernährung & Allergien', 'Schlaf & Körper']],
+  ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']], ['Planung', ['Timeline', 'Abend-Vorschläge']],
+  ['Daten', ['Backup', 'Lebensmittel teilen', 'Quellen & Lizenzen']]];
 function trackerSettingsSummary() {
   const d = trackerDiet();
   const allergens = d.allergens.map((c) => ALLERGEN_NAMES[c] || c).join(', ') || 'keine';
@@ -1533,11 +1544,7 @@ function viewIch() {
   const nos = Object.entries(p.taste).filter(([, v]) => v === 'no').map(([f]) => f);
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
-    <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Ernährung und Ziel</h3>
-      <div class="small muted">${trackerSettingsSummary()}</div>
-      <div class="small" style="color:var(--accent-text);font-weight:700">Stellst du im Tracker ein</div>
-    </a>
+    <h2>Rezeptbuch</h2>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
       <div class="small muted">Mag ich: ${esc(likes.join(', ') || 'noch nichts')}</div>
@@ -1547,7 +1554,8 @@ function viewIch() {
       <h3>Zeit und Portionen</h3>
       <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
-    <a class="btn secondary" href="tracker/">Tracker öffnen</a>
+    ${TRACKER_SETTINGS.map(([group, items]) => `<h2>${group}</h2>
+    <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
       <div class="small muted">Ähnliche Rezepte schlage ich dir seltener vor.${learnedFoods().length ? ` Gelernt: weniger mit ${esc(learnedFoods().join(', '))}.` : ''}</div>
@@ -1863,6 +1871,8 @@ function render() {
   else if (page === 'liste') html = viewListe();
   else if (page === 'quellen') html = viewQuellen();
   else html = viewHeute();
+  const sub = { rezepte: 'rezepte', woche: 'woche', liste: 'woche', einkauf: 'einkauf', stempel: 'stempel' }[page];
+  if (sub) html = html.replace('<main class="screen with-nav">', `<main class="screen with-nav">${subnav(sub)}`);
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
   rendering = true;

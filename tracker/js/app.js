@@ -322,7 +322,7 @@ function searchFoods(q, { includeRecipes = true } = {}) {
 /* ---------- Navigation ---------- */
 let tab = 'diary';
 let currentDate = isoDate(new Date());
-document.querySelectorAll('.tabbar button').forEach((b) => b.addEventListener('click', () => {
+document.querySelectorAll('.subbar button').forEach((b) => b.addEventListener('click', () => {
   goTab(b.dataset.tab);
 }));
 function goTab(t, openSec) { if (t === 'settings' && tab !== 'settings') { setOpen.clear(); if (openSec) setOpen.add(openSec); } tab = t; render(); }
@@ -330,7 +330,7 @@ function render() {
   if (tab === 'timeline' && !state.timeline.enabled) tab = 'diary';
   tlTabbar();
   document.body.classList.toggle('in-settings', tab === 'settings');
-  document.querySelectorAll('.tabbar button').forEach((x) => x.classList.toggle('active', x.dataset.tab === tab));
+  document.querySelectorAll('.subbar button').forEach((x) => x.classList.toggle('active', x.dataset.tab === tab));
   if (tab === 'diary') renderDiary();
   else if (tab === 'history') renderHistory();
   else if (tab === 'timeline') renderTimeline();
@@ -2227,7 +2227,9 @@ const rbReturn = rbBack && /^[a-z0-9/]+$/.test(rbBack) ? '../#/' + rbBack : null
 if (rbJump || rbBack) history.replaceState(null, '', location.pathname);
 if (rbJump === 'ziel') goTab('settings', 'Tagesziel');
 else if (rbJump === 'ernaehrung') goTab('settings', 'Ernährung & Allergien');
+else if (rbJump.startsWith('set:')) goTab('settings', decodeURIComponent(rbJump.slice(4))); // aus „Ich“ im Rezeptbuch
 else render();
+$('#scanFab').onclick = () => openPantry('scan');
 loadBls();
 if (rbJump === 'einkauf') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('scan'); }
 // Koffein-Pegel altert mit der Zeit: Tagebuch (heute) jede Minute und beim Zurückkehren in die App auffrischen

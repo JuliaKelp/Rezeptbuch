@@ -331,9 +331,8 @@ function bodySettingsBind() {
   };
 }
 function tlTabbar() {
-  const b = document.querySelector('.tabbar [data-tab="timeline"]');
+  const b = document.querySelector('.subbar [data-tab="timeline"]');
   if (b) b.hidden = !state.timeline.enabled;
-  const tb = document.querySelector('.tabbar'); tb.classList.toggle('four', state.timeline.enabled); tb.classList.toggle('three', !state.timeline.enabled);
 }
 
 if (typeof module !== 'undefined') module.exports = { tlH, tlHM, tlHalf, tlRemain, tlPhases };

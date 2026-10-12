@@ -19,15 +19,24 @@
 <body>
   <!-- Kalorien-Tracker von ST0PTV (github.com/st0ptv/Calorie-Tracker), MIT-Lizenz (siehe LICENSE),
        ins Rezeptbuch übernommen und an dessen Design angepasst. -->
-  <main id="view"></main>
-
-  <nav class="tabbar" aria-label="Navigation">
-    <a class="tab-home" href="../#/heute">Rezepte</a>
+  <nav class="subbar" aria-label="Tracker-Bereiche">
     <button data-tab="diary" class="active">Journal</button>
     <button data-tab="timeline">Timeline</button>
     <button data-tab="food">Essen</button>
     <button data-tab="history">Analytics</button>
   </nav>
+  <main id="view"></main>
+
+  <!-- Menü wie im Rezeptbuch (Entwurf B): Heute, Rezepte, Tracker, Ich; Scan-Knopf unten rechts -->
+  <nav class="rbnav" aria-label="Hauptmenü"><div class="rbnav-in">
+    <a href="../#/heute"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 L12 4 L21 11"/><path d="M5 10 V20 H19 V10"/></svg>Heute</a>
+    <a href="../#/rezepte"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5 H10 A2 2 0 0 1 12 7 V20 A2 2 0 0 0 10 18 H4 Z"/><path d="M20 5 H14 A2 2 0 0 0 12 7 V20 A2 2 0 0 1 14 18 H20 Z"/></svg>Rezepte</a>
+    <a href="./" aria-current="page"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 A9 9 0 1 1 3.5 9"/><path d="M12 7 A5 5 0 1 1 7 12"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>Tracker</a>
+    <a href="../#/ich"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20 A8 8 0 0 1 20 20"/></svg>Ich</a>
+  </div></nav>
+  <button type="button" class="scan-fab" id="scanFab" aria-label="Einkauf scannen"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h2v12M9 6v12M12 6v12M15 6h1v12M19 6h1v12"/></svg></button>
+
+
 
   <div id="sheet" class="sheet" hidden></div>
   <div id="toast" class="toast" hidden></div>

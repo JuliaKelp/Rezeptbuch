@@ -1,11 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient } from './nutrition.js';
-
-// Nährwerte der fertigen Rezepte aus den Zutaten berechnen (alle Rezepte sind für 1 Portion)
-for (const r of RECIPES) {
-  r.nutrients = r.ingredients.reduce((sum, line) => addNutrients(sum, nutrientsOfText(line)), emptyNutrients());
-  r.kcal = Math.round(r.nutrients.kcal / 10) * 10;
-}
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition } from './nutrition.js';
 
 // ---------- Grunddaten ----------
 
@@ -21,68 +15,19 @@ const SNACK = { id: 'snack', name: 'Snack' };
 const SNACKS_PER_DAY = 2;
 const MEAL_ORDER = ['fruehstueck', 'mittag', 'snack', 'abend'];
 
-const DIETS = [
-  { id: 'vegan', name: 'Vegan', allows: ['vegan'] },
-  { id: 'vegetarisch', name: 'Vegetarisch', allows: ['vegan', 'vegetarisch'] },
-  { id: 'pescetarisch', name: 'Pescetarisch', allows: ['vegan', 'vegetarisch', 'fisch'] },
-  { id: 'alles', name: 'Ich esse alles', allows: ['vegan', 'vegetarisch', 'fisch', 'fleisch'] }
-];
-
-const ALLERGIES = [
-  { id: 'nuesse', name: 'Nüsse' },
-  { id: 'gluten', name: 'Gluten' },
-  { id: 'laktose', name: 'Laktose' },
-  { id: 'ei', name: 'Ei' },
-  { id: 'soja', name: 'Soja' },
-  { id: 'fisch', name: 'Fisch' }
-];
-
-const GOALS = [
-  { id: 'abnehmen', name: 'Abnehmen', kcal: 1700 },
-  { id: 'halten', name: 'Gewicht halten', kcal: 2000 },
-  { id: 'zunehmen', name: 'Zunehmen', kcal: 2400 }
-];
-
-const SEXES = [
-  { id: 'w', name: 'Weiblich' },
-  { id: 'm', name: 'Männlich' },
-  { id: 'x', name: 'Keine Angabe' }
-];
-
-// Startwerte für Kalorien nach Geschlecht und Ziel. Grundlage: DGE-Richtwerte für Erwachsene
-// mit wenig Bewegung (Frauen etwa 1.900, Männer etwa 2.400 kcal), zum Abnehmen etwa 300–400 weniger, zum Zunehmen etwa 300–400 mehr.
-const KCAL_START = {
-  w: { abnehmen: 1600, halten: 1900, zunehmen: 2200 },
-  m: { abnehmen: 2000, halten: 2400, zunehmen: 2800 },
-  x: { abnehmen: 1700, halten: 2000, zunehmen: 2400 }
-};
-
-// Tagesziele für Nährstoffe
-// Eiweiß: Anteil der Kalorien je nach Ziel, mindestens die DGE-Empfehlung (0,8 g pro kg, Referenzwerte Frauen 48 g, Männer 57 g)
-// (höher beim Abnehmen nach Wycherley 2012 und Leidy 2015, beim Zunehmen nach Morton 2018; Belege unter Ich → Quellen)
-// Fett: 30 % der Kalorien (DGE), Kohlenhydrate: der Rest, Ballaststoffe: 30 g (DGE),
-// zugesetzter Zucker: höchstens 10 % der Kalorien (WHO). Für Fruktose und Zucker gesamt gibt es keinen offiziellen Richtwert.
-const PROTEIN_PER_KG = { abnehmen: 1.4, halten: 1.2, zunehmen: 1.6 };
-function bmi() {
-  const { weight, height } = state.profile;
-  return weight && height ? weight / ((height / 100) ** 2) : null;
-}
-// Gewicht, mit dem das Eiweiß gerechnet wird
-function proteinWeight() {
-  const { weight, height } = state.profile;
-  if (!weight) return null;
-  return height && bmi() > 25 ? 25 * ((height / 100) ** 2) : weight;
-}
+// Ernährungsform, Allergien, Kalorien- und Makroziele stellt man im Tracker ein (Einstellungen dort), das Rezeptbuch liest sie nur.
+// Welche Rezept-Ernährungsformen zur Tracker-Einstellung passen
+const DIET_ALLOWS = { vegan: ['vegan'], veg: ['vegan', 'vegetarisch'], all: ['vegan', 'vegetarisch', 'fisch', 'fleisch'] };
+const DIET_NAMES = { vegan: 'Vegan', veg: 'Vegetarisch', all: 'Alles' };
+// Allergene der Rezepte (recipes.js) und die passenden Allergen-Codes des Trackers (LMIV)
+const ALLERGEN_CODES = { gluten: ['gl'], laktose: ['mi'], ei: ['ei'], nuesse: ['nu', 'er'], soja: ['so'], fisch: ['fi'] };
+const ALLERGEN_NAMES = { gl: 'Gluten', mi: 'Milch/Laktose', ei: 'Ei', nu: 'Schalenfrüchte', er: 'Erdnuss', so: 'Soja', fi: 'Fisch', kr: 'Krebstiere', we: 'Weichtiere', se: 'Sellerie', sf: 'Senf', sa: 'Sesam', lu: 'Lupine' };
+// Ohne Kalorienziel im Tracker plant Ginger mit diesem Wert
+const KCAL_FALLBACK = 2000;
 
 // Erklärungen hinter den Info-Knöpfen: warum Ginger etwas wissen will
 const INFO = {
-  diet: 'Damit Ginger nur Rezepte vorschlägt, die zu deiner Ernährung passen. Bei vegan zum Beispiel kein Ei, keine Milch, kein Fleisch.',
-  allergies: 'Rezepte mit diesen Zutaten fallen ganz weg. Beim Scannen warnt Ginger, wenn ein Produkt sie enthält. Bitte prüf bei echten Allergien trotzdem selbst die Packung.',
-  sex: 'Frauen und Männer brauchen im Schnitt unterschiedlich viel Energie und Eiweiß. Ginger nimmt das für den Kalorien-Startwert und das Mindest-Eiweiß. Bei „Keine Angabe“ rechnet sie mit einem Mittelwert.',
-  goal: 'Je nach Ziel ändern sich Kalorien, Eiweiß und die Ampel: Beim Abnehmen wird es rot, wenn du drüber bist, beim Zunehmen, wenn nach dem Abendessen noch etwas fehlt.',
-  kcal: 'Danach plant Ginger, wie groß jede Mahlzeit sein darf, und rechnet im Wochenplan die Mengen um. Der Startwert ist grob, du kannst ihn jederzeit ändern.',
-  weight: 'Mit deinem Gewicht rechnet Ginger Eiweiß in Gramm pro Kilo, so wie die Studien unter „Quellen“: 1,4 g/kg beim Abnehmen, 1,2 g/kg beim Halten, 1,6 g/kg beim Zunehmen, nie unter 0,83 g/kg. Ohne Gewicht nimmt sie einen Anteil der Kalorien. Freiwillig, bleibt nur auf deinem Handy.',
-  height: 'Mit Größe und Gewicht berechnet Ginger deinen BMI. Liegt er über 25, rechnet sie Eiweiß mit dem Gewicht bei BMI 25, damit das Ziel nicht unrealistisch hoch wird. Liegt er unter 18,5, rät sie vom Abnehmen ab. Freiwillig, bleibt nur auf deinem Handy.',
+  tracker: 'Ernährungsform, Allergien und dein Kalorienziel stellst du einmal im Tracker ein. Ginger liest sie von dort: Sie schlägt nur passende Rezepte vor und teilt dein Kalorienziel auf die Mahlzeiten auf.',
   taste: 'Was du magst, schlägt Ginger öfter vor. Was du nicht magst, kommt gar nicht mehr. Lebensmittel, die du wegen Ernährung oder Allergie eh nicht isst, fragt sie gar nicht erst ab.',
   meals: 'Ginger teilt deine Kalorien auf die Mahlzeiten auf. Bei 2 Mahlzeiten bleiben die Portionen normal groß und den Rest bekommst du als zwei kleine Snacks.',
   times: 'Ginger schlägt pro Mahlzeit nur Rezepte vor, die in diese Zeit passen. Wenn es knapp ist, plant sie Vorbereitung ein, zum Beispiel Overnight Oats am Vorabend.',
@@ -99,26 +44,6 @@ function infoHead(tag, title, key, extra = '') {
   return `<div class="info-head"><${tag}>${title}</${tag}>${extra}${infoBtn(key)}</div>${infoText(key)}`;
 }
 
-function nutrientTargets() {
-  const p = state.profile;
-  const kcal = p.kcal;
-  const share = { abnehmen: 0.25, halten: 0.18, zunehmen: 0.2 }[p.goal] || 0.18;
-  const min = { w: 48, m: 57, x: 52 }[p.sex] || 52;
-  let protein = Math.max(Math.round((kcal * share) / 4), min);
-  // Mit Gewicht: Eiweiß in g pro kg nach den Studien unter „Quellen“ (Leidy 2015: 1,2–1,6 g/kg beim Abnehmen und Halten,
-  // Morton 2018: etwa 1,6 g/kg beim Muskelaufbau, Li 2014: mindestens 0,83 g/kg). Bei einem BMI über 25 rechnet Ginger
-  // mit dem Gewicht bei BMI 25, sonst würde das Eiweißziel bei viel Körperfett unrealistisch hoch. Höchstens 35 % der Kalorien.
-  const ref = proteinWeight();
-  if (ref) {
-    const perKg = PROTEIN_PER_KG[p.goal] || 1.2;
-    protein = Math.min(Math.round(ref * perKg), Math.round((kcal * 0.35) / 4));
-    protein = Math.max(protein, Math.round(ref * 0.83));
-  }
-  const fett = Math.round((kcal * 0.3) / 9);
-  const kh = Math.round((kcal - protein * 4 - fett * 9) / 4);
-  return { kcal, protein, kh, fett, ballast: 30, zugesetzt: Math.round((kcal * 0.1) / 4) };
-}
-
 const TIME_OPTIONS = [5, 10, 15, 30, 45];
 const SHORT_TIME = 10;
 const XP_PER_RECIPE = 40;
@@ -128,46 +53,30 @@ const LEVEL_NAMES = ['Küchenkätzchen', 'Schnurr-Köchin', 'Küchenkatze', 'Pfa
 // Lebensmittel, die bei einer Ernährungsform oder Allergie gar nicht erst abgefragt werden
 const HIDE_FOR_DIET = {
   vegan: ['Eier', 'Käse', 'Feta', 'Joghurt', 'Quark', 'Hähnchen', 'Lachs', 'Thunfisch'],
-  vegetarisch: ['Hähnchen', 'Lachs', 'Thunfisch'],
-  pescetarisch: ['Hähnchen'],
-  alles: []
+  veg: ['Hähnchen', 'Lachs', 'Thunfisch'],
+  all: []
 };
-const HIDE_FOR_ALLERGY = {
-  ei: ['Eier'],
-  laktose: ['Käse', 'Feta', 'Joghurt', 'Quark'],
-  fisch: ['Lachs', 'Thunfisch'],
-  soja: ['Tofu'],
-  gluten: [],
-  nuesse: []
-};
+const HIDE_FOR_ALLERGY = { ei: ['Eier'], mi: ['Käse', 'Feta', 'Joghurt', 'Quark'], fi: ['Lachs', 'Thunfisch'], so: ['Tofu'] };
 
 function defaultState() {
   return {
     onboarded: false,
     profile: {
-      diet: 'vegetarisch',
-      allergies: [],
-      goal: 'halten',
-      kcal: 2000,
-      sex: 'x',
-      weight: null,          // kg, freiwillig
-      height: null,          // cm, freiwillig
       portions: 1,
       mealCount: 3,          // 2 oder 3 Mahlzeiten am Tag
       skip: 'fruehstueck',   // welche Mahlzeit bei 2 ausfällt
       taste: {},
       times: { fruehstueck: 5, mittag: 15, abend: 30 }
     },
-    log: {},       // { 'JJJJ-MM-TT': [{ recipeId, meal, kcal, name }] }
     stamps: {},    // { recipeId: Anzahl gekocht }
     xp: 0,
     cooking: {},   // { recipeId: [erledigte Schritt-Indizes] }
     pick: {},      // { meal: Index der aktuellen Idee }
     ownRecipes: [], // selbst eingetragene Rezepte
-    pantry: {},    // { barcode: { name, brand, food, kcal100, allergens, diet, count, last } }
+    snacks: {},    // { Tracker-Lebensmittel-ID: true } vorgemerkte Produkte, die Ginger als Snack vorschlägt
+    cookedEntries: {}, // { Tracker-Eintrags-ID: recipeId } Einträge, die einen Stempel gebracht haben
     rejected: {},  // { recipeId: true } abgelehnte Vorschläge
     favorites: {}, // { recipeId: true }
-    dayGoals: {},  // { 'JJJJ-MM-TT': { kcal, goal } } Ziel, das an dem Tag galt (für den Kalender)
     week: null     // { seed, meals, slots: { 'JJJJ-MM-TT|meal': { id, ok } }, bought: { key: true }, portions }
   };
 }
@@ -187,18 +96,13 @@ function load() {
 let state = load();
 
 function save() {
-  // Das Ziel des Tages merken, damit der Kalender alte Tage am damaligen Ziel misst
-  if (state.onboarded) {
-    if (!state.dayGoals) state.dayGoals = {};
-    state.dayGoals[todayKey()] = { kcal: state.profile.kcal, goal: state.profile.goal };
-  }
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
 }
 
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { info: {}, calMonth: null, calDay: null, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, scanning: false, scanMsg: '', lastCode: null, unknownCode: null, codeDraft: '', productDraft: '', form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', showManual: false, manualKcal: '', toast: '', justStamped: null };
+const ui = { info: {}, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -231,40 +135,62 @@ function dayMeals() {
 // den Rest decken zwei Snacks mit je 15 %.
 function mealBudget(meal) {
   const p = state.profile;
-  if (p.mealCount === 2) return p.kcal * (meal === 'snack' ? 0.15 : 0.35);
-  if (meal === 'snack') return p.kcal * 0.1;
-  return p.kcal * (MEALS.find((m) => m.id === meal) || MEALS[1]).share;
+  const kcal = kcalGoal();
+  if (p.mealCount === 2) return kcal * (meal === 'snack' ? 0.15 : 0.35);
+  if (meal === 'snack') return kcal * 0.1;
+  return kcal * (MEALS.find((m) => m.id === meal) || MEALS[1]).share;
 }
-// ---------- Tagesziel und Makros ----------
+// ---------- Ziele und Journal aus dem Tracker ----------
 
-function dayGoalOf(day) {
-  return (state.dayGoals && state.dayGoals[day]) || { kcal: state.profile.kcal, goal: state.profile.goal };
+// Kalorienziel, das heute im Tracker gilt (oder der Startwert, wenn dort noch keins steht)
+function kcalGoal() { return trackerGoal().goal || KCAL_FALLBACK; }
+function hasKcalGoal() { return !!trackerGoal().goal; }
+
+// Tagesziele für Nährstoffe, wie der Tracker sie rechnet: Makros aus seinem Ernährungsziel,
+// Ballaststoffe 30 g und freier Zucker < 10 % (bzw. 5 %) der kcal bei seinen Presets, sonst die eigenen Werte dort.
+function nutrientTargets() {
+  const g = trackerGoal();
+  const kcal = g.goal || null;
+  const auto = g.preset && g.preset !== 'custom';
+  const pct = readTracker().sugarPct === 5 ? 5 : 10;
+  return {
+    kcal, protein: g.protein || null, kh: g.carbs || null, fett: g.fat || null,
+    ballast: auto ? 30 : g.fiber || null,
+    zugesetzt: auto ? (kcal ? Math.round((kcal * pct) / 100 / 4) : null) : g.sugar || null
+  };
 }
-function dayLog(day) { return state.log[day] || []; }
-function dayEaten(day) { return dayLog(day).reduce((s, e) => s + e.kcal, 0); }
-function dayNutrients(day) { return dayLog(day).reduce((acc, e) => addNutrients(acc, e.n || { kcal: e.kcal }), emptyNutrients()); }
-// Der Tag ist abgeschlossen, wenn er vorbei ist oder die letzte Hauptmahlzeit (meist das Abendessen) eingetragen ist
-function dayClosed(day) {
-  if (day < todayKey()) return true;
-  const meals = mainMeals();
-  const last = meals[meals.length - 1].id;
-  return dayLog(day).some((e) => e.meal === last);
+
+// Richtung des Ziels wie im Tracker: Gewichtsziel (aktiv) > Ernährungsziel (Muskelaufbau = zunehmen, Fettabbau = abnehmen) > halten
+function goalDir() {
+  const t = readTracker();
+  const o = t.wgoal;
+  const w = t.profile && t.profile.weight;
+  if (o && o.on && o.target && w) return o.target > w ? 'gain' : o.target < w ? 'lose' : 'keep';
+  const pr = trackerGoal().preset;
+  return pr === 'muscle' ? 'gain' : pr === 'cut' ? 'lose' : 'keep';
 }
-// 'ok' (grün), 'bad' (rot), 'open' (läuft noch) oder 'none' (nichts eingetragen)
-// Abnehmen: rot, sobald das Ziel überschritten ist, sonst grün.
-// Zunehmen: grün, sobald das Ziel erreicht ist; rot, wenn es nach dem Abendessen nicht erreicht ist.
-// Halten: grün innerhalb von 5 % um das Ziel.
-function dayStatus(day) {
-  if (!dayLog(day).length) return 'none';
-  const { kcal, goal } = dayGoalOf(day);
-  const eaten = dayEaten(day);
-  if (goal === 'abnehmen') return eaten > kcal ? 'bad' : 'ok';
-  if (goal === 'zunehmen') return eaten >= kcal ? 'ok' : dayClosed(day) ? 'bad' : 'open';
-  if (eaten > kcal * (1 + DAY_TOLERANCE)) return 'bad';
-  if (eaten >= kcal * (1 - DAY_TOLERANCE)) return 'ok';
-  return dayClosed(day) ? 'bad' : 'open';
+
+// Ernährungsform und Allergene aus den Tracker-Einstellungen
+function trackerDiet() {
+  const d = readTracker().diet || {};
+  return { type: DIET_ALLOWS[d.type] ? d.type : 'all', allergens: Array.isArray(d.allergens) ? d.allergens : [] };
 }
-const STATUS_COLOR = { ok: '#3E8E5E', bad: '#9A3324', open: '#C2551F', none: '#C2551F' };
+function blockedAllergens() {
+  const codes = trackerDiet().allergens;
+  return Object.keys(ALLERGEN_CODES).filter((a) => ALLERGEN_CODES[a].some((c) => codes.includes(c)));
+}
+
+// Journal-Einträge eines Tages im Tracker, mit kcal und Mahlzeit wie im Rezeptbuch
+const FROM_TRACKER_MEAL = { breakfast: 'fruehstueck', lunch: 'mittag', dinner: 'abend', snack: 'snack' };
+function journal(day = todayKey()) {
+  const days = readTracker().days || {};
+  return (days[day] || []).map((e) => ({
+    id: e.id, name: e.n || 'Eintrag', meal: FROM_TRACKER_MEAL[e.meal] || 'snack',
+    kcal: ((e.k || 0) * (e.grams || 0)) / 100,
+    recipeId: typeof e.ref === 'string' && e.ref.startsWith('custom:rezeptbuch-') ? e.ref.slice(18) : null
+  }));
+}
+function eatenToday() { return journal().reduce((s, e) => s + e.kcal, 0); }
 
 // Wie weit liegt die Makro-Verteilung eines Rezepts neben den Tageszielen? 0 = passt genau, negativ = weiter weg.
 // Beim Abnehmen zählt mehr Eiweiß nicht als Abweichung.
@@ -272,12 +198,13 @@ function macroScore(r) {
   const n = recipeNutrients(r);
   if (!n || !n.kcal || !(n.protein || n.kh || n.fett)) return 0;
   const t = nutrientTargets();
+  if (!t.kcal || !t.protein || !t.fett) return 0; // ohne Makroziel im Tracker zählen nur die Kalorien
   const p = (n.protein * 4) / n.kcal;
   const f = (n.fett * 9) / n.kcal;
   const tp = (t.protein * 4) / t.kcal;
   const tf = (t.fett * 9) / t.kcal;
   let dp = p - tp;
-  if (state.profile.goal === 'abnehmen' && dp > 0) dp = 0;
+  if (goalDir() === 'lose' && dp > 0) dp = 0;
   return -(Math.abs(dp) + Math.abs(f - tf) * 0.7) * 12;
 }
 
@@ -286,20 +213,18 @@ function macroLine(n, f = 1) {
   return `${fmt(n.protein * f)} g Eiweiß · ${fmt(n.kh * f)} g KH · ${fmt(n.fett * f)} g Fett`;
 }
 
-// Drei kleine Balken für die Makros, gemessen an einem (Teil-)Ziel
+// Drei kleine Balken für die Makros im Wochenplan, gemessen an einem (Teil-)Ziel aus dem Tracker. Ohne Makroziel nur die Gramm.
 function macroBars(n, t, share = 1) {
   const row = (id, name) => {
-    const goal = Math.round(t[id] * share);
+    const goal = t[id] ? Math.round(t[id] * share) : 0;
     const v = n[id] || 0;
-    return `<div class="macro"><span>${name}</span><div class="bar small-bar"><div style="width:${goal ? Math.min(100, (v / goal) * 100) : 0}%"></div></div><b>${fmt(v)}<small> / ${fmt(goal)} g</small></b></div>`;
+    return `<div class="macro"><span>${name}</span><div class="bar small-bar"><div style="width:${goal ? Math.min(100, (v / goal) * 100) : 0}%"></div></div><b>${fmt(v)}<small>${goal ? ` / ${fmt(goal)}` : ''} g</small></b></div>`;
   };
   return `<div class="macros">${row('protein', 'Eiweiß')}${row('kh', 'Kohlenhydrate')}${row('fett', 'Fett')}</div>`;
 }
 
 function dietName(id) { return { vegan: 'vegan', vegetarisch: 'vegetarisch', fisch: 'mit Fisch', fleisch: 'mit Fleisch' }[id]; }
 
-function todayLog() { return state.log[todayKey()] || []; }
-function eatenToday() { return todayLog().reduce((s, e) => s + e.kcal, 0); }
 function stampCount() { return Object.keys(state.stamps).length; }
 function level() { return Math.floor(state.xp / 100) + 1; }
 function levelName() { return LEVEL_NAMES[Math.min(level(), LEVEL_NAMES.length) - 1]; }
@@ -313,9 +238,9 @@ function textOf(recipe) {
 function suitable(recipe) {
   const p = state.profile;
   if (state.rejected && state.rejected[recipe.id]) return false;
-  const diet = DIETS.find((d) => d.id === p.diet) || DIETS[3];
-  if (!diet.allows.includes(recipe.diet)) return false;
-  if (recipe.allergens.some((a) => p.allergies.includes(a))) return false;
+  if (!DIET_ALLOWS[trackerDiet().type].includes(recipe.diet)) return false;
+  const blocked = blockedAllergens();
+  if (recipe.allergens.some((a) => blocked.includes(a))) return false;
   const text = textOf(recipe);
   for (const [food, v] of Object.entries(p.taste)) {
     if (v === 'no' && text.includes(food.toLowerCase())) return false;
@@ -327,11 +252,6 @@ function likeScore(recipe) {
   const text = textOf(recipe);
   const taste = state.profile.taste;
   const liked = Object.entries(taste).filter(([, v]) => v === 'like').map(([food]) => food);
-  // Was oft gekauft wird, zählt auch als Lieblingsessen
-  for (const p of Object.values(state.pantry || {})) {
-    const key = tasteKey(p.food);
-    if (key && p.count >= 3 && !taste[key] && !liked.includes(key)) liked.push(key);
-  }
   return liked.filter((food) => text.includes(food.toLowerCase())).length;
 }
 
@@ -347,7 +267,7 @@ function timeMode(recipe, meal) {
 function ideasFor(meal) {
   const budget = mealBudget(meal);
   const day = todayKey();
-  const cookedToday = new Set(todayLog().map((e) => e.recipeId));
+  const cookedToday = new Set(journal().map((e) => e.recipeId).filter(Boolean));
   const tipRecipe = meal === 'mittag' ? (prepTips().find((t) => t.recipe && t.recipe.mealprep) || {}).recipe?.id : null;
   return allRecipes()
     .filter((r) => r.meals.includes(meal) && suitable(r))
@@ -377,7 +297,7 @@ function prepTips() {
       .sort((a, b) => likeScore(b) - likeScore(a))[0];
     if (oats) tips.push({ recipe: oats, text: `Setz heute Abend nebenbei ${oats.name} für morgen früh an. Dauert nur ${oats.time} Min.` });
   }
-  const dinnerDone = todayLog().some((e) => e.meal === 'abend');
+  const dinnerDone = journal().some((e) => e.meal === 'abend');
   if (eats.includes('mittag') && eats.includes('abend') && times.mittag <= SHORT_TIME && !dinnerDone) {
     const mp = allRecipes().filter((r) => r.mealprep && r.meals.includes('abend') && suitable(r))
       .sort((a, b) => likeScore(b) - likeScore(a) || (hashStr(todayKey() + a.id) % 7) - (hashStr(todayKey() + b.id) % 7))[0];
@@ -619,7 +539,7 @@ function viewWoche() {
       const rr = w.slots[kk] && recipeById(w.slots[kk].id);
       return rr ? addNutrients(acc, recipeNutrients(rr), slotFactor(kk)) : acc;
     }, emptyNutrients());
-    const share = w.meals.reduce((a, m) => a + mealBudget(m), 0) / state.profile.kcal;
+    const share = w.meals.reduce((a, m) => a + mealBudget(m), 0) / kcalGoal();
     return `<tr class="wk-detail"><td colspan="${w.meals.length + 1}">
       <div class="small muted" style="font-weight:800">${dayName(day)}: ${fmt(Math.round(dn.kcal / 10) * 10)} kcal geplant</div>
       ${macroBars(dn, nutrientTargets(), share)}
@@ -680,7 +600,7 @@ function listMacros(slots) {
   if (!days.size) return '';
   const sum = slots.reduce((acc, x) => addNutrients(acc, recipeNutrients(x.recipe), x.f), emptyNutrients());
   const avg = addNutrients(emptyNutrients(), sum, 1 / days.size);
-  return `<div class="card macro-card"><div class="small" style="font-weight:800">Pro Tag im Schnitt für dich: ca. ${fmt(Math.round(avg.kcal / 10) * 10)} von ${fmt(state.profile.kcal)} kcal</div>
+  return `<div class="card macro-card"><div class="small" style="font-weight:800">Pro Tag im Schnitt für dich: ca. ${fmt(Math.round(avg.kcal / 10) * 10)} von ${fmt(kcalGoal())} kcal</div>
     ${macroBars(avg, nutrientTargets())}
     <p class="small muted">Gerechnet mit einer Portion je Gericht an ${days.size === 1 ? 'einem Tag' : `${days.size} Tagen`}. Ginger wählt die Gerichte im Plan so, dass Eiweiß und Fett möglichst gut zu deinem Ziel passen.</p></div>`;
 }
@@ -832,11 +752,6 @@ const ICONS = {
 
 function g1(x) { return (Math.round(x * 10) / 10).toLocaleString('de-DE'); }
 
-function nutrientGoalsLine() {
-  const t = nutrientTargets();
-  return `<p class="small muted">Deine Tagesziele: ${t.protein} g Eiweiß · ${t.kh} g Kohlenhydrate · ${t.fett} g Fett · ${t.ballast} g Ballaststoffe · höchstens ${t.zugesetzt} g zugesetzter Zucker</p>`;
-}
-
 // Nährwerte pro Portion. Eigene Rezepte aus älteren Versionen haben noch keine gespeicherten Werte.
 function recipeNutrients(r) {
   if (r.nutrients) return r.nutrients;
@@ -850,8 +765,8 @@ function recipeNutrients(r) {
   return { ...emptyNutrients(), kcal: r.kcal };
 }
 
-// Tabelle mit Nährwerten; mit `day` zeigt sie den Anteil am Tagesziel
-function nutrientTable(n, { title = 'Nährwerte pro Portion', partial = false } = {}) {
+// Tabelle mit Nährwerten und dem Anteil an den Tageszielen aus dem Tracker
+function nutrientTable(n, { title = 'Nährwerte pro Portion' } = {}) {
   const t = nutrientTargets();
   const row = (id, name) => {
     const v = n[id] || 0;
@@ -866,9 +781,9 @@ function nutrientTable(n, { title = 'Nährwerte pro Portion', partial = false } 
     </div>`;
   };
   return `<section class="card nut-card"><h2 style="margin-bottom:8px">${title}</h2>
-    <div class="nut-row"><span>Kalorien</span><b>${fmt(n.kcal)} kcal</b><div class="bar small-bar"><div style="width:${Math.min(100, (n.kcal / t.kcal) * 100)}%"></div></div><span class="small muted nut-goal">von ${fmt(t.kcal)}</span></div>
+    <div class="nut-row"><span>Kalorien</span><b>${fmt(n.kcal)} kcal</b>${t.kcal ? `<div class="bar small-bar"><div style="width:${Math.min(100, (n.kcal / t.kcal) * 100)}%"></div></div><span class="small muted nut-goal">von ${fmt(t.kcal)}</span>` : '<span></span><span class="small muted nut-goal">kein Ziel</span>'}</div>
     ${NUTRIENTS.map((x) => row(x.id, x.name)).join('')}
-    <p class="small muted" style="margin-top:6px">${partial ? 'Ohne Einträge über „Etwas anderes gegessen?“, dort kennt Ginger nur die Kalorien. ' : ''}Geschätzt aus Durchschnittswerten. Die Balken zeigen den Anteil an deinem Tagesziel.</p>
+    <p class="small muted" style="margin-top:6px">Aus dem Bundeslebensmittelschlüssel. Die Balken zeigen den Anteil an deinen Tageszielen im Tracker.</p>
   </section>`;
 }
 
@@ -946,52 +861,33 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
 
 // ---------- Start-Ablauf ----------
 
+// Ernährung, Allergien und Kalorienziel kommen aus dem Tracker; hier sieht man sie und springt zum Einstellen hin.
+function trackerSettingsSummary() {
+  const d = trackerDiet();
+  const allergens = d.allergens.map((c) => ALLERGEN_NAMES[c] || c).join(', ') || 'keine';
+  const t = nutrientTargets();
+  return `${DIET_NAMES[d.type]} · Allergien: ${esc(allergens)} · ${t.kcal ? `${fmt(t.kcal)} kcal am Tag` : 'noch kein Kalorienziel'}${t.protein ? ` · ${fmt(t.protein)} g Eiweiß` : ''}`;
+}
+
 function viewStart1(edit) {
-  const p = state.profile;
+  const back = edit ? 'edit/1' : 'start/1';
   return `<main class="screen">
     ${edit ? '' : stepsBar(1)}
-    <div class="ginger-says">${ginger(78)}<div class="bubble">Hallo, ich bin Ginger! Wie isst du, und was verträgst du nicht?</div></div>
-    <section class="field">${infoHead('h2', 'Ich ernähre mich', 'diet')}
-      <div class="chips">${DIETS.map((d) => `<button class="chip" data-action="diet" data-id="${d.id}" aria-pressed="${p.diet === d.id}">${d.name}</button>`).join('')}</div>
+    <div class="ginger-says">${ginger(78)}<div class="bubble">Hallo, ich bin Ginger! Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
+    <section class="card" style="display:flex;flex-direction:column;gap:10px">
+      ${infoHead('h3', 'Aus deinem Tracker', 'tracker')}
+      <div class="small muted">${trackerSettingsSummary()}</div>
+      <a class="btn secondary" href="tracker/?zurueck=${back}#ernaehrung">Ernährung und Allergien einstellen</a>
+      <a class="btn secondary" href="tracker/?zurueck=${back}#ziel">Kalorienziel einstellen</a>
     </section>
-    <section class="field">${infoHead('h2', 'Allergien und Unverträglichkeiten', 'allergies')}
-      <div class="chips">${ALLERGIES.map((a) => `<button class="chip danger" data-action="allergy" data-id="${a.id}" aria-pressed="${p.allergies.includes(a.id)}">${a.name}</button>`).join('')}</div>
-    </section>
-    <section class="field">${infoHead('h2', 'Ich bin', 'sex')}
-      <div class="chips">${SEXES.map((x) => `<button class="chip" data-action="sex" data-id="${x.id}" aria-pressed="${(p.sex || 'x') === x.id}">${x.name}</button>`).join('')}</div>
-      <p class="small muted">Danach richtet Ginger Kalorien und Eiweiß aus.</p>
-    </section>
-    <section class="field"><h2>Mein Körper <span class="small muted" style="font-weight:700">(freiwillig)</span></h2>
-      <div class="body-row">
-        <div class="info-head"><label for="weight">Gewicht in kg</label>${infoBtn('weight')}</div>
-        <input id="weight" class="input number-input" type="number" inputmode="decimal" min="30" max="300" step="0.5" placeholder="kg" value="${p.weight || ''}" data-input="weight">
-      </div>
-      ${infoText('weight')}
-      <div class="body-row">
-        <div class="info-head"><label for="height">Größe in cm</label>${infoBtn('height')}</div>
-        <input id="height" class="input number-input" type="number" inputmode="numeric" min="120" max="230" step="1" placeholder="cm" value="${p.height || ''}" data-input="height">
-      </div>
-      ${infoText('height')}
-      ${bmi() ? `<p class="small muted">BMI ${g1(bmi())}${bmi() > 25 ? ` · Eiweiß wird mit ${fmt(proteinWeight())} kg gerechnet (Gewicht bei BMI 25)` : ''}</p>` : ''}
-      ${bmi() && bmi() < 18.5 && p.goal === 'abnehmen' ? `<div class="hint warn">${ICONS.paw}<span>Dein BMI liegt unter 18,5, das gilt als Untergewicht. Abnehmen ist dann nicht ratsam, sprich das bitte mit deiner Ärztin oder deinem Arzt ab.</span></div>` : ''}
-    </section>
-    <section class="field">${infoHead('h2', 'Mein Ziel', 'goal')}
-      <div class="chips">${GOALS.map((g) => `<button class="chip" data-action="goal" data-id="${g.id}" aria-pressed="${p.goal === g.id}">${g.name}</button>`).join('')}</div>
-      <div class="row" style="margin-top:6px">
-        <label for="kcal" class="small muted">Kalorien pro Tag</label>${infoBtn('kcal')}
-        <input id="kcal" class="input number-input" type="number" inputmode="numeric" min="1000" max="5000" step="50" value="${p.kcal}" data-input="kcal">
-      </div>
-      ${infoText('kcal')}
-      <p class="small muted">Ein grober Startwert für wenig Bewegung. Wenn du mehr Sport machst, stell ihn höher.</p>
-      ${nutrientGoalsLine()}
-    </section>
-    <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/2'}">${edit ? 'Speichern' : 'Weiter'}</a></div>
+    <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/2'}">${edit ? 'Fertig' : 'Weiter'}</a></div>
   </main>`;
 }
 
 function tasteFoods() {
   const p = state.profile;
-  const hidden = new Set([...(HIDE_FOR_DIET[p.diet] || []), ...p.allergies.flatMap((a) => HIDE_FOR_ALLERGY[a] || [])]);
+  const d = trackerDiet();
+  const hidden = new Set([...(HIDE_FOR_DIET[d.type] || []), ...d.allergens.flatMap((a) => HIDE_FOR_ALLERGY[a] || [])]);
   const custom = Object.keys(p.taste).filter((f) => !TASTE_FOODS.includes(f));
   return [...TASTE_FOODS.filter((f) => !hidden.has(f)), ...custom];
 }
@@ -1005,8 +901,9 @@ function viewStart2(edit) {
       <button class="round no" data-action="taste" data-food="${esc(f)}" data-value="no" aria-pressed="${v === 'no'}" aria-label="${esc(f)} mag ich nicht">${ICONS.cross}</button>
     </div>`;
   }).join('');
-  const dietTag = DIETS.find((d) => d.id === p.diet).name;
-  const allergyTags = p.allergies.map((a) => `<span class="tag red">Allergie: ${ALLERGIES.find((x) => x.id === a).name}</span>`).join('');
+  const d = trackerDiet();
+  const dietTag = DIET_NAMES[d.type];
+  const allergyTags = d.allergens.map((a) => `<span class="tag red">Allergie: ${esc(ALLERGEN_NAMES[a] || a)}</span>`).join('');
   return `<main class="screen">
     ${edit ? '' : stepsBar(2)}
     <div class="ginger-says">${ginger(70)}<div class="bubble">Herz für Lieblingsessen, Kreuz für alles, was nie auf den Teller soll.</div></div>
@@ -1088,29 +985,17 @@ function snackBlock(eatenHere, eatenCard) {
 }
 
 function viewHeute() {
-  const target = state.profile.kcal;
-  const eaten = eatenToday();
-  const rest = Math.max(0, target - eaten);
-  const frac = Math.min(1, eaten / target);
-  const circ = 2 * Math.PI * 50;
   const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
-  const log = todayLog();
-  const status = dayStatus(todayKey());
-  const goal = state.profile.goal;
-  const diff = Math.round(eaten - target);
-  let headline = `Noch ${fmt(rest)} kcal frei`;
-  if (status === 'bad') headline = diff > 0 ? `${fmt(diff)} kcal über dem Ziel` : `${fmt(-diff)} kcal unter dem Ziel`;
-  else if (goal === 'zunehmen') headline = status === 'ok' ? 'Ziel erreicht!' : `Noch ${fmt(rest)} kcal bis zum Ziel`;
-  else if (goal === 'halten' && status === 'ok') headline = 'Im Zielbereich';
-  const color = STATUS_COLOR[status];
+  const log = journal();
+  const eaten = eatenToday();
 
   const tips = prepTips().map((tip) => tip.recipe
     ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
     : `<div class="prep-banner">${ICONS.clock}<span><b>Tipp:</b> ${esc(tip.text)}</span></div>`).join('');
 
   const eatenCard = (e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div>
-      <button class="round" data-action="undo-eaten" data-index="${e.index}" aria-label="${esc(e.name)} wieder austragen">${ICONS.cross}</button></div>`;
-  const indexed = log.map((e, index) => ({ ...e, index }));
+      <button class="round" data-action="undo-eaten" data-entry="${esc(e.id)}" aria-label="${esc(e.name)} wieder austragen">${ICONS.cross}</button></div>`;
+  const indexed = log;
   const extras = indexed.filter((e) => !dayMeals().some((m) => m.id === e.meal));
   const shownToday = new Set();
   const meals = dayMeals().map((m) => {
@@ -1150,91 +1035,18 @@ function viewHeute() {
         <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
       </div>
     </div>
-    <div class="card kcal-card">
-      <div class="peek">${gingerPeek(96)}</div>
-      <svg class="ring" viewBox="0 0 120 120" width="112" height="112" role="img" aria-label="${fmt(eaten)} von ${fmt(target)} Kilokalorien">
-        <circle cx="60" cy="60" r="50" fill="none" stroke="#F1E3D6" stroke-width="14"/>
-        ${eaten > 0 ? `<circle cx="60" cy="60" r="50" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(frac * circ).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 60 60)"/>` : ''}
-        <text x="60" y="58" text-anchor="middle" font-size="22" font-weight="900" fill="#3B2A20" font-family="Nunito, sans-serif">${fmt(eaten)}</text>
-        <text x="60" y="76" text-anchor="middle" font-size="11" font-weight="700" fill="#6B5444" font-family="Nunito, sans-serif">von ${fmt(target)} kcal</text>
-      </svg>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <div class="kcal-head st-${status}">${headline}</div>
-        ${ui.showManual
-          ? `<div class="input-row"><label class="sr-only" for="manual">Kalorien</label><input id="manual" class="input" style="width:90px;flex:none" type="number" inputmode="numeric" placeholder="kcal" value="${esc(ui.manualKcal)}" data-input="manualKcal"><button class="btn dark small-btn" data-action="add-manual">Dazu</button></div>`
-          : '<button class="link-btn" style="text-align:left;padding:0" data-action="show-manual">Etwas anderes gegessen?</button>'}
+    <a class="card journal-card" href="tracker/">
+      <div class="peek">${gingerPeek(72)}</div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div class="small muted">Heute im Tracker</div>
+        <div class="journal-kcal">${fmt(eaten)} <small>${hasKcalGoal() ? `von ${fmt(kcalGoal())} kcal` : 'kcal'}</small></div>
+        <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? 'Zum Journal' : 'Kalorienziel im Tracker festlegen'}</div>
       </div>
-    </div>
-    <div class="card macro-card">
-      ${macroBars(dayNutrients(todayKey()), nutrientTargets())}
-      <a class="link-btn cal-link" href="#/kalender">Monatskalender ansehen</a>
-    </div>
-    ${log.some((e) => e.n) ? `<details class="nut-today"><summary>Nährwerte heute</summary>${nutrientTable(log.reduce((acc, e) => addNutrients(acc, e.n || { kcal: e.kcal }), emptyNutrients()), { title: 'Heute gegessen', partial: log.some((e) => !e.n) })}</details>` : ''}
+    </a>
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
     ${meals}
     ${extras.length ? `<section class="meal-block"><div class="meal-head"><h3>Sonstiges</h3></div>${extras.map(eatenCard).join('')}</section>` : ''}
-  </main>${nav('heute')}`;
-}
-
-// ---------- Kalender ----------
-
-const STATUS_TEXT = { ok: 'Ziel erreicht', bad: 'Ziel verfehlt', open: 'läuft noch', none: 'nichts eingetragen' };
-
-function viewKalender() {
-  const today = todayKey();
-  const ym = ui.calMonth || today.slice(0, 7);
-  const [y, m] = ym.split('-').map(Number);
-  const first = new Date(y, m - 1, 1);
-  const daysIn = new Date(y, m, 0).getDate();
-  const lead = (first.getDay() + 6) % 7;
-  const cells = [];
-  for (let i = 0; i < lead; i++) cells.push('<span class="cal-pad"></span>');
-  let ok = 0;
-  let counted = 0;
-  for (let d = 1; d <= daysIn; d++) {
-    const key = `${ym}-${String(d).padStart(2, '0')}`;
-    const st = key > today ? 'future' : dayStatus(key);
-    if (st === 'ok' || st === 'bad') counted++;
-    if (st === 'ok') ok++;
-    const label = `${d}. ${first.toLocaleDateString('de-DE', { month: 'long' })}: ${st === 'future' ? 'noch nicht' : STATUS_TEXT[st]}`;
-    cells.push(`<button class="cal-day st-${st}${key === today ? ' today' : ''}" data-action="cal-day" data-day="${key}" aria-label="${label}" aria-pressed="${ui.calDay === key}" ${st === 'future' ? 'disabled' : ''}>${d}</button>`);
-  }
-  const goal = state.profile.goal;
-  const rule = goal === 'abnehmen' ? 'Grün, solange du unter deinem Kalorienziel bleibst. Rot, wenn du darüber liegst.'
-    : goal === 'zunehmen' ? 'Grün, wenn du dein Kalorienziel erreicht hast. Rot, wenn es nach dem Abendessen noch fehlt.'
-    : 'Grün, wenn du höchstens 5 % neben deinem Kalorienziel liegst. Rot, wenn du darüber oder nach dem Abendessen darunter liegst.';
-  let detail = '';
-  if (ui.calDay && ui.calDay.startsWith(ym) && ui.calDay <= today) {
-    const d = ui.calDay;
-    const g = dayGoalOf(d);
-    const st = dayStatus(d);
-    const log = dayLog(d);
-    detail = `<section class="card cal-detail">
-      <div class="meal-head"><h3>${dateOf(d).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}</h3><span class="small st-${st}" style="font-weight:800">${STATUS_TEXT[st]}</span></div>
-      ${log.length ? `<div style="font-weight:800">${fmt(dayEaten(d))} von ${fmt(g.kcal)} kcal</div>
-        ${macroBars(dayNutrients(d), nutrientTargets())}
-        <div class="small muted">${log.map((e) => esc(e.name)).join(' · ')}</div>` : '<div class="small muted">An diesem Tag ist nichts eingetragen.</div>'}
-    </section>`;
-  }
-  const prev = keyOf(new Date(y, m - 2, 1)).slice(0, 7);
-  const next = keyOf(new Date(y, m, 1)).slice(0, 7);
-  return `<main class="screen with-nav">
-    <a class="back" href="#/heute">${ICONS.back}Heute</a>
-    <h1>Mein Kalender</h1>
-    <div class="card">
-      <div class="cal-head">
-        <button class="round" data-action="cal-month" data-month="${prev}" aria-label="Voriger Monat">‹</button>
-        <h2>${first.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</h2>
-        <button class="round" data-action="cal-month" data-month="${next}" aria-label="Nächster Monat" ${next > today.slice(0, 7) ? 'disabled' : ''}>›</button>
-      </div>
-      <div class="cal-grid" aria-hidden="true">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((x) => `<span class="cal-wd">${x}</span>`).join('')}</div>
-      <div class="cal-grid">${cells.join('')}</div>
-      <div class="cal-legend small"><span><i class="st-ok"></i>erreicht</span><span><i class="st-bad"></i>verfehlt</span><span><i class="st-open"></i>läuft noch</span><span><i class="st-none"></i>nichts eingetragen</span></div>
-    </div>
-    <div class="ginger-says">${ginger(58)}<div class="bubble">${counted ? `In diesem Monat hast du dein Ziel an ${ok} von ${counted} ${counted === 1 ? 'Tag' : 'Tagen'} erreicht.` : 'In diesem Monat ist noch kein Tag fertig.'}</div></div>
-    ${detail}
-    <p class="small muted">${rule} Tipp auf einen Tag für die Details.</p>
   </main>${nav('heute')}`;
 }
 
@@ -1329,7 +1141,7 @@ function viewProdukt(r, meal) {
     </div>
     ${ui.planning === r.id ? planPicker(r) : ''}
     ${nutrientTable(r.nutrients)}
-    ${r.servingGuess || r.addedGuess ? `<p class="small muted">${r.servingGuess ? 'Die Packung nennt keine Portionsgröße, ich rechne mit 40 g. ' : ''}${r.addedGuess ? 'Zugesetzten Zucker meldet das Produkt nicht, gezeigt ist der ganze Zucker.' : ''}</p>` : ''}
+    ${r.servingGuess || r.addedGuess ? `<p class="small muted">${r.servingGuess ? 'Die Packung nennt keine Portionsgröße, ich rechne mit 40 g. ' : ''}${r.addedGuess ? 'Freien Zucker meldet das Produkt nicht, gezeigt ist der ganze Zucker.' : ''}</p>` : ''}
     <div class="bottom">
       <button class="btn" data-action="eat-product" data-recipe="${r.id}" data-meal="${meal || 'snack'}">Gegessen</button>
       <button class="link-btn" data-action="pantry-snack" data-code="${esc(r.code)}">Nicht mehr als Snack vorschlagen</button>
@@ -1387,12 +1199,12 @@ function viewRezept(id, meal, factorParam) {
     </div>
     <div style="display:flex;align-items:flex-end;gap:10px">
       ${ginger(64, { mood: allDone ? 'happy' : 'normal' })}
-      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${(todayLog().slice(-1)[0] || {}).trackerId ? ' Im Tracker steht es auch schon.' : ''}` : cheer}</div>
+      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${ui.justEntry ? ' Im Tracker-Journal steht es auch schon.' : ''}` : cheer}</div>
       ${stampedNow ? '<div class="stamp-big">Gekocht!</div>' : ''}
     </div>
     <div class="bottom">
       ${stampedNow
-        ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-index="${todayLog().length - 1}">Doch nicht gekocht? Rückgängig</button>`
+        ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-entry="${esc(ui.justEntry || '')}" data-recipe="${r.id}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
       ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
@@ -1448,7 +1260,7 @@ function analyze(form) {
   const perPortion = total / portions;
   const nutrients = lines.reduce((acc, x) => addNutrients(acc, x.kcal === null ? null : nutrientsFor(x.food, x.grams, x.food ? null : x.row.kcal100)), emptyNutrients());
   const share = Math.max(...form.meals.map((m) => (MEALS.find((x) => x.id === m) || MEALS[1]).share), 0.25);
-  const budget = Math.round(p.kcal * share);
+  const budget = Math.round(kcalGoal() * share);
 
   // Ernährungsform und Allergene aus den Zutaten ableiten
   const tags = lines.map((x) => x.food && x.food.diet).filter(Boolean);
@@ -1460,10 +1272,10 @@ function analyze(form) {
   if (unknown.length) {
     tips.push({ text: `Diese Zutaten kenne ich nicht: ${unknown.map((x) => x.row.name).join(', ')}. Trag dahinter die kcal pro 100 g ein, sonst zähle ich sie nicht mit.` });
   }
-  const dietOk = (DIETS.find((d) => d.id === p.diet) || DIETS[3]).allows.includes(diet);
-  if (!dietOk) warn.push(`Passt nicht zu deiner Ernährungsform (${DIETS.find((d) => d.id === p.diet).name}). Ich schlage es dir deshalb nicht vor.`);
-  const badAllergens = allergens.filter((a) => p.allergies.includes(a));
-  if (badAllergens.length) warn.push(`Achtung, enthält ${badAllergens.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ')}. Das hast du als Allergie angegeben.`);
+  const dietType = trackerDiet().type;
+  if (!DIET_ALLOWS[dietType].includes(diet)) warn.push(`Passt nicht zu deiner Ernährungsform (${DIET_NAMES[dietType]}). Ich schlage es dir deshalb nicht vor.`);
+  const badAllergens = allergens.filter((a) => blockedAllergens().includes(a));
+  if (badAllergens.length) warn.push(`Achtung, enthält ${badAllergens.map((a) => ALLERGEN_NAMES[ALLERGEN_CODES[a][0]]).join(', ')}. Das hast du im Tracker als Allergie angegeben.`);
   const disliked = Object.entries(p.taste).filter(([f, v]) => v === 'no' && lines.some((x) => x.row.name.toLowerCase().includes(f.toLowerCase()) || (x.food && x.food.name === f)));
   if (disliked.length) warn.push(`Enthält ${disliked.map(([f]) => f).join(', ')}, das magst du laut deinen Angaben nicht.`);
 
@@ -1539,7 +1351,7 @@ function viewAnalysis(form) {
       <div style="font-size:28px;font-weight:900">ca. ${fmt(a.perPortion)} kcal <span class="small muted">pro Portion</span></div>
       <div class="bar"><div style="width:${pct}%;${a.perPortion > a.budget * 1.15 ? 'background:#9A3324' : ''}"></div></div>
       <div class="small muted">Dein Rahmen für diese Mahlzeit: etwa ${fmt(a.budget)} kcal · insgesamt ${fmt(a.total)} kcal für ${a.portions} ${a.portions === 1 ? 'Portion' : 'Portionen'}</div>
-      <div class="small" style="font-weight:700">Pro Portion: ${g1(a.nutrients.protein / a.portions)} g Eiweiß · ${g1(a.nutrients.kh / a.portions)} g Kohlenhydrate · ${g1(a.nutrients.fett / a.portions)} g Fett · ${g1(a.nutrients.ballast / a.portions)} g Ballaststoffe · ${g1(a.nutrients.zugesetzt / a.portions)} g zugesetzter Zucker</div>
+      <div class="small" style="font-weight:700">Pro Portion: ${g1(a.nutrients.protein / a.portions)} g Eiweiß · ${g1(a.nutrients.kh / a.portions)} g Kohlenhydrate · ${g1(a.nutrients.fett / a.portions)} g Fett · ${g1(a.nutrients.ballast / a.portions)} g Ballaststoffe · ${g1(a.nutrients.zugesetzt / a.portions)} g freier Zucker</div>
       <details><summary class="small" style="cursor:pointer;min-height:32px">Kalorien je Zutat</summary><ul class="ing-list" style="font-size:14px">${breakdown}</ul></details>
     </section>
     ${warns}
@@ -1660,13 +1472,12 @@ function viewIch() {
   const p = state.profile;
   const likes = Object.entries(p.taste).filter(([, v]) => v === 'like').map(([f]) => f);
   const nos = Object.entries(p.taste).filter(([, v]) => v === 'no').map(([f]) => f);
-  const allergies = p.allergies.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ') || 'keine';
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Ernährung und Ziel</h3>
-      <div class="small muted">${DIETS.find((d) => d.id === p.diet).name} · ${(SEXES.find((x) => x.id === (p.sex || 'x')) || SEXES[2]).name} · Allergien: ${esc(allergies)} · ${fmt(p.kcal)} kcal am Tag${p.weight ? ` · ${g1(p.weight)} kg` : ''}${p.height ? ` · ${p.height} cm` : ''}</div>
-      ${p.weight ? '' : '<div class="small" style="color:var(--accent-text);font-weight:700">Gewicht und Größe eintragen</div>'}
+      <div class="small muted">${trackerSettingsSummary()}</div>
+      <div class="small" style="color:var(--accent-text);font-weight:700">Stellst du im Tracker ein</div>
     </a>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
@@ -1677,13 +1488,13 @@ function viewIch() {
       <h3>Zeit und Portionen</h3>
       <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
-    ${trackerCard()}
+    <a class="btn secondary" href="tracker/">Tracker öffnen</a>
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
       ${Object.keys(state.rejected).map((id) => allRecipes().find((r) => r.id === id)).filter(Boolean).map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.name)}</span><button class="link-btn" data-action="unreject" data-recipe="${r.id}">Wieder vorschlagen</button></div>`).join('')}
     </section>` : ''}
     <div class="bottom">${ui.confirmReset
-      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel und Einstellungen sind dann weg.</p>
+      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel, Wochenplan und Geschmack sind dann weg. Dein Tracker bleibt, wie er ist.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
       : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
       <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
@@ -1692,11 +1503,12 @@ function viewIch() {
 
 // ---------- Kalorien-Tracker ----------
 // Der Tracker (Ordner tracker/, von ST0PTV, MIT-Lizenz) läuft auf derselben Seite und speichert unter „ct.v1“.
-// Gekochte Rezepte landen direkt in seinem Journal: als eigenes Lebensmittel (Nährwerte pro 100 g) plus Eintrag.
+// Er ist die einzige Stelle für Journal, Ziele, Ernährungsform, Allergien und Einkauf (Vormerken per Barcode).
+// Das Rezeptbuch liest dort mit und trägt Gekochtes direkt in sein Journal ein:
+// als eigenes Lebensmittel (Nährwerte pro 100 g) plus Eintrag.
 
 const TRACKER_KEY = 'ct.v1';
 const TRACKER_DIET = { vegan: 2, vegetarisch: 1, fisch: 0, fleisch: 0 };
-const TRACKER_ALLERGENS = { gluten: 'gl', laktose: 'mi', ei: 'ei', nuesse: 'nu', soja: 'so', fisch: 'fi' };
 const TRACKER_MEAL = { fruehstueck: 'breakfast', mittag: 'lunch', abend: 'dinner', snack: 'snack' };
 
 // Gewicht einer Portion in Gramm
@@ -1716,16 +1528,31 @@ function trackerFood(r) {
     fi: per100(n.ballast), su: per100(n.zucker), fs: per100(Math.min(n.zugesetzt, n.zucker)),
     serving: grams, barcode: null, liq: false,
     d: r.diet in TRACKER_DIET ? TRACKER_DIET[r.diet] : null,
-    a: (r.allergens || []).map((a) => TRACKER_ALLERGENS[a]).filter(Boolean)
+    a: (r.allergens || []).flatMap((a) => (ALLERGEN_CODES[a] || []).slice(0, 1))
   };
 }
 
+// Tracker-Speicher lesen. Pro Zeichnen nur einmal (suitable() fragt ihn für jedes Rezept).
+let trackerCache = null;
 function readTracker() {
-  try { return JSON.parse(localStorage.getItem(TRACKER_KEY)) || {}; } catch (e) { return {}; }
+  if (!trackerCache) {
+    try { trackerCache = JSON.parse(localStorage.getItem(TRACKER_KEY)) || {}; } catch (e) { trackerCache = {}; }
+  }
+  return trackerCache;
 }
 function writeTracker(t) {
+  trackerCache = null;
   try { localStorage.setItem(TRACKER_KEY, JSON.stringify(t)); return true; } catch (e) { return false; }
 }
+// Ziel, das an einem Tag im Tracker gilt (wie goalsFor() dort: Tage vor dem ersten Ziel nutzen das erste)
+function trackerGoal(day = todayKey()) {
+  const h = (readTracker().goalHistory || []).slice().sort((a, b) => a.from.localeCompare(b.from));
+  let g = h[0] || {};
+  for (const e of h) { if (e.from <= day) g = e; else break; }
+  return g;
+}
+
+function newEntryId() { return 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 // Trägt eine Portion (× factor) ins Tracker-Journal von heute ein. Gibt die Eintrags-ID zurück oder null.
 function addToTracker(r, meal, factor = 1) {
@@ -1735,11 +1562,19 @@ function addToTracker(r, meal, factor = 1) {
   t.custom = Array.isArray(t.custom) ? t.custom : [];
   const i = t.custom.findIndex((x) => x.id === food.id);
   if (i >= 0) t.custom[i] = food; else t.custom.push(food);
+  return addEntry(t, food, Math.round(food.serving * factor), meal);
+}
+// Ein Produkt aus dem Einkauf (vorgemerkt im Tracker) als Portion eintragen
+function addProductToTracker(r, meal) {
+  const item = trackerPantry().find((x) => x.id === r.code);
+  if (!item) return null;
+  return addEntry(readTracker(), item, r.serving, meal);
+}
+function addEntry(t, food, grams, meal, day = todayKey()) {
   t.days = t.days && typeof t.days === 'object' ? t.days : {};
-  const day = todayKey();
-  const id = 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const id = newEntryId();
   const { src, n, brand, liq, serving, k, p, c, f, fi, su, fs } = food;
-  const entry = { id, meal: TRACKER_MEAL[meal] || 'snack', grams: Math.round(food.serving * factor), ref: food.id, src, n, brand, liq, serving, k, p, c, f, fi, su, fs };
+  const entry = { id, meal: TRACKER_MEAL[meal] || 'snack', grams, ref: food.id, src, n, brand, liq, serving, k, p, c, f, fi, su, fs };
   t.days[day] = [...(t.days[day] || []), entry];
   return writeTracker(t) ? id : null;
 }
@@ -1751,48 +1586,81 @@ function removeFromTracker(entryId, day = todayKey()) {
   writeTracker(t);
 }
 
-function trackerCard() {
-  const on = state.trackerAuto !== false;
-  return `<section class="card" style="display:flex;flex-direction:column;gap:8px">
-      <h3>Kalorien-Tracker</h3>
-      <div class="small muted">Wenn du ein Rezept als „Fertig gekocht“ markierst, trage ich eine Portion in dein Tracker-Journal ein, mit Kalorien und Makros.</div>
-      <label class="step"><input type="checkbox" data-action="tracker-auto" ${on ? 'checked' : ''}><span>Gekochtes automatisch eintragen</span></label>
-      <a class="btn secondary" href="tracker/">Tracker öffnen</a>
-    </section>`;
+// Einmalige Übernahme aus Versionen, in denen das Rezeptbuch Profil, Tagebuch und Einkauf selbst gespeichert hat.
+// Der Tracker gewinnt: Was dort schon eingestellt ist, bleibt; nur Lücken werden aus dem Rezeptbuch gefüllt.
+function migrateToTracker() {
+  if (state.trackerMigrated) return;
+  const p = state.profile;
+  if (state.onboarded) {
+    const t = readTracker();
+    const today = todayKey();
+    if ((!Array.isArray(t.goalHistory) || !t.goalHistory.length) && !(t.settings && t.settings.goal) && p.kcal) {
+      t.goalHistory = [{ from: Object.keys(state.log || {}).sort()[0] || today, goal: p.kcal, protein: null, carbs: null, fat: null, fiber: null, sugar: null, weight: p.weight || null, preset: null, pf: null, ff: null }];
+    }
+    t.profile = t.profile || {};
+    if (t.profile.weight == null && p.weight) t.profile.weight = p.weight;
+    if (t.profile.height == null && p.height) t.profile.height = p.height;
+    if (t.profile.sex == null && (p.sex === 'w' || p.sex === 'm')) t.profile.sex = p.sex === 'w' ? 'f' : 'm';
+    const d = t.diet || {};
+    if ((!d.type || d.type === 'all') && !(d.allergens || []).length && p.diet) {
+      t.diet = {
+        type: { vegan: 'vegan', vegetarisch: 'veg' }[p.diet] || 'all',
+        allergens: [...new Set((p.allergies || []).flatMap((a) => ALLERGEN_CODES[a] || []))]
+      };
+    }
+    // Tagebuch-Einträge, die noch nicht im Tracker stehen (vor der Tracker-Kopplung)
+    t.days = t.days && typeof t.days === 'object' ? t.days : {};
+    for (const [day, list] of Object.entries(state.log || {})) {
+      for (const e of list) {
+        if (e.trackerId) continue;
+        const n = e.n || { kcal: e.kcal };
+        t.days[day] = [...(t.days[day] || []), { id: newEntryId(), quick: true, grams: 100, src: 'quick', n: e.name || 'Rezeptbuch', meal: TRACKER_MEAL[e.meal] || 'snack',
+          k: Math.round(e.kcal), p: Math.round(n.protein || 0), c: Math.round(n.kh || 0), f: Math.round(n.fett || 0), fi: 0, su: 0 }];
+      }
+    }
+    // Gescannter Einkauf → im Tracker vorgemerkt; Snack-Markierungen bleiben
+    t.pantry = Array.isArray(t.pantry) ? t.pantry : [];
+    for (const [code, x] of Object.entries(state.pantry || {})) {
+      const id = 'off:' + code;
+      if (x.snack) state.snacks[id] = true;
+      if (t.pantry.some((y) => y.id === id) || !x.kcal100) continue;
+      const n = x.n100 || {};
+      const food = { src: 'off', id, n: x.name, brand: x.brand || '', serving: x.serving || null, liq: false, k: x.kcal100,
+        p: n.protein || 0, c: n.kh || 0, f: n.fett || 0, fi: n.ballast || 0, su: n.zucker || 0, fs: n.zugesetzt ?? null };
+      t.pantry.push({ ...food, added: Date.now() });
+      // Ernährungsform und Allergene kennt der Tracker aus seinem Barcode-Speicher
+      const d = { vegan: 2, tierisch: 1, fleisch: 0 }[x.diet];
+      t.offCache = t.offCache && typeof t.offCache === 'object' ? t.offCache : {};
+      if (!t.offCache[code]) t.offCache[code] = { ...food, barcode: code, d: d ?? null, a: d == null ? null : (x.allergens || []).flatMap((a) => ALLERGEN_CODES[a] || []) };
+    }
+    writeTracker(t);
+  }
+  for (const k of ['diet', 'allergies', 'goal', 'kcal', 'sex', 'weight', 'height']) delete p[k];
+  delete state.log; delete state.dayGoals; delete state.pantry; delete state.trackerAuto;
+  state.trackerMigrated = true;
+  save();
 }
 
 // ---------- Quellen und Lizenzen ----------
 
 const SOURCES = [
   { group: 'In der App enthalten', items: [
-    { name: 'html5-qrcode 2.3.8', what: 'Barcode-Scanner im Reiter Einkauf (Datei vendor/html5-qrcode.min.js).', who: 'Minhaz (mebjas)', license: 'Apache License 2.0', link: 'https://github.com/mebjas/html5-qrcode', note: 'Lizenztext liegt bei: vendor/html5-qrcode-LICENSE' },
-    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes, steckt in html5-qrcode mit drin. Der Tracker nutzt eine eigene Kopie (tracker/vendor/zxing.min.js).', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library', note: 'Lizenztext liegt bei: tracker/vendor/ZXING-LICENSE' },
-    { name: 'Kalorien-Tracker', what: 'Der ganze Bereich „Tracker“ (Ordner tracker/): Journal, Timeline, Essen, Analytics, Wasser, Koffein, Alkohol, Supplements, Gewichtsziel. Für das Rezeptbuch umgefärbt und mit „Fertig gekocht“ verbunden.', who: 'ST0PTV', license: 'MIT-Lizenz', link: 'https://github.com/st0ptv/Calorie-Tracker', note: 'Lizenztext liegt bei: tracker/LICENSE. Studien und Quellen des Trackers stehen dort unter Einstellungen → Quellen & Lizenzen.' }
+    { name: 'Kalorien-Tracker', what: 'Der ganze Bereich „Tracker“ (Ordner tracker/): Journal, Timeline, Essen, Analytics, Ziele und Makros, Ernährungsform und Allergien, Barcode-Scanner und Vormerken, Wasser, Koffein, Alkohol, Supplements, Gewichtsziel. Das Rezeptbuch liest Ziele, Ernährung und Einkauf von dort und trägt Gekochtes in sein Journal ein. Für das Rezeptbuch umgefärbt.', who: 'ST0PTV', license: 'MIT-Lizenz', link: 'https://github.com/st0ptv/Calorie-Tracker', note: 'Lizenztext liegt bei: tracker/LICENSE. Studien und Quellen des Trackers (z. B. zu Eiweiß, Fett und Zucker) stehen dort unter Einstellungen → Quellen & Lizenzen.' },
+    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes beim Scannen im Tracker (tracker/vendor/zxing.min.js).', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library', note: 'Lizenztext liegt bei: tracker/vendor/ZXING-LICENSE' }
   ] },
   { group: 'Aus dem Internet geladen', items: [
     { name: 'Schrift Nunito', what: 'Die Schrift der ganzen App, geladen von Google Fonts.', who: 'The Nunito Project Authors (Vernon Adams u. a.)', license: 'SIL Open Font License 1.1', link: 'https://github.com/googlefonts/nunito', note: 'Beim Laden der Schrift sieht Google deine IP-Adresse.' },
-    { name: 'Open Food Facts', what: 'Produktdaten beim Barcode-Scan: Name, Marke, Nährwerte, Allergene, Zutaten-Hinweise, Kategorien. Produktfotos nutzt die App nicht.', who: 'Open Food Facts und Mitwirkende', license: 'Datenbank: Open Database License (ODbL) 1.0 · einzelne Einträge: Database Contents License (DbCL) 1.0', link: 'https://world.openfoodfacts.org/terms-of-use', note: 'Beim Scannen wird nur die Barcode-Nummer an Open Food Facts geschickt.' }
+    { name: 'Open Food Facts', what: 'Produktdaten beim Barcode-Scan im Tracker: Name, Marke, Nährwerte, Allergene, Zutaten-Hinweise. Produktfotos nutzt die App nicht.', who: 'Open Food Facts und Mitwirkende', license: 'Datenbank: Open Database License (ODbL) 1.0 · einzelne Einträge: Database Contents License (DbCL) 1.0', link: 'https://world.openfoodfacts.org/terms-of-use', note: 'Beim Scannen wird nur die Barcode-Nummer an Open Food Facts geschickt.' }
   ] },
   { group: 'Grundlage für Zahlen', items: [
-    { name: 'DGE-Referenzwerte', what: 'Kalorien-Startwerte, Eiweiß (0,8 g pro kg), Fett 30 % der Kalorien, Ballaststoffe 30 g am Tag.', who: 'Deutsche Gesellschaft für Ernährung', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.dge.de/wissenschaft/referenzwerte/' },
-    { name: 'WHO-Leitlinie zu Zucker (2015)', what: 'Zugesetzter („freier“) Zucker höchstens 10 % der Kalorien.', who: 'Weltgesundheitsorganisation', license: 'Leitlinie (kein Fachartikel), nur als Richtwert übernommen', link: 'https://www.who.int/publications/i/item/9789241549028' },
-    { name: 'Bundeslebensmittelschlüssel (BLS) 4.0', what: 'Kalorien, Eiweiß, Kohlenhydrate, Zucker, Fett und Ballaststoffe pro 100 g für alle Zutaten in nutrition.js, daraus die Nährwerte der Rezepte. Ausnahmen: Kokosmilch light und Gewürze (kein BLS-Eintrag, geschätzt). Fruktose ist nicht enthalten.', who: 'Max Rubner-Institut (2025). Bundeslebensmittelschlüssel (BLS), Version 4.0. Karlsruhe', license: 'kostenlos und ohne Einschränkung nutzbar, Quelle wird genannt', link: 'https://doi.org/10.25826/Data20251217-134202-0', note: 'Werte übernommen aus dem BLS-Auszug in data/bls.json des Kalorien-Trackers (st0ptv/Calorie-Tracker), nur die Original-BLS-Spalten, kein Code. Zugesetzter Zucker zählt nur Zucker, Honig, Ahornsirup und Schokolade.' }
-  ] },
-  { group: 'Studien zu Makros und Verteilung', intro: 'Begutachtete Studien (peer-reviewed), auf die sich die Makro-Ziele und die Auswahl im Wochenplan stützen. Hast du unter „Ich“ dein Gewicht eingetragen, rechnet Ginger Eiweiß in g pro kg: 1,4 beim Abnehmen und 1,2 beim Halten (Mitte und Untergrenze von Leidy 2015), 1,6 beim Zunehmen (Morton 2018), nie unter 0,83 (Li 2014). Ohne Gewicht nimmt sie einen Anteil der Kalorien. Dass bei einem BMI über 25 mit dem Gewicht bei BMI 25 gerechnet wird und Eiweiß höchstens 35 % der Kalorien ausmacht, ist eine eigene Vorsichtsregel und stammt nicht aus diesen Studien.', items: [
-    { name: 'Li et al. (2014): Eiweißbedarf gesunder Erwachsener', what: 'Meta-Analyse von 28 Stickstoffbilanz-Studien: empfohlene Zufuhr 0,83 g hochwertiges Eiweiß pro kg Körpergewicht am Tag. Das ist die Untergrenze, unter die Ginger nie geht.', who: 'Li M, Sun F, Piao JH, Yang XG. Biomedical and Environmental Sciences 27(8):606–613', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3967/bes2014.093' },
-    { name: 'Wycherley et al. (2012): Mehr Eiweiß beim Abnehmen', what: 'Meta-Analyse von 24 Studien: Bei gleicher Kalorienmenge führte eiweißreichere Kost zu etwas mehr Gewichts- und Fettverlust und erhielt mehr Muskelmasse. Deshalb ist das Eiweißziel beim Abnehmen höher (25 % der Kalorien) und mehr Eiweiß zählt dort nicht als Abweichung.', who: 'Wycherley TP, Moran LJ, Clifton PM, Noakes M, Brinkworth GD. American Journal of Clinical Nutrition 96(6):1281–1298', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.112.044321' },
-    { name: 'Leidy et al. (2015): Eiweiß beim Abnehmen und Halten', what: 'Übersichtsarbeit: empfiehlt 1,2–1,6 g Eiweiß pro kg am Tag und mindestens etwa 25–30 g pro Mahlzeit.', who: 'Leidy HJ et al. American Journal of Clinical Nutrition 101(6):1320S–1329S', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.3945/ajcn.114.084038' },
-    { name: 'Morton et al. (2018): Eiweiß und Muskelaufbau', what: 'Meta-Analyse von Krafttrainings-Studien: Über etwa 1,6 g Eiweiß pro kg am Tag gab es keinen weiteren Muskelzuwachs. Grundlage für das höhere Eiweißziel beim Zunehmen (20 % der Kalorien).', who: 'Morton RW, Murphy KT, McKellar SR, Schoenfeld BJ, Henselmans M, Helms E, Aragon AA, Devries MC, Banfield L, Krieger JW, Phillips SM. British Journal of Sports Medicine 52(6):376–384', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bjsports-2017-097608' },
-    { name: 'Sacks et al. (2009): Verteilung der Makros beim Abnehmen', what: 'Studie mit 811 Erwachsenen über 2 Jahre: Vier Diäten mit unterschiedlichem Fett-, Eiweiß- und Kohlenhydratanteil führten zu ähnlichem Gewichtsverlust. Entscheidend war die Kalorienmenge. Deshalb gewichtet Ginger die Kalorien stärker als die genaue Makro-Verteilung.', who: 'Sacks FM et al. New England Journal of Medicine 360(9):859–873', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1056/NEJMoa0804748' },
-    { name: 'Hooper et al. (2015): Fettanteil und Körpergewicht', what: 'Cochrane-Review von 32 Studien: Weniger Fett als üblich ging mit etwa 1,5 kg weniger Gewicht einher. Stützt, dass der Fettanteil nicht höher als 30 % der Kalorien liegen soll.', who: 'Hooper L, Abdelhamid A, Bunn D, Brown T, Summerbell CD, Skeaff CM. Cochrane Database of Systematic Reviews, CD011834', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1002/14651858.CD011834' },
-    { name: 'Reynolds et al. (2019): Ballaststoffe', what: 'Reihe von Meta-Analysen (185 Kohortenstudien, 58 Studien): Das Krankheitsrisiko sank am stärksten bei 25–29 g Ballaststoffen am Tag. Die App zielt auf 30 g.', who: 'Reynolds A et al. The Lancet 393(10170):434–445', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1016/S0140-6736(18)31809-9' },
-    { name: 'Te Morenga et al. (2013): Zucker und Körpergewicht', what: 'Meta-Analyse: Weniger Zucker ging bei Erwachsenen mit 0,8 kg weniger Gewicht einher, mehr Zucker mit 0,75 kg mehr. Grundlage dafür, zugesetzten Zucker zu begrenzen.', who: 'Te Morenga L, Mallard S, Mann J. BMJ 346:e7492', license: 'zitiert, keine Texte kopiert', link: 'https://doi.org/10.1136/bmj.e7492' }
+    { name: 'Bundeslebensmittelschlüssel (BLS) 4.0', what: 'Kalorien, Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett und Ballaststoffe pro 100 g für die Zutaten der Rezepte. Ausnahmen: Kokosmilch light und Gewürze (kein BLS-Eintrag, geschätzt).', who: 'Max Rubner-Institut (2025). Bundeslebensmittelschlüssel (BLS), Version 4.0. Karlsruhe', license: 'kostenlos und ohne Einschränkung nutzbar, Quelle wird genannt', link: 'https://doi.org/10.25826/Data20251217-134202-0', note: 'Das Rezeptbuch liest die Werte beim Start aus derselben Datei wie der Tracker (tracker/data/bls.json). Welche Zutat welcher BLS-Eintrag ist, steht in nutrition.js. Freier Zucker ist die abgeleitete Spalte des Trackers.' },
+    { name: 'Kalorien- und Makroziele', what: 'Kommen aus dem Tracker (Einstellungen → Tagesziel). Dort stehen auch die Studien und Leitlinien, auf die sich die Ziele stützen (DGE, WHO, Morton 2018 u. a.).', who: 'siehe Tracker', license: 'zitiert' }
   ] },
   { group: 'Selbst gemacht', items: [
     { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
     { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Julias Fotos ihrer Katze', license: 'eigene Inhalte' },
     { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
-    { name: 'Programmcode der App', what: 'app.js, styles.css, index.html, sw.js.', who: 'von Claude für Julia geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, styles.css, index.html, sw.js.', who: 'von Claude für Julia geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
   ] }
 ];
 
@@ -1813,70 +1681,55 @@ function viewQuellen() {
   </main>${nav('ich')}`;
 }
 
-// ---------- Einkauf scannen ----------
+// ---------- Einkauf ----------
+// Gescannt und gesucht wird im Tracker („Einkauf erfassen“, dort heißt es Vormerken). Das Rezeptbuch nutzt die
+// vorgemerkten Lebensmittel für Gingers Vorschläge, die Einkaufsliste und als Snack-Vorschläge.
 
-// Open-Food-Facts-Kategorien, die zu Lebensmitteln aus nutrition.js passen
-const CATEGORY_FOODS = {
-  'en:pastas': 'Nudeln', 'en:rices': 'Reis', 'en:potatoes': 'Kartoffeln', 'en:sweet-potatoes': 'Süßkartoffel',
-  'en:rolled-oats': 'Haferflocken', 'en:oat-flakes': 'Haferflocken', 'en:breads': 'Brot', 'en:tortillas': 'Tortilla',
-  'en:couscous': 'Couscous', 'en:quinoa': 'Quinoa', 'en:flours': 'Mehl', 'en:lentils': 'Linsen', 'en:chickpeas': 'Kichererbsen',
-  'en:kidney-beans': 'Kidneybohnen', 'en:tofu': 'Tofu', 'en:eggs': 'Ei', 'en:chicken-breasts': 'Hähnchen', 'en:chickens': 'Hähnchen',
-  'en:minced-meats': 'Hackfleisch', 'en:hams': 'Schinken', 'en:salmons': 'Lachs', 'en:tunas': 'Thunfisch', 'en:shrimps': 'Garnelen',
-  'en:milks': 'Milch', 'en:oat-based-drinks': 'Haferdrink', 'en:plant-based-milk-alternatives': 'Haferdrink', 'en:yogurts': 'Joghurt',
-  'en:quarks': 'Magerquark', 'en:cream-cheeses': 'Frischkäse', 'en:fetas': 'Feta', 'en:mozzarella': 'Mozzarella',
-  'en:parmigiano-reggiano': 'Parmesan', 'en:cheeses': 'Käse', 'en:creams': 'Sahne', 'en:butters': 'Butter',
-  'en:vegetable-oils': 'Öl', 'en:olive-oils': 'Öl', 'en:coconut-milks': 'Kokosmilch', 'en:pestos': 'Pesto',
-  'en:mayonnaises': 'Mayonnaise', 'en:hummus': 'Hummus', 'en:nuts': 'Nüsse', 'en:peanut-butters': 'Erdnussbutter',
-  'en:chia-seeds': 'Chiasamen', 'en:honeys': 'Honig', 'en:chocolates': 'Schokolade', 'en:tomatoes': 'Tomaten',
-  'en:tomato-purees': 'Passierte Tomaten', 'en:tomato-pastes': 'Tomatenmark', 'en:onions': 'Zwiebel', 'en:carrots': 'Möhre',
-  'en:bell-peppers': 'Paprika', 'en:zucchini': 'Zucchini', 'en:broccoli': 'Brokkoli', 'en:spinachs': 'Spinat',
-  'en:mushrooms': 'Champignons', 'en:cucumbers': 'Gurke', 'en:salads': 'Salat', 'en:peas': 'Erbsen', 'en:sweet-corn': 'Mais',
-  'en:avocados': 'Avocado', 'en:bananas': 'Banane', 'en:apples': 'Apfel', 'en:berries': 'Beeren', 'en:soy-sauces': 'Sojasauce'
-};
+// Vorgemerkte Lebensmittel aus dem Tracker, neueste zuerst, mit der passenden Zutat aus nutrition.js
+function trackerPantry() {
+  return (readTracker().pantry || []).filter((x) => x && x.id && x.n);
+}
+function pantryList() {
+  return trackerPantry().map((x) => ({ ...x, food: (findFood(x.n) || {}).name || null }));
+}
 
-// Süßstoffe und Zuckeraustauschstoffe nach E-Nummer (Open Food Facts liefert sie als additives_tags)
-// Kategorien bei Open Food Facts, die als Snack zählen (Riegel, Nüsse, Schokolade …)
-const SNACK_CATEGORIES = ['en:snacks', 'en:sweet-snacks', 'en:salty-snacks', 'en:bars', 'en:cereal-bars', 'en:protein-bars',
-  'en:energy-bars', 'en:fruit-bars', 'en:nut-bars', 'en:chocolates', 'en:biscuits', 'en:nuts', 'en:dried-fruits', 'en:crisps', 'en:rice-cakes'];
+// Diät und Allergene eines vorgemerkten Produkts, soweit der Tracker sie kennt (Open Food Facts bzw. BLS)
+function pantryInfo(x) {
+  const t = readTracker();
+  const o = String(x.id).startsWith('off:') ? (t.offCache || {})[x.id.slice(4)] : null;
+  const own = (t.custom || []).find((c) => c.id === x.id);
+  const src = o || own || {};
+  return { d: src.d != null ? src.d : null, a: src.d != null ? src.a || [] : null };
+}
 
-// Gescannte Snack-Produkte werden wie Rezepte vorgeschlagen (eine Packungsportion)
-function productRecipe(p) {
-  const g = p.serving || 40;
-  const n = { ...emptyNutrients(), kcal: (p.kcal100 * g) / 100 };
-  const n100 = p.n100 || {};
-  for (const k of ['protein', 'kh', 'zucker', 'fruktose', 'fett', 'ballast']) if (n100[k] !== null && n100[k] !== undefined) n[k] = (n100[k] * g) / 100;
-  // Ohne Angabe zählt der ganze Zucker als zugesetzt (Obergrenze)
-  n.zugesetzt = n100.zugesetzt !== null && n100.zugesetzt !== undefined ? (n100.zugesetzt * g) / 100 : n.zucker;
-  const diet = { vegan: 'vegan', tierisch: 'vegetarisch', fleisch: 'fleisch' }[p.diet] || (p.snackManual ? 'vegan' : 'fleisch');
-  const key = tasteKey(p.food);
+// Vorgemerkte Produkte, die als Snack markiert sind, werden wie Rezepte vorgeschlagen (eine Packungsportion)
+function productRecipe(x) {
+  const g = x.serving || 40;
+  const f = g / 100;
+  const n = { ...emptyNutrients(), kcal: (x.k || 0) * f, protein: (x.p || 0) * f, kh: (x.c || 0) * f, zucker: (x.su || 0) * f, fett: (x.f || 0) * f, ballast: (x.fi || 0) * f };
+  // Ohne Angabe zählt der ganze Zucker als frei (Obergrenze)
+  n.zugesetzt = x.fs != null ? x.fs * f : n.zucker;
+  const info = pantryInfo(x);
+  // Unbekannt = vegan: Du hast es selbst als Snack markiert
+  const diet = info.d === 0 ? 'fleisch' : info.d === 1 ? 'vegetarisch' : 'vegan';
+  const allergens = Object.keys(ALLERGEN_CODES).filter((a) => (info.a || []).some((c) => ALLERGEN_CODES[a].includes(c)));
+  const key = tasteKey((findFood(x.n) || {}).name);
   return {
-    id: `p-${p.code}`, product: true, code: p.code,
-    name: p.name, brand: p.brand,
+    id: `p-${x.id}`, product: true, code: x.id,
+    name: x.n, brand: x.brand,
     meals: ['snack'], time: 0,
     kcal: Math.round(n.kcal / 10) * 10,
-    diet, allergens: p.allergens || [],
+    diet, allergens,
     foods: key ? [key] : [],
-    ingredients: [`1 ${p.name}`], steps: [],
-    serving: g, servingGuess: !p.serving, addedGuess: n100.zugesetzt === null || n100.zugesetzt === undefined,
+    ingredients: [`1 ${x.n}`], steps: [],
+    serving: g, servingGuess: !x.serving, addedGuess: x.fs == null,
     nutrients: n, tint: '#EFE3D3'
   };
 }
 
 function productSnacks() {
-  return Object.values(state.pantry || {}).filter((p) => p.snack && p.kcal100).map(productRecipe);
+  return trackerPantry().filter((x) => state.snacks && state.snacks[x.id] && x.k).map(productRecipe);
 }
-
-const SWEETENERS = {
-  'en:e420': 'Sorbit', 'en:e421': 'Mannit', 'en:e950': 'Acesulfam', 'en:e951': 'Aspartam', 'en:e952': 'Cyclamat', 'en:e953': 'Isomalt',
-  'en:e954': 'Saccharin', 'en:e955': 'Sucralose', 'en:e957': 'Thaumatin', 'en:e959': 'Neohesperidin', 'en:e960': 'Steviol', 'en:e961': 'Neotam',
-  'en:e962': 'Aspartam-Acesulfam', 'en:e964': 'Polyglycitol', 'en:e965': 'Maltit', 'en:e966': 'Lactit', 'en:e967': 'Xylit', 'en:e968': 'Erythrit', 'en:e969': 'Advantam'
-};
-
-// Open-Food-Facts-Allergene auf die Allergien der App abbilden
-const OFF_ALLERGENS = {
-  'en:nuts': 'nuesse', 'en:peanuts': 'nuesse', 'en:gluten': 'gluten', 'en:milk': 'laktose',
-  'en:eggs': 'ei', 'en:soybeans': 'soja', 'en:fish': 'fisch'
-};
 
 // Wie ein Lebensmittel in der Geschmacksliste heißt (kurze Namen wie „Ei“ würden sonst in „Reis“ gefunden)
 const TASTE_KEY = { Ei: 'Eier', Champignons: 'Pilze', Magerquark: 'Quark', Kidneybohnen: 'Bohnen', Öl: null, Gewürze: null };
@@ -1884,10 +1737,6 @@ function tasteKey(foodName) {
   if (!foodName) return null;
   if (foodName in TASTE_KEY) return TASTE_KEY[foodName];
   return foodName.length >= 4 ? foodName : null;
-}
-
-function pantryList() {
-  return Object.values(state.pantry).sort((a, b) => (b.last || '').localeCompare(a.last || ''));
 }
 
 // Lebensmittel aus dem Einkauf, als Schlüssel wie in der Geschmacksliste
@@ -1900,260 +1749,30 @@ function pantryScore(recipe) {
   return pantryKeys().filter((k) => text.includes(k.toLowerCase())).length;
 }
 
-function productWarnings(p) {
-  const prof = state.profile;
-  const out = [];
-  const bad = (p.allergens || []).filter((a) => prof.allergies.includes(a));
-  if (bad.length) out.push(`Enthält ${bad.map((a) => ALLERGIES.find((x) => x.id === a).name).join(', ')}`);
-  if (p.diet === 'fleisch' && (prof.diet === 'vegan' || prof.diet === 'vegetarisch')) out.push('Nicht vegetarisch');
-  else if (p.diet === 'tierisch' && prof.diet === 'vegan') out.push('Nicht vegan');
-  return out;
-}
-
-async function lookupProduct(code) {
-  const fields = 'product_name,product_name_de,brands,nutriments,allergens_tags,ingredients_analysis_tags,categories_tags,additives_tags,serving_quantity,product_quantity';
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.status !== 1 || !data.product) return null;
-    const pr = data.product;
-    const name = (pr.product_name_de || pr.product_name || '').trim();
-    const cats = pr.categories_tags || [];
-    let food = findFood(name);
-    if (!food) {
-      for (let i = cats.length - 1; i >= 0 && !food; i--) if (CATEGORY_FOODS[cats[i]]) food = findFood(CATEGORY_FOODS[cats[i]]);
-    }
-    const analysis = pr.ingredients_analysis_tags || [];
-    const diet = analysis.includes('en:non-vegetarian') ? 'fleisch'
-      : analysis.includes('en:non-vegan') ? 'tierisch'
-      : analysis.includes('en:vegan') ? 'vegan' : (food && food.diet) || null;
-    const nu = pr.nutriments || {};
-    const kcal = Number(nu['energy-kcal_100g']);
-    const num = (k) => (nu[k] === undefined || nu[k] === '' ? null : Math.round(Number(nu[k]) * 10) / 10);
-    const sweeteners = (pr.additives_tags || []).map((a) => SWEETENERS[a.replace(/[a-z]$/, '')]).filter(Boolean);
-    const serving = Number(pr.serving_quantity) > 0 ? Number(pr.serving_quantity)
-      : Number(pr.product_quantity) > 0 && Number(pr.product_quantity) <= 100 ? Number(pr.product_quantity) : null;
-    return {
-      name: name || (food ? food.name : 'Unbekanntes Produkt'),
-      brand: (pr.brands || '').split(',')[0].trim(),
-      food: food ? food.name : null,
-      kcal100: kcal > 0 ? Math.round(kcal) : (food ? food.kcal : null),
-      n100: { protein: num('proteins_100g'), kh: num('carbohydrates_100g'), zucker: num('sugars_100g'), zugesetzt: num('added-sugars_100g'), fruktose: num('fructose_100g'), fett: num('fat_100g'), ballast: num('fiber_100g') },
-      serving,
-      snack: cats.some((c) => SNACK_CATEGORIES.includes(c)),
-      sweeteners: [...new Set(sweeteners)],
-      allergens: [...new Set((pr.allergens_tags || []).map((a) => OFF_ALLERGENS[a]).filter(Boolean))],
-      diet
-    };
-  } catch (e) {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function addToPantry(code, info) {
-  const old = state.pantry[code];
-  state.pantry[code] = { ...(old || {}), ...info, code, count: ((old && old.count) || 0) + 1, last: todayKey() };
-  save();
-}
-
-async function handleCode(raw) {
-  const code = String(raw).replace(/\D/g, '');
-  if (code.length < 8) { ui.scanMsg = 'Das sieht nicht nach einem Barcode aus. Er hat meist 8 oder 13 Ziffern.'; render(); return; }
-  if (state.pantry[code]) {
-    addToPantry(code, {});
-    ui.scanMsg = `${state.pantry[code].name} kenne ich schon. Jetzt ${state.pantry[code].count}× gekauft.`;
-    ui.lastCode = code;
-    render();
-    return;
-  }
-  ui.scanMsg = '';
-  render();
-  showWait('Ginger schaut nach, was das ist …');
-  const info = await lookupProduct(code);
-  hideWait();
-  if (info) {
-    addToPantry(code, info);
-    ui.lastCode = code;
-    ui.scanMsg = '';
-  } else {
-    ui.unknownCode = code;
-    ui.scanMsg = '';
-  }
-  render();
-}
-
-let scanner = null;
-
-function loadScannerLib() {
-  if (window.__Html5QrcodeLibrary__) return Promise.resolve(window.__Html5QrcodeLibrary__);
-  showWait('Ginger holt die Kamera …');
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'vendor/html5-qrcode.min.js';
-    s.onload = () => { hideWait(); resolve(window.__Html5QrcodeLibrary__); };
-    s.onerror = (e) => { hideWait(); reject(e); };
-    document.head.appendChild(s);
-  });
-}
-
-async function startScanner() {
-  try {
-    const lib = await loadScannerLib();
-    const F = lib.Html5QrcodeSupportedFormats;
-    scanner = new lib.Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false });
-    let found = false;
-    await scanner.start({ facingMode: 'environment' }, {
-      fps: 20,
-      qrbox: { width: 260, height: 140 },
-      disableFlip: true,
-      // Höhere Auflösung und Dauer-Autofokus, damit Barcodes schneller scharf werden
-      videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: 'continuous' }] }
-    }, async (text) => {
-      if (found) return;
-      found = true;
-      await stopScanner();
-      handleCode(text);
-    }, () => {});
-    tuneCamera();
-  } catch (e) {
-    await stopScanner();
-    ui.scanMsg = 'Die Kamera ließ sich nicht starten. Erlaube den Kamerazugriff oder tipp die Zahlen unter dem Barcode ein.';
-    render();
-  }
-}
-
-// Kamera nachjustieren: Autofokus, etwas Zoom (dann darf das Handy weiter weg, und die Kamera stellt schneller scharf)
-// und Taschenlampe, wenn es zu dunkel ist. Was das Handy nicht kann, wird einfach übersprungen.
-let lightTimer = null;
-const torch = { supported: false, on: false, manual: false };
-
-function videoTrack() {
-  const v = document.querySelector('#reader video');
-  return v && v.srcObject ? v.srcObject.getVideoTracks()[0] : null;
-}
-
-async function tuneCamera() {
-  const track = videoTrack();
-  if (!track || !track.getCapabilities) return;
-  const caps = track.getCapabilities();
-  const adv = {};
-  if ((caps.focusMode || []).includes('continuous')) adv.focusMode = 'continuous';
-  if (caps.zoom && caps.zoom.max >= 1.5) adv.zoom = Math.min(2, caps.zoom.max);
-  if (Object.keys(adv).length) { try { await track.applyConstraints({ advanced: [adv] }); } catch (e) { /* nicht unterstützt */ } }
-  torch.supported = !!caps.torch;
-  torch.on = false;
-  torch.manual = false;
-  updateTorchButton();
-  if (torch.supported) watchBrightness();
-}
-
-async function setTorch(on) {
-  const track = videoTrack();
-  if (!track) return;
-  try {
-    await track.applyConstraints({ advanced: [{ torch: on }] });
-    torch.on = on;
-  } catch (e) { torch.supported = false; }
-  updateTorchButton();
-}
-
-function updateTorchButton() {
-  const btn = document.getElementById('torch');
-  if (!btn) return;
-  btn.hidden = !torch.supported;
-  btn.setAttribute('aria-pressed', String(torch.on));
-  btn.textContent = torch.on ? 'Licht aus' : 'Licht an';
-}
-
-// Mittlere Helligkeit des Kamerabilds messen; bei Dunkelheit Licht an
-function watchBrightness() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 32; canvas.height = 32;
-  const c = canvas.getContext('2d', { willReadFrequently: true });
-  let dark = 0;
-  clearInterval(lightTimer);
-  lightTimer = setInterval(() => {
-    const v = document.querySelector('#reader video');
-    if (!v || !scanner) { clearInterval(lightTimer); return; }
-    if (torch.on || torch.manual || v.readyState < 2) return;
-    c.drawImage(v, 0, 0, 32, 32);
-    const px = c.getImageData(0, 0, 32, 32).data;
-    let sum = 0;
-    for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-    dark = sum / (px.length / 4) < 60 ? dark + 1 : 0;
-    if (dark >= 2) setTorch(true);
-  }, 600);
-}
-
-async function stopScanner() {
-  const s = scanner;
-  scanner = null;
-  ui.scanning = false;
-  clearInterval(lightTimer);
-  torch.on = false;
-  // Kamera sicher ausschalten, auch wenn die Bibliothek beim Stoppen hängt
-  const v = document.querySelector('#reader video');
-  const tracks = v && v.srcObject ? v.srcObject.getTracks() : [];
-  if (s) { try { await s.stop(); } catch (e) { /* lief schon nicht mehr */ } }
-  tracks.forEach((t) => t.stop());
-}
-
 function viewEinkauf() {
   const items = pantryList();
-  const last = ui.lastCode && state.pantry[ui.lastCode];
   const taste = state.profile.taste;
   const card = (p) => {
     const key = tasteKey(p.food);
-    const warn = productWarnings(p);
     return `<div class="card pantry-item">
       <div class="info">
-        <div class="title">${esc(p.name)}</div>
-        <div class="meta">${[p.brand, p.food && p.food !== p.name ? p.food : '', p.kcal100 ? `${fmt(p.kcal100)} kcal/100 g` : '', p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ')}</div>
-        ${p.n100 && p.n100.protein !== null ? `<div class="meta">pro 100 g: ${[['Eiweiß', 'protein'], ['KH', 'kh'], ['Zucker', 'zucker'], ['Fruktose', 'fruktose'], ['Fett', 'fett'], ['Ballaststoffe', 'ballast']].filter(([, k]) => p.n100[k] !== null).map(([n, k]) => `${n} ${g1(p.n100[k])} g`).join(' · ')}</div>` : ''}
-        ${p.sweeteners && p.sweeteners.length ? `<span class="sweet-tag">Süßstoff: ${esc(p.sweeteners.join(', '))}</span>` : ''}
-        ${warn.length ? `<div class="warn-text">${esc(warn.join(' · '))}</div>` : ''}
+        <div class="title">${esc(p.n)}</div>
+        <div class="meta">${[p.brand, p.food && p.food !== p.n ? p.food : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</div>
       </div>
-      <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.code)}" aria-pressed="${!!p.snack}" ${p.kcal100 ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
+      <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
-      <button class="round" data-action="remove-product" data-code="${esc(p.code)}" aria-label="${esc(p.name)} entfernen">${ICONS.cross}</button>
     </div>`;
   };
   const ideas = allRecipes().filter((r) => !r.product && suitable(r)).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
-  let bubble = 'Scann deinen Einkauf. Dann weiß ich, was du da hast und was du gern kaufst.';
-  if (last) {
-    bubble = !last.food ? `${last.name} habe ich gespeichert. Zu meinen Rezepten passt es noch nicht.`
-      : last.food === last.name ? `${last.name} habe ich gespeichert.` : `${last.name}! Das merke ich mir als ${last.food}.`;
-  }
   return `<main class="screen with-nav">
-    <div class="ginger-says">${ginger(70)}<div class="bubble">${esc(bubble)}</div></div>
-    ${ui.scanning
-      ? `<div id="reader" class="reader"></div>
-        <div class="input-row"><button id="torch" class="btn secondary small-btn" data-action="torch" aria-pressed="false" hidden>Licht an</button><button class="btn secondary small-btn" style="flex:1" data-action="stop-scan">Fertig mit Scannen</button></div>`
-      : '<button class="btn" data-action="scan">Barcode scannen</button>'}
-    ${ui.scanMsg ? `<div class="hint">${ICONS.paw}<span>${esc(ui.scanMsg)}</span></div>` : ''}
-    ${ui.unknownCode
-      ? `<div class="card" style="display:flex;flex-direction:column;gap:8px">
-          <label class="small muted" for="pname" style="font-weight:700">Das Produkt kenne ich nicht. Wie heißt es?</label>
-          <div class="input-row"><input id="pname" class="input" list="foodlist2" placeholder="z. B. Kichererbsen" value="${esc(ui.productDraft)}" data-input="productDraft" autocomplete="off"><button class="btn dark small-btn" data-action="name-product">Speichern</button></div>
-          <datalist id="foodlist2">${FOODS.map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
-        </div>`
-      : ''}
-    <div class="input-row">
-      <label class="sr-only" for="ean">Barcode-Nummer</label>
-      <input id="ean" class="input" inputmode="numeric" placeholder="Barcode-Nummer eintippen" value="${esc(ui.codeDraft)}" data-input="codeDraft">
-      <button class="btn dark small-btn" data-action="enter-code">Suchen</button>
-    </div>
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Scann deinen Einkauf im Tracker. Dann weiß ich, was du da hast, und schlage passende Rezepte vor.</div></div>
+    <a class="btn" href="tracker/?zurueck=einkauf#einkauf">Einkauf scannen</a>
     <a class="btn secondary" href="#/liste">Einkaufsliste aus dem Wochenplan</a>
     ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
-    <h2>Mein Einkauf ${items.length ? `<span class="small muted">${items.length} Produkte</span>` : ''}</h2>
-    ${items.length ? items.map(card).join('') : '<div class="card small muted">Noch nichts gescannt.</div>'}
-    ${items.length ? '<p class="small muted">Tipp aufs Herz, wenn du etwas besonders magst. Was du dreimal kaufst, merke ich mir auch so als Lieblingsessen. Produktdaten kommen von Open Food Facts.</p>' : ''}
+    <h2>Vorgemerkt ${items.length ? `<span class="small muted">${items.length} Lebensmittel</span>` : ''}</h2>
+    ${items.length ? items.map(card).join('') : '<div class="card small muted">Noch nichts vorgemerkt.</div>'}
+    ${items.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Löschen und bearbeiten kannst du im Tracker unter „Essen“.</p>' : ''}
   </main>${nav('einkauf')}`;
 }
 
@@ -2169,6 +1788,7 @@ const app = document.getElementById('app');
 
 let rendering = false;
 function render() {
+  trackerCache = null; // der Tracker kann sich in der Zwischenzeit geändert haben
   const [page, a, b] = route();
   let html;
   if (page === 'start') html = a === '3' ? viewStart3(false) : a === '2' ? viewStart2(false) : viewStart1(false);
@@ -2182,7 +1802,6 @@ function render() {
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
   else if (page === 'quellen') html = viewQuellen();
-  else if (page === 'kalender') html = viewKalender();
   else html = viewHeute();
   if (ui.toast) html += `<div class="toast" role="status">${esc(ui.toast)}</div>`;
   // Beim Ersetzen verliert ein Feld den Fokus und löst 'change' aus; das soll nicht erneut zeichnen
@@ -2206,13 +1825,9 @@ window.addEventListener('hashchange', (e) => {
   // Woher kam man? Damit „Zurück“ auf der Rezeptseite dorthin führt
   const old = (e.oldURL || '').split('#')[1] || '';
   if (!old.startsWith('/rezept/')) ui.prevPage = old ? '#' + old : '';
-  if (ui.scanning) stopScanner();
-  ui.scanMsg = '';
-  ui.lastCode = null;
-  ui.unknownCode = null;
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
-  ui.showManual = false;
+  ui.justEntry = null;
   ui.confirmReset = false;
   ui.confirmDelete = false;
   ui.rejecting = null;
@@ -2227,21 +1842,6 @@ window.addEventListener('hashchange', (e) => {
 // ---------- Aktionen ----------
 
 const actions = {
-  diet(el) { state.profile.diet = el.dataset.id; },
-  allergy(el) {
-    const id = el.dataset.id;
-    const list = state.profile.allergies;
-    state.profile.allergies = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
-  },
-  goal(el) {
-    const g = GOALS.find((x) => x.id === el.dataset.id);
-    state.profile.goal = g.id;
-    state.profile.kcal = KCAL_START[state.profile.sex || 'x'][g.id];
-  },
-  sex(el) {
-    state.profile.sex = el.dataset.id;
-    state.profile.kcal = KCAL_START[el.dataset.id][state.profile.goal];
-  },
   portions(el) {
     const n = Math.max(1, Math.min(12, Number(el.dataset.n)));
     if (el.dataset.recipe) ui.portions[el.dataset.recipe] = n;
@@ -2367,26 +1967,15 @@ const actions = {
   'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
   'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
   info(el) { ui.info[el.dataset.key] = !ui.info[el.dataset.key]; },
-  'cal-month'(el) { ui.calMonth = el.dataset.month; ui.calDay = null; },
-  'cal-day'(el) { ui.calDay = ui.calDay === el.dataset.day ? null : el.dataset.day; },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (m === 'snack' ? SNACKS_PER_DAY : 1); },
   filter(el) { ui.recipeFilter = el.dataset.id; },
-  'show-manual'() { ui.showManual = true; },
-  'add-manual'() {
-    const n = Math.round(Number(ui.manualKcal));
-    if (!n || n <= 0 || n > 5000) return;
-    const key = todayKey();
-    state.log[key] = [...todayLog(), { recipeId: null, meal: 'extra', kcal: n, name: 'Etwas anderes' }];
-    ui.manualKcal = '';
-    ui.showManual = false;
-  },
   cooked(el) {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
-    const key = todayKey();
     const f = Number(el.dataset.factor) || 1;
-    const trackerId = state.trackerAuto !== false ? addToTracker(r, meal, f) : null;
-    state.log[key] = [...todayLog(), { recipeId: r.id, meal, kcal: Math.round(r.kcal * f), name: r.name, n: addNutrients(emptyNutrients(), recipeNutrients(r), f), trackerId }];
+    const entryId = addToTracker(r, meal, f);
+    if (entryId) state.cookedEntries[entryId] = r.id;
+    ui.justEntry = entryId;
     const before = stampCount();
     state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
     state.xp += XP_PER_RECIPE;
@@ -2397,66 +1986,28 @@ const actions = {
   'eat-product'(el) {
     const r = recipeById(el.dataset.recipe);
     if (!r) return;
-    state.log[todayKey()] = [...todayLog(), { recipeId: r.id, product: true, meal: el.dataset.meal || 'snack', kcal: r.kcal, name: r.name, n: r.nutrients }];
-    save();
+    const ok = addProductToTracker(r, el.dataset.meal || 'snack');
     go('#/heute');
-    toast(`${r.name} eingetragen.`);
+    toast(ok ? `${r.name} ist im Tracker eingetragen.` : 'Das ging nicht, das Produkt ist im Tracker nicht mehr vorgemerkt.');
     return 'skip';
   },
   'pantry-snack'(el) {
-    const p = state.pantry[el.dataset.code];
-    if (!p) return;
-    p.snack = !p.snack;
-    p.snackManual = true;
-    if (!p.snack && location.hash.startsWith('#/rezept/')) { save(); go('#/heute'); toast('Okay, kommt nicht mehr als Snack.'); return 'skip'; }
+    const id = el.dataset.code;
+    if (state.snacks[id]) delete state.snacks[id]; else state.snacks[id] = true;
+    if (!state.snacks[id] && location.hash.startsWith('#/rezept/')) { save(); go('#/heute'); toast('Okay, kommt nicht mehr als Snack.'); return 'skip'; }
   },
   'undo-eaten'(el) {
-    const key = todayKey();
-    const log = todayLog();
-    const e = log[Number(el.dataset.index)];
-    if (!e) return;
-    state.log[key] = log.filter((_, i) => i !== Number(el.dataset.index));
-    if (e.trackerId) removeFromTracker(e.trackerId, key);
-    // Stempel und XP, die das Kochen gebracht hat, wieder abziehen
-    if (e.recipeId && state.stamps[e.recipeId]) {
-      state.stamps[e.recipeId] -= 1;
-      if (!state.stamps[e.recipeId]) delete state.stamps[e.recipeId];
+    // Eintrag aus dem Tracker-Journal nehmen; hat er einen Stempel gebracht, Stempel und XP wieder abziehen
+    const entry = el.dataset.entry;
+    if (entry) removeFromTracker(entry);
+    const recipeId = (entry && state.cookedEntries[entry]) || (!entry && ui.justStamped === el.dataset.recipe ? el.dataset.recipe : null);
+    if (entry) delete state.cookedEntries[entry];
+    if (recipeId && state.stamps[recipeId]) {
+      state.stamps[recipeId] -= 1;
+      if (!state.stamps[recipeId]) delete state.stamps[recipeId];
       state.xp = Math.max(0, state.xp - XP_PER_RECIPE);
     }
-    if (ui.justStamped === e.recipeId) ui.justStamped = null;
-  },
-  scan() {
-    ui.scanning = true;
-    ui.scanMsg = '';
-    ui.unknownCode = null;
-    render();
-    startScanner();
-    return 'skip';
-  },
-  'stop-scan'() { stopScanner(); },
-  torch() {
-    torch.manual = true;
-    setTorch(!torch.on);
-    return 'skip';
-  },
-  'enter-code'() {
-    const code = ui.codeDraft;
-    ui.codeDraft = '';
-    handleCode(code);
-    return 'skip';
-  },
-  'name-product'() {
-    const name = ui.productDraft.trim();
-    if (!name) return;
-    const food = findFood(name);
-    addToPantry(ui.unknownCode, { name, brand: '', food: food ? food.name : null, kcal100: food ? food.kcal : null, allergens: (food && food.allergens) || [], diet: (food && food.diet) || null });
-    ui.lastCode = ui.unknownCode;
-    ui.unknownCode = null;
-    ui.productDraft = '';
-  },
-  'remove-product'(el) {
-    delete state.pantry[el.dataset.code];
-    if (ui.lastCode === el.dataset.code) ui.lastCode = null;
+    if (ui.justStamped && (ui.justStamped === recipeId || ui.justStamped === el.dataset.recipe)) { ui.justStamped = null; ui.justEntry = null; }
   },
   'ask-reset'() { ui.confirmReset = true; },
   'tracker-one'(el) {
@@ -2465,7 +2016,6 @@ const actions = {
     const id = addToTracker(r, el.dataset.meal || currentMeal(), Number(el.dataset.factor) || 1);
     toast(id ? 'Im Tracker eingetragen' : 'Dazu kenne ich noch keine Nährwerte.');
   },
-  'tracker-auto'(el) { state.trackerAuto = el.checked; },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
   'remove-row'(el) {
     ui.form.rows.splice(Number(el.dataset.row), 1);
@@ -2564,21 +2114,6 @@ app.addEventListener('change', (e) => {
     state.cooking[id] = [...set];
     save();
     render();
-  } else if (el.dataset.input === 'weight' || el.dataset.input === 'height') {
-    const key = el.dataset.input;
-    const raw = String(el.value).replace(',', '.').trim();
-    const n = Number(raw);
-    const [lo, hi] = key === 'weight' ? [30, 300] : [120, 230];
-    if (raw === '') state.profile[key] = null;
-    else if (n >= lo && n <= hi) state.profile[key] = key === 'weight' ? Math.round(n * 10) / 10 : Math.round(n);
-    save();
-    const y = window.scrollY;
-    render();
-    window.scrollTo(0, y);
-  } else if (el.dataset.input === 'kcal') {
-    const n = Math.round(Number(el.value));
-    if (n >= 1000 && n <= 5000) { state.profile.kcal = n; save(); }
-    else el.value = state.profile.kcal;
   }
 });
 
@@ -2595,29 +2130,40 @@ app.addEventListener('input', (e) => {
     return;
   }
   const key = e.target.dataset.input;
-  if (['draft', 'manualKcal', 'codeDraft', 'productDraft', 'haveDraft'].includes(key)) ui[key] = e.target.value;
+  if (['draft', 'haveDraft'].includes(key)) ui[key] = e.target.value;
 });
 
 app.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   const key = e.target.dataset.input;
   if (key === 'draft') { actions['add-food'](); save(); render(); document.getElementById('eigenes')?.focus(); }
-  if (key === 'manualKcal') { actions['add-manual'](); save(); render(); }
-  if (key === 'codeDraft') actions['enter-code']();
   if (key === 'haveDraft') { actions['have-add'](); render(); document.getElementById('have')?.focus(); }
-  if (key === 'productDraft') { actions['name-product'](); save(); render(); }
 });
 
+// Nährwerte aus der BLS-Datei des Trackers laden (dauert es, läuft Ginger), dann die fertigen Rezepte aus den Zutaten berechnen (alle für 1 Portion)
+let waiting = false;
+const waitTimer = setTimeout(() => { waiting = true; showWait('Ginger holt die Nährwerte …'); }, 400);
+const nutritionOk = await loadNutrition();
+clearTimeout(waitTimer);
+if (waiting) hideWait();
+for (const r of RECIPES) {
+  r.nutrients = r.ingredients.reduce((sum, line) => addNutrients(sum, nutrientsOfText(line)), emptyNutrients());
+  r.kcal = Math.round(r.nutrients.kcal / 10) * 10;
+}
+
+migrateToTracker();
 render();
+if (!nutritionOk) toast('Die Nährwerte ließen sich nicht laden. Öffne die App einmal mit Internet.');
+// Zurück aus dem Tracker (Seite aus dem Zwischenspeicher des Browsers): neu zeichnen
+window.addEventListener('pageshow', (e) => { if (e.persisted) render(); });
 
 // Updates: Beim Öffnen und jedes Mal, wenn die App wieder in den Vordergrund kommt, nach einer neuen Version fragen.
-// Übernimmt eine neue Version, lädt die Seite einmal neu (nicht beim allerersten Installieren und nicht mitten im Scannen).
+// Übernimmt eine neue Version, lädt die Seite einmal neu (nicht beim allerersten Installieren).
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;
-    if (ui.scanning) { toast('Neue Version da. Sie lädt beim nächsten Öffnen.'); return; }
     reloading = true;
     location.reload();
   });

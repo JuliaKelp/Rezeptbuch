@@ -1829,7 +1829,7 @@ function renderSettings() {
     items.forEach((c) => box.appendChild(c));
     view.appendChild(h); view.appendChild(box);
   });
-  const bk = $('#setBack'); if (bk) bk.onclick = () => goTab('diary');
+  const bk = $('#setBack'); if (bk) bk.onclick = () => (rbReturn ? location.assign(rbReturn) : goTab('diary'));
 }
 const SET_GROUPS = [['Ziele', ['Tagesziel', 'Gewichtsziel']], ['Über mich', ['Schlaf & Körper', 'Ernährung & Allergien']], ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']],
   ['Planung', ['Timeline', 'Abend-Vorschläge']], ['Daten', ['Lebensmittel teilen', 'Backup', 'Quellen & Lizenzen']]];
@@ -2153,8 +2153,16 @@ async function exportBackup() {
 }
 
 /* ---------- Start ---------- */
-render();
+// Sprung aus dem Rezeptbuch: #ziel, #ernaehrung oder #einkauf öffnet den passenden Bereich; ?zurueck=… führt danach dorthin zurück
+const rbJump = location.hash.slice(1);
+const rbBack = new URLSearchParams(location.search).get('zurueck');
+const rbReturn = rbBack && /^[a-z0-9/]+$/.test(rbBack) ? '../#/' + rbBack : null;
+if (rbJump || rbBack) history.replaceState(null, '', location.pathname);
+if (rbJump === 'ziel') goTab('settings', 'Tagesziel');
+else if (rbJump === 'ernaehrung') goTab('settings', 'Ernährung & Allergien');
+else render();
 loadBls();
+if (rbJump === 'einkauf') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('scan'); }
 // Koffein-Pegel altert mit der Zeit: Tagebuch (heute) jede Minute und beim Zurückkehren in die App auffrischen
 function refreshCaffeine() {
   if (tab !== 'diary' || sheetMode || document.visibilityState !== 'visible' || !(state.caffeine.enabled || state.alcohol.enabled || (state.supp.enabled && state.supp.remind)) || currentDate !== isoDate(new Date())) return;

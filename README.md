@@ -2,27 +2,24 @@
 
 Eine Handy-Webapp für einfache Rezepte mit Katze Ginger.
 
-- Fragt am Anfang Ernährungsform, Allergien, Kalorienziel, Lieblings- und No-go-Lebensmittel sowie die Kochzeit pro Mahlzeit ab.
-- Schlägt für Frühstück, Mittag- und Abendessen passende Rezepte vor (alle unter 30 Minuten, ohne ausgefallene Zutaten).
+Das Rezeptbuch kümmert sich ums Kochen. Alles rund ums Mitzählen macht der eingebaute Kalorien-Tracker von ST0PTV (`tracker/`): Journal, Analytics mit Monatskalender, Kalorien- und Makroziele, Ernährungsform und Allergien, Gewicht, Barcode-Scanner. Das Rezeptbuch liest diese Einstellungen von dort und hat keine eigenen Kopien davon.
+
+- Fragt am Anfang Lieblings- und No-go-Lebensmittel sowie die Kochzeit pro Mahlzeit ab. Ernährungsform, Allergien und Kalorienziel stellt man im Tracker ein (Knöpfe führen direkt dorthin).
+- Schlägt für Frühstück, Mittag- und Abendessen passende Rezepte vor (alle unter 30 Minuten, ohne ausgefallene Zutaten), passend zum Kalorienziel und den Makrozielen aus dem Tracker.
 - Ist für eine Mahlzeit wenig Zeit, schlägt Ginger Vorbereitung vor: Overnight Oats am Vorabend oder abends doppelt kochen.
-- Kochschritte lassen sich abhaken. Jedes gekochte Rezept gibt einen Stempel und XP, ab 10 Stempeln bekommt Ginger eine Kochmütze.
-- Nährwerte: Für jedes Rezept und den Tag zeigt die App Eiweiß, Kohlenhydrate, Zucker, zugesetzten Zucker, Fruktose, Fett und Ballaststoffe. Die Tagesziele richten sich nach Geschlecht und Ziel (DGE- und WHO-Richtwerte). Alles sind Schätzungen aus Durchschnittswerten.
+- Kochschritte lassen sich abhaken. „Fertig gekocht“ trägt eine Portion ins Tracker-Journal ein und gibt einen Stempel und XP, ab 10 Stempeln bekommt Ginger eine Kochmütze.
+- „Heute“ zeigt, was im Tracker-Journal steht (Kalorien und Einträge pro Mahlzeit) und daneben Gingers Vorschläge.
+- Nährwerte pro Rezept: Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett und Ballaststoffe aus dem Bundeslebensmittelschlüssel (dieselbe Datei wie im Tracker), gemessen an den Tageszielen im Tracker.
 - Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
-- Einkauf scannen: Barcode mit der Handykamera scannen oder eintippen. Die Kamera nutzt Dauer-Autofokus und etwas Zoom, schaltet bei Dunkelheit das Licht ein (wo das Handy es erlaubt) und geht nach dem Scan aus. Die Produktdaten kommen von Open Food Facts. Eingekaufte Lebensmittel rutschen in den Vorschlägen nach oben, was dreimal gekauft wurde, zählt als Lieblingsessen.
+- Einkauf: Gescannt wird im Tracker („Einkauf scannen“ springt hin). Vorgemerkte Lebensmittel rutschen in den Vorschlägen nach oben, gelten auf der Einkaufsliste als vorhanden und lassen sich als Snack vorschlagen.
 - Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
-- Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Jedes Gericht wird auf den Kalorienrahmen seines Platzes umgerechnet (0,6× bis 1,6× Menge), sodass jeder Tag höchstens 5 % vom Kalorienziel abweicht. Die Tabelle zeigt die Tagessumme. Gerichte übernehmen, gegen andere tauschen oder zwischen Tagen tauschen, Portionen pro Gericht einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
-- Ampel je nach Ziel: Beim Abnehmen wird der Kalorienring rot, sobald das Ziel überschritten ist, sonst grün. Beim Zunehmen wird er grün, wenn das Ziel erreicht ist, und rot, wenn es nach dem Abendessen noch fehlt. Beim Halten zählt ±5 %.
-- Monatskalender: zeigt für jeden Tag, ob das Ziel erreicht wurde, mit Details zu Kalorien und Makros pro Tag. Gemessen wird am Ziel, das an dem Tag galt.
-- Makros: Eiweiß, Kohlenhydrate und Fett stehen bei jedem Rezept, unter dem Kalorienring, im Wochenplan pro Tag und auf der Einkaufsliste. Vorschläge und Wochenplan bevorzugen Gerichte, deren Eiweiß- und Fettanteil zum Ziel passt.
-- Gewicht und Größe (freiwillig): Mit Gewicht rechnet die App Eiweiß in g pro kg nach den Studien unter „Quellen“ (1,4 / 1,2 / 1,6 g/kg je Ziel, mindestens 0,83 g/kg). Mit Größe zeigt sie den BMI, rechnet ab BMI 25 mit dem Gewicht bei BMI 25 und rät bei Untergewicht vom Abnehmen ab.
-- Info-Knöpfe: Zu jeder abgefragten Angabe erklärt ein „i“, wofür Ginger sie braucht.
+- Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Jedes Gericht wird auf den Kalorienrahmen seines Platzes umgerechnet (0,6× bis 1,6× Menge), sodass jeder Tag höchstens 5 % vom Kalorienziel abweicht. Gerichte übernehmen, tauschen, Portionen einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
 - „Ich habe …“: Lebensmittel eingeben und passende Rezepte finden.
-- 2 oder 3 Mahlzeiten: Wer nur zweimal am Tag isst, bekommt normale Portionen und dazu zwei kleine Snacks statt größerer Mahlzeiten. Gescannte Snack-Produkte wie Riegel werden mit vorgeschlagen.
+- 2 oder 3 Mahlzeiten: Wer nur zweimal am Tag isst, bekommt normale Portionen und dazu zwei kleine Snacks.
 - Favoriten: kommen öfter in den Wochenplan und lassen sich auf einen Tag einplanen.
-- Eigene Rezepte eintragen: Ginger schätzt die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge (Mengen anpassen, Tauschideen wie Milch statt Sahne).
+- Eigene Rezepte eintragen: Ginger rechnet die Kalorien pro Portion, vergleicht sie mit dem Rahmen für die Mahlzeit und macht Vorschläge.
 
 Alle Daten bleiben im Browser auf dem Handy (localStorage), es gibt keine Anmeldung und keinen Server.
-Die Kalorienangaben der Rezepte sind grobe Schätzwerte. Ein Kalorientracker soll später angebunden werden.
 
 ## Starten
 
@@ -39,19 +36,17 @@ Dann `http://localhost:8000` öffnen. Auf dem Handy lässt sich die Seite über 
 - `index.html`, `styles.css`: Seite und Aussehen
 - `app.js`: Ablauf, Vorschläge, Stempelheft
 - `recipes.js`: Rezeptliste und Lebensmittel für die Geschmacksabfrage
-- `vendor/html5-qrcode.min.js`: Barcode-Scanner (html5-qrcode 2.3.8, Apache-2.0)
-- `nutrition.js`: Nährwerte der Zutaten aus dem BLS 4.0
-- `tracker/`: Kalorien-Tracker von ST0PTV (MIT-Lizenz, `tracker/LICENSE`), ins Rezeptbuch-Design gebracht; „Fertig gekocht“ trägt das Gericht in sein Journal ein
+- `nutrition.js`: Zutaten, Einheiten und ihre BLS-Codes; die Werte kommen aus `tracker/data/bls.json`
+- `tracker/`: Kalorien-Tracker von ST0PTV (MIT-Lizenz, `tracker/LICENSE`), ins Rezeptbuch-Design gebracht. Speichert unter `ct.v1`; das Rezeptbuch liest dort Ziele, Ernährung, Journal und Einkauf und trägt Gekochtes ein
 - `sw.js`, `manifest.webmanifest`, `icon*`: Installation und Offline-Nutzung
 
 ## Quellen und Lizenzen
 
 In der App unter „Ich“ → „Quellen und Lizenzen“ (`#/quellen`) ausführlich aufgelistet. Kurz:
 
-- html5-qrcode 2.3.8 (Minhaz/mebjas) mit eingebautem ZXing für JavaScript: Apache-2.0, Lizenztext in `vendor/html5-qrcode-LICENSE`
 - Schrift Nunito (The Nunito Project Authors), über Google Fonts: SIL Open Font License 1.1
 - Produktdaten von Open Food Facts: Datenbank ODbL 1.0, Einträge DbCL 1.0
-- Richtwerte: DGE-Referenzwerte, WHO-Leitlinie zu Zucker (2015)
+- Kalorien- und Makroziele mit ihren Quellen: im Tracker
 - Nährwerte: Max Rubner-Institut (2025), Bundeslebensmittelschlüssel (BLS) 4.0, DOI 10.25826/Data20251217-134202-0
 - Kalorien-Tracker (`tracker/`): Copyright (c) 2026 ST0PTV, MIT-Lizenz; enthält ZXing (Apache-2.0, `tracker/vendor/ZXING-LICENSE`)
 - Rezepte, Ginger, Icons und Design: für diese App selbst gemacht

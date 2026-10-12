@@ -29,7 +29,7 @@ function openPantry(tab) {
     <div class="seg two" id="addSeg"><button data-t="scan">Barcode</button><button data-t="search">Suche</button></div>
     <div class="pantry-bar"><label class="switch" style="margin:0"><input type="checkbox" id="pFav" ${pantryFav ? 'checked' : ''}> als Favorit</label><span class="small muted">${pantryCount ? `${pantryCount} vorgemerkt` : 'nur speichern, nicht ins Journal'}</span></div>
     <div id="addBody"></div>`);
-  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; closeSheet(); };
+  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; closeSheet(); if (globalThis.rbPantryReturn) location.assign(globalThis.rbPantryReturn); }; // aus dem Rezeptbuch geöffnet: dorthin zurück
   $('#pFav').onchange = (ev) => { pantryFav = ev.target.checked; };
   $('#addSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { addTab = b.dataset.t; renderAddTab(); });
   renderAddTab();

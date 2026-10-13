@@ -992,7 +992,12 @@ function viewStart1(edit) {
   const back = edit ? 'edit/1' : 'start/1';
   return `<main class="screen">
     ${edit ? '' : stepsBar(1)}
-    <div class="ginger-says">${ginger(78)}<div class="bubble">Hallo, ich bin Ginger! Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
+    <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Wie heißt du? Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
+    <section class="card" style="display:flex;flex-direction:column;gap:8px">
+      <label for="pname"><h3>Wie soll ich dich nennen?</h3></label>
+      <input id="pname" type="text" data-input="profileName" value="${esc(state.profile.name || '')}" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
+      <div class="small muted">Bleibt nur auf diesem Handy.</div>
+    </section>
     <section class="card" style="display:flex;flex-direction:column;gap:10px">
       ${infoHead('h3', 'Aus deinem Tracker', 'tracker')}
       <div class="small muted">${trackerSettingsSummary()}</div>
@@ -1158,6 +1163,14 @@ function dayCard() {
     </a>`;
 }
 
+// Begrüßung nach Tageszeit, mit Namen, wenn er unter „Ich“ steht (nur lokal gespeichert)
+function greeting() {
+  const h = new Date().getHours();
+  const g = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Schön, dass du da bist' : 'Guten Abend';
+  const name = (state.profile.name || '').trim();
+  return name ? `${g}, ${name}!` : `${g}!`;
+}
+
 function viewHeute() {
   const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   const log = journal();
@@ -1197,7 +1210,7 @@ function viewHeute() {
 
   return `<main class="screen with-nav">
     <div class="top-row">
-      <div><div class="small muted">${date}</div><h1>Hallo!</h1></div>
+      <div><div class="small muted">${date}</div><h1>${esc(greeting())}</h1></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="level-pill">Level ${level()} · ${levelName()}</div>
         <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
@@ -1638,6 +1651,10 @@ function viewIch() {
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <h2>Rezeptbuch</h2>
+    <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
+      <h3>Name</h3>
+      <div class="small muted">${esc((state.profile.name || '').trim() || 'noch keiner')}</div>
+    </a>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
       <div class="small muted">Mag ich: ${esc(likes.join(', ') || 'noch nichts')}</div>
@@ -3073,6 +3090,7 @@ app.addEventListener('input', (e) => {
   }
   const key = e.target.dataset.input;
   if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
+  if (key === 'profileName') { state.profile.name = t.value.slice(0, 30); save(); }
   if (key === 'recipeQuery' || key === 'vrQuery') {
     ui[key] = t.value;
     const pos = t.selectionStart;

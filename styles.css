@@ -570,3 +570,5 @@ textarea.input { resize: vertical; font: inherit; }
 .toggles .small { padding: 8px 0 4px; }
 .danger-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 8px; }
 .link-btn.danger { color: #9A3324; }
+.snack-fill { color: var(--ink); }
+.snack-fill .link-btn { display: inline; margin-left: 4px; }

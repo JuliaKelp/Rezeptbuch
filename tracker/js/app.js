@@ -1284,11 +1284,15 @@ function openAmount(food, opts = {}) {
     const meal = $('#meal').value;
     if (edit) {
       const e = (state.days[currentDate] || []).find((x) => x.id === food.id);
+      if (e && e.vu && e.grams !== grams) { Vorrat.giveBack(state.pantry, e.vu); const vu = Vorrat.take(state.pantry, (p) => p.id === (e.ref || e.id), grams).used; if (vu.length) e.vu = vu; else delete e.vu; }
       if (e) { e.grams = grams; e.meal = meal; const wv = $('#eWater'); if (wv) { if (wv.checked) e.water = true; else delete e.water; state.waterFoods[foodId] = wv.checked || undefined; } const tv = $('#eTime') && $('#eTime').value; if (tv) e.t = tv; else delete e.t; }
     } else {
       const entry = Object.assign({ id: uid(), meal, grams, ref: foodId, src: food.src, n: food.n, brand: food.brand || '', liq: isLiq(food) }, nutrientsOf(food));
       const tv = $('#eTime') && $('#eTime').value; if (tv) entry.t = tv;
       const wv = $('#eWater'); if (wv) { if (wv.checked) entry.water = true; state.waterFoods[foodId] = wv.checked || undefined; }
+      // Aus der Vorratskammer abziehen (falls dort mit Menge vorhanden); beim Löschen kommt es zurück
+      const vu = Vorrat.take(state.pantry, (p) => p.id === foodId, grams).used;
+      if (vu.length) entry.vu = vu;
       (state.days[currentDate] = state.days[currentDate] || []).push(entry);
       state.recent = [Object.assign(foodSnap(food), { lastGrams: grams })].concat(state.recent.filter((x) => x.id !== foodId)).slice(0, 60);
     }
@@ -1298,6 +1302,8 @@ function openAmount(food, opts = {}) {
   };
   const del = $('#del');
   if (del) del.onclick = () => {
+    const gone = (state.days[currentDate] || []).find((x) => x.id === food.id);
+    if (gone && gone.vu) Vorrat.giveBack(state.pantry, gone.vu); // zurück in den Vorrat
     state.days[currentDate] = (state.days[currentDate] || []).filter((x) => x.id !== food.id);
     save(); toast('Gelöscht'); closeSheet();
   };
@@ -1896,7 +1902,7 @@ function renderSettings() {
     items.forEach((c) => box.appendChild(c));
     view.appendChild(h); view.appendChild(box);
   });
-  const bk = $('#setBack'); if (bk) bk.onclick = () => (rbReturn ? location.assign(rbReturn) : goTab('diary'));
+  const bk = $('#setBack'); if (bk) bk.onclick = () => (rbReturn ? (RBBackup.markNav(), location.assign(rbReturn)) : goTab('diary'));
 }
 const SET_GROUPS = [['Ziele', ['Tagesziel', 'Gewichtsziel']], ['Über mich', ['Schlaf & Körper', 'Ernährung & Allergien']], ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']],
   ['Planung', ['Timeline', 'Abend-Vorschläge']], ['Daten', ['Lebensmittel teilen', 'Backup', 'Quellen & Lizenzen']]];
@@ -2135,9 +2141,11 @@ function renderSettingsInner() {
   $('#fImp').onchange = (ev) => readJsonFile(ev, (data) => { importFoods(data); keepScroll(); }, 'Datei konnte nicht gelesen werden.');
   $('#impBtn').onclick = () => $('#imp').click();
   $('#imp').onchange = (ev) => readJsonFile(ev, (data) => {
-    if (!data || typeof data !== 'object' || !data.days) { toast('Datei ist kein gültiges Backup.'); return; }
-    if (!confirm('Backup importieren? Die aktuellen Daten auf diesem Gerät werden ersetzt.')) return;
-    state = normalizeState(data); save(); toast('Backup importiert'); render();
+    const parts = RBBackup.check(data); // auch das gemeinsame Backup aus dem Rezeptbuch („Ich“ → Backup)
+    if (!parts) { toast('Datei ist kein gültiges Backup.'); return; }
+    if (!confirm(`Backup importieren? Die aktuellen Daten ${parts.rezeptbuch ? 'von Tracker und Rezeptbuch ' : ''}auf diesem Gerät werden ersetzt.`)) return;
+    if (parts.tracker) state = normalizeState(parts.tracker);
+    save(); RBBackup.restore(Object.assign({}, parts, { tracker: parts.tracker ? state : null })); toast('Backup importiert'); render();
   }, 'Datei ist kein gültiges Backup.');
   $('#wipe').onclick = () => {
     if (confirm('Wirklich alle Einträge, eigenen Lebensmittel, Rezepte und Einstellungen löschen?')) {
@@ -2215,8 +2223,10 @@ function importFoods(data) {
   Object.entries(src.slices).forEach(([id, g]) => { if (!state.slices[id]) state.slices[id] = g; });
   save(); toast(`${total} Lebensmittel übernommen`);
 }
+// Ein Backup für Tracker und Rezeptbuch zusammen (../backup.js)
 async function exportBackup() {
-  await shareJson(state, `kalorien-backup-${isoDate(new Date())}.json`, () => { state.lastBackup = Date.now(); save(); toast('Backup erstellt'); });
+  save();
+  if (await RBBackup.exportAll()) { state.lastBackup = Date.now(); save(); toast('Backup erstellt'); }
 }
 
 /* ---------- Start ---------- */

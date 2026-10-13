@@ -17,6 +17,11 @@ function pantryStore(food, replaceId) {
   const list = state.pantry || [];
   const old = list.find((x) => x.id === snap.id) || (replaceId && list.find((x) => x.id === replaceId));
   const count = replaceId ? ((old && old.count) || 1) : ((old && old.count) || 0) + 1;
+  // Vorratskammer (../vorrat.js): neu gekauft = eine Packung mehr; korrigiert = Menge bleibt
+  const pq = food.pq || (liveFood(food) || {}).pq || null;
+  if (pq) snap.pq = pq;
+  if (replaceId) { if (old && old.qty != null) Object.assign(snap, { qty: old.qty, qu: old.qu, ug: old.ug || (old.qu === 'pkg' ? pq : old.ug), fn: old.fn }); }
+  else Vorrat.addPack(snap, old, 1, pq);
   state.pantry = [Object.assign(snap, { added: Date.now(), count })].concat(list.filter((x) => x.id !== snap.id && x.id !== replaceId)).slice(0, PANTRY_MAX);
   if (pantryFav && !isFav(snap.id)) state.favs.unshift(foodSnap(food));
   if (!replaceId) pantryCount++;
@@ -64,7 +69,12 @@ async function scanHit(code) {
   if (!item) { item = { code, n: 1 }; scanSession.unshift(item); }
   item.state = 'load'; drawScanList(code);
   const r = await fetchProduct(code);
-  if (r.food) { item.food = r.food; item.state = 'ok'; pantryStore(r.food); }
+  if (r.food) {
+    item.food = r.food; item.state = 'ok';
+    const before = (state.pantry || []).find((y) => y.id === (r.food.ref || r.food.id));
+    item.before = before ? Object.assign({}, before) : null;
+    pantryStore(r.food);
+  }
   else item.state = r.missing ? 'missing' : 'offline';
   drawScanList(code);
 }
@@ -90,9 +100,11 @@ function drawScanList(fresh) {
     if (x.state === 'load') { main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-m">Suche bei Open Food Facts …</div>`; acts = ''; }
     else if (x.state === 'ok') {
       const warn = scanWarnings(f);
-      const meta = [f.brand, `${fmt(f.k)} kcal/100 ${unitOf(f)}`, x.n > 1 ? `${x.n}× gescannt` : p && p.count > 1 ? `${p.count}× gekauft` : ''].filter(Boolean).map(esc).join(' · ');
+      const meta = [f.brand, `${fmt(f.k)} kcal/100 ${unitOf(f)}`, p ? `im Vorrat: ${Vorrat.label(p)}` : ''].filter(Boolean).map(esc).join(' · ');
       main = `<div class="si-n">${esc(f.n)}</div><div class="si-m">${meta}</div>${warn.length ? `<div class="si-w">${esc(warn.join(' · '))}</div>` : ''}`;
-      acts = `<button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Gegessen</button>`;
+      // Anzahl gekaufter Packungen dieses Einkaufs
+      acts = `<span class="si-count" role="group" aria-label="Anzahl"><button type="button" class="chip" data-a="minus" data-i="${i}" aria-label="Eins weniger" ${x.n <= 1 ? 'disabled' : ''}>−</button><b>${x.n}×</b><button type="button" class="chip" data-a="plus" data-i="${i}" aria-label="Eins mehr">+</button></span>
+        <button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Gegessen</button>`;
     } else if (x.state === 'missing') {
       main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div>`;
       acts = `<button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;
@@ -107,8 +119,25 @@ function drawScanList(fresh) {
     const x = scanSession[+b.dataset.i]; if (!x) return;
     const a = b.dataset.a;
     if (a === 'retry') { scanHit(x.code); return; }
+    if (a === 'plus') { scanHit(x.code); return; }
+    if (a === 'minus') {
+      if (x.n <= 1 || !x.food) return;
+      const id = x.food.ref || x.food.id;
+      const p = (state.pantry || []).find((y) => y.id === id);
+      if (p) {
+        p.count = Math.max(1, (p.count || 1) - 1);
+        if (p.qty != null) p.qty = Math.max(0, Math.round((p.qty - (p.qu === 'pkg' ? 1 : p.pq && p.ug ? p.pq / p.ug : 0)) * 100) / 100);
+      }
+      x.n--; pantryCount = Math.max(0, pantryCount - 1); save(); drawScanList(x.code); return;
+    }
     if (a === 'del') {
-      if (x.food) { const id = x.food.ref || x.food.id; state.pantry = (state.pantry || []).filter((y) => y.id !== id); pantryCount = Math.max(0, pantryCount - x.n); save(); }
+      if (x.food) {
+        const id = x.food.ref || x.food.id;
+        // Gab es das Produkt schon vorher im Vorrat, bleibt es mit der alten Menge; sonst fällt es raus
+        state.pantry = (state.pantry || []).filter((y) => y.id !== id);
+        if (x.before) state.pantry.unshift(x.before);
+        pantryCount = Math.max(0, pantryCount - x.n); save();
+      }
       scanSession = scanSession.filter((y) => y !== x); toast(x.food ? 'Nicht mehr vorgemerkt' : 'Entfernt'); drawScanList(); return;
     }
     stopScanner();
@@ -134,12 +163,16 @@ function openPantry(tab) {
     <div class="seg two" id="addSeg"><button data-t="scan">Barcode</button><button data-t="search">Suche</button></div>
     <div class="pantry-bar"><label class="switch" style="margin:0"><input type="checkbox" id="pFav" ${pantryFav ? 'checked' : ''}> als Favorit</label><span class="small muted">${pantryCount ? `${pantryCount} vorgemerkt` : 'nur speichern, nicht ins Journal'}</span></div>
     <div id="addBody"></div>`);
-  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; scanSession = []; scanFix = null; closeSheet(); if (globalThis.rbPantryReturn) location.assign(globalThis.rbPantryReturn); }; // aus dem Rezeptbuch geöffnet: dorthin zurück
+  $('#closeSheet').onclick = () => { pantryMode = false; pantryCount = 0; scanSession = []; scanFix = null; closeSheet(); if (globalThis.rbPantryReturn) { RBBackup.markNav(); location.assign(globalThis.rbPantryReturn); } }; // aus dem Rezeptbuch geöffnet: dorthin zurück
   $('#pFav').onchange = (ev) => { pantryFav = ev.target.checked; };
   $('#addSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { addTab = b.dataset.t; renderAddTab(); });
   renderAddTab();
 }
 
+function vorratTag(id) {
+  const p = (state.pantry || []).find((y) => y.id === id);
+  return p && p.qty != null ? 'Vorrat: ' + Vorrat.label(p) : 'vorgemerkt';
+}
 function foodItems() {
   const map = new Map();
   const put = (f, flag) => { const id = f.ref || f.id; const cur = map.get(id) || Object.assign({}, liveFood(f), { id, flags: {} }); cur.flags[flag] = true; map.set(id, cur); };
@@ -175,7 +208,7 @@ function renderFood() {
     const tagOf = (x) => x.flags.recipe ? 'Rezept' : x.flags.own ? 'Eigenes' : x.src === 'off' ? 'Barcode' : '';
     $('#fdList').innerHTML = list.length ? list.map((x, i) => {
       const e = (x.p || 0) * 4 + (x.c || 0) * 4 + (x.f || 0) * 9 || 1;
-      return `<div class="fd-row" data-i="${i}"><div class="fd-main"><div class="fd-n">${x.flags.fav ? '<span class="star">★</span>' : ''}${esc(x.n)}${tagOf(x) ? `<span class="tag">${tagOf(x)}</span>` : ''}${x.flags.pantry ? '<span class="tag fd-p">vorgemerkt</span>' : ''}</div>
+      return `<div class="fd-row" data-i="${i}"><div class="fd-main"><div class="fd-n">${x.flags.fav ? '<span class="star">★</span>' : ''}${esc(x.n)}${tagOf(x) ? `<span class="tag">${tagOf(x)}</span>` : ''}${x.flags.pantry ? `<span class="tag fd-p">${esc(vorratTag(x.id))}</span>` : ''}</div>
         <div class="fd-m"><span>${fmt(x.k)} kcal/100 ${unitOf(x)}</span><span class="fd-bar"><i style="flex:${((x.p || 0) * 4 / e).toFixed(3)};background:var(--p)"></i><i style="flex:${((x.c || 0) * 4 / e).toFixed(3)};background:var(--c)"></i><i style="flex:${((x.f || 0) * 9 / e).toFixed(3)};background:var(--f)"></i></span><span class="fd-e">E ${r1(x.p || 0)}</span></div></div>
         <button type="button" class="fd-plus" data-plus="${i}" aria-label="${esc(x.n)} ins Journal eintragen">+</button></div>
         ${foodOpen === x.id ? `<div class="fd-acts">

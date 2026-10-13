@@ -2156,18 +2156,52 @@ function snackAllowance() {
 }
 
 // Wie viel von einem Produkt passt in left kcal? Begrenzt durch das, was im Vorrat ist.
-function snackAmount(x, left) {
-  const stock = V.grams(x);
-  let g = left / (x.k / 100);
-  const capped = stock != null && stock < g;
-  if (capped) g = stock;
-  const sv = x.serving;
-  if (sv && g >= sv) {
-    const n = Math.floor(g / sv + 1e-6);
-    return { g: n * sv, step: sv, text: `${n} ${n === 1 ? 'Portion' : 'Portionen'} à ${fmt(sv)} g`, capped };
+// Eine übliche Portion: zuerst die Packungsportion des Herstellers (Open Food Facts bzw. selbst eingetragen),
+// sonst die Standardportion für Erwachsene nach SINU, LARN – V Revisione 2024 „Porzioni standard“ (dieselbe Quelle wie im Tracker).
+// Ohne beides gibt es keine Portion; dann schlage ich keine Menge vor.
+const LARN = 'Standardportion SINU/LARN 2024';
+function snackPortion(x) {
+  const id = String(x.id);
+  if (x.serving && !id.startsWith('rb:')) return { g: x.serving, src: id.startsWith('off:') ? 'Packungsportion laut Open Food Facts' : 'deine Portionsangabe' };
+  const n = x.n || '';
+  const P = (g, what) => ({ g, src: `${LARN} (${what})` });
+  switch (vorratGroup(x)) {
+    case 'obst': return /getrocknet|Trocken|Rosine|Dattel/i.test(n) ? P(30, 'Trockenobst') : P(150, '1 Stück Obst');
+    case 'gemuese': return /salat|rucola/i.test(n) ? P(80, 'Blattsalat') : /kartoffel/i.test(n) ? P(200, 'Kartoffeln') : P(200, 'Gemüse, z. B. 2–3 Tomaten');
+    case 'nuesse': return /mus|butter|creme/i.test(n) ? null : P(30, 'Nüsse/Samen');
+    case 'huelsen': return /hummus/i.test(n) ? null : /reif|getrocknet|trocken/i.test(n) ? P(50, 'Hülsenfrüchte getrocknet') : P(150, 'Hülsenfrüchte gegart');
+    case 'getreide':
+      if (/brot|brötchen|toast|tortilla|wrap/i.test(n)) return P(50, '1 Scheibe Brot');
+      if (/flocken|müsli|cerealien|flakes/i.test(n)) return P(30, 'Frühstückscerealien');
+      if (/mehl/i.test(n)) return null;
+      return P(80, 'Nudeln/Reis roh');
+    case 'milch':
+      if (/joghurt|kefir|skyr/i.test(n)) return P(125, '1 Becher Joghurt');
+      if (/milch|drink/i.test(n) && !/käse/i.test(n)) return P(125, '1 kleines Glas Milch');
+      if (/\bei(er)?\b/i.test(n)) return P(50, '1 Ei');
+      if (/butter|sahne|rahm/i.test(n)) return null;
+      return (x.f || 0) > 25 ? P(50, 'gereifter Käse') : P(100, 'Frischkäse/Quark/Mozzarella');
+    case 'fleisch':
+      if (/tofu|tempeh|seitan/i.test(n)) return null;
+      return /salami|schinken|wurst|aufschnitt|mortadella|chorizo|speck|bacon|pastrami|bresaola|lyoner/i.test(n) ? P(50, 'Wurst/Aufschnitt, 3–4 Scheiben') : P(100, 'Fleisch');
+    case 'fisch': return /dose|konserve|thunfisch|sardine/i.test(n) ? P(50, 'Fischkonserve') : P(150, 'Fisch');
+    default: return null;
   }
-  g = Math.floor(g / 5) * 5;
-  return { g, step: sv || 10, text: `${fmt(g)} g`, capped };
+}
+
+// Wie viel davon jetzt? Höchstens eine übliche Portion, höchstens was im Vorrat ist, höchstens was in den Snack-Rahmen passt.
+function snackAmount(x, left) {
+  const por = snackPortion(x);
+  const stock = V.grams(x);
+  const room = left / (x.k / 100);
+  if (!por) return { g: 0, step: 10, none: true, stock };
+  let g = Math.min(por.g, room);
+  let why = g < por.g ? 'room' : 'portion';
+  if (stock != null && stock < g) { g = stock; why = 'stock'; }
+  g = g >= por.g ? por.g : Math.floor(g / 5) * 5;
+  const share = g / por.g;
+  const text = share >= 0.99 ? `1 Portion (${fmt(g)} g)` : share >= 0.45 && share <= 0.55 ? `½ Portion (${fmt(g)} g)` : `${fmt(g)} g`;
+  return { g, step: por.g >= 50 ? 10 : 5, text, why, por, stock };
 }
 
 function viewSnacks() {
@@ -2184,10 +2218,11 @@ function viewSnacks() {
     return `<div class="card snack-opt">
       <div class="snack-top">
         <div class="info"><div class="title">${esc(x.n)}</div>
-          <div class="meta">${ok ? `bis zu <b>${esc(m.text)}</b> · ca. ${fmt((m.g * x.k) / 100)} kcal` : `heute nicht mehr drin · ${x.serving ? `1 Portion (${fmt(x.serving)} g) hat ${fmt((x.serving * x.k) / 100)} kcal` : `100 g haben ${fmt(x.k)} kcal`}`}</div>
-          <div class="meta">${[x.brand, x.qty != null ? `im Vorrat: ${V.label(x)}` : '', m.capped && ok ? 'mehr hast du nicht da' : ''].filter(Boolean).map(esc).join(' · ')}</div>
+          <div class="meta">${m.none ? `100 g haben ${fmt(x.k)} kcal · keine Portionsangabe, wähl die Menge selbst` : ok ? `<b>${esc(m.text)}</b> · ca. ${fmt((m.g * x.k) / 100)} kcal` : `heute nicht mehr drin · 1 Portion (${fmt(m.por.g)} g) hat ${fmt((m.por.g * x.k) / 100)} kcal`}</div>
+          <div class="meta">${[x.brand, x.qty != null ? `im Vorrat: ${V.label(x)}` : '', ok && m.why === 'stock' ? 'mehr hast du nicht da' : '', ok && m.why === 'room' ? 'mehr passt heute nicht' : ''].filter(Boolean).map(esc).join(' · ')}</div>
+          ${m.por ? `<div class="meta small muted">1 Portion: ${esc(m.por.src)}</div>` : ''}
         </div>
-        <button class="chip" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${ok ? m.g : x.serving || 25}" aria-expanded="${pick}">Essen</button>
+        <button class="chip" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${ok ? m.g : m.por ? Math.min(m.por.g, m.stock != null ? Math.max(5, Math.floor(m.stock)) : m.por.g) : 10}" aria-expanded="${pick}">Essen</button>
       </div>
       ${pick ? `<div class="snack-eat">
         <div class="stepper" role="group" aria-label="Menge">
@@ -2196,6 +2231,8 @@ function viewSnacks() {
           <button class="round" data-action="snack-g" data-d="${m.step}" aria-label="Mehr">+</button>
         </div>
         ${g * x.k / 100 > left + 1 ? `<div class="small" style="color:var(--accent-text)">Das sind ${fmt((g * x.k) / 100 - left)} kcal über deinem Snack-Rahmen.</div>` : ''}
+        ${m.por && g > m.por.g ? `<div class="small" style="color:var(--accent-text)">Mehr als eine übliche Portion (${fmt(m.por.g)} g).</div>` : ''}
+        ${m.stock != null && g > m.stock ? `<div class="small" style="color:var(--accent-text)">So viel hast du nicht im Vorrat (${fmt(m.stock)} g).</div>` : ''}
         <button class="btn small-btn" data-action="snack-eat" data-id="${esc(x.id)}">Eintragen</button>
       </div>` : ''}
     </div>`;
@@ -2209,9 +2246,9 @@ function viewSnacks() {
   const recipeRow = (r) => {
     const f = Math.floor((left / r.kcal) * 10) / 10;
     const fit = Math.min(FIT_MAX, Math.max(FIT_MIN, f));
-    const p = Math.min(f, 2);
-    const text = f >= 0.3 ? `bis zu ${fmtFactor(p)} ${p > 1 ? 'Portionen' : 'Portion'} · ca. ${fmt(r.kcal * p)} kcal` : `heute nicht mehr drin · 1 Portion hat ${fmt(r.kcal)} kcal`;
-    return `<a class="recipe-card" href="#/rezept/${r.id}/snack${f >= 0.3 && fit !== 1 ? '/' + fit : ''}">
+    const p = Math.min(f, 1); // höchstens eine Rezeptportion
+    const text = f >= 0.3 ? `${p >= 1 ? '1 Portion' : `${fmtFactor(p)} Portion`} · ca. ${fmt(r.kcal * p)} kcal` : `heute nicht mehr drin · 1 Portion hat ${fmt(r.kcal)} kcal`;
+    return `<a class="recipe-card" href="#/rezept/${r.id}/snack${f >= 0.3 && f < 1 && fit !== 1 ? '/' + fit : ''}">
       <div class="thumb" style="background:${r.tint}">${gingerPeek(44)}</div>
       <div class="info"><div class="title">${esc(r.name)}${planned && planned.id === r.id ? ' <span class="small muted">(im Plan)</span>' : ''}</div><div class="meta">${esc(text)}</div></div>
     </a>`;
@@ -2223,7 +2260,7 @@ function viewSnacks() {
       <div class="journal-kcal">${fmt(left)} <small>kcal frei für Snacks</small></div>
       <div class="small muted">Snack-Rahmen heute ${fmt(a.total)} kcal${a.eaten ? ` · schon gesnackt ${fmt(a.eaten)} kcal` : ''}${Math.abs(a.over) >= 10 ? ` · Mahlzeiten bisher ${fmt(Math.abs(a.over))} kcal ${a.over > 0 ? 'über' : 'unter'} Plan` : ''}${hasKcalGoal() ? '' : ' · ohne Kalorienziel im Tracker rechne ich mit 2.000 kcal'}</div>
     </div>
-    <p class="small muted">Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon heute noch in deinen Rahmen passt, egal wie gesund es ist.</p>
+    <p class="small muted">Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Gesund oder nicht spielt keine Rolle.</p>
     <h2>Aus deinem Vorrat</h2>
     ${marked.length ? marked.map(productRow).join('') : '<div class="card small muted">Noch keine Snacks im Vorrat. Markier Produkte in der Vorratskammer mit „Snack“, dann tauchen sie hier auf.</div>'}
     ${others.length ? `<button class="link-btn" data-action="snack-more-products" aria-expanded="${!!ui.snackOthers}">${ui.snackOthers ? 'Weitere Produkte ausblenden' : `Weitere ${others.length} Produkte aus dem Vorrat zeigen`}</button>

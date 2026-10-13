@@ -1,8 +1,8 @@
 // Speichert die App auf dem Handy, damit sie auch ohne Internet startet.
-const CACHE = 'rezeptbuch-v19';
+const CACHE = 'rezeptbuch-v20';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'vorrat.js', 'backup.js', 'recipes.js', 'nutrition.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'tracker/', 'tracker/index.html', 'tracker/css/style.css', 'tracker/vendor/zxing.min.js', 'tracker/data/bls.json', 'tracker/data/recipes.json',
-  ...['caffeine', 'alcohol', 'weightgoal', 'food', 'timeline', 'supp_catalog', 'supplements', 'app'].map((n) => `tracker/js/${n}.js`)];
+  ...['caffeine', 'alcohol', 'weightgoal', 'food', 'ocr', 'timeline', 'supp_catalog', 'supplements', 'app'].map((n) => `tracker/js/${n}.js`)];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));

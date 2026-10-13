@@ -13,7 +13,7 @@ const MEALS = [
   { id: 'snack', label: 'Snacks' },
 ];
 const NUTRIENTS = ['k', 'p', 'c', 'f', 'fi', 'su', 'fs']; // fs = freier Zucker (WHO-Definition), Teil von su
-const OFF_FIELDS = 'code,product_name,product_name_de,brands,nutriments,serving_quantity,serving_size,product_quantity,quantity,allergens_tags,ingredients_analysis_tags,additives_tags';
+const OFF_FIELDS = 'code,product_name,product_name_de,brands,nutriments,serving_quantity,serving_size,product_quantity,quantity,allergens_tags,ingredients_analysis_tags,additives_tags,categories_tags';
 // Süßstoffe und Zuckeraustauschstoffe nach E-Nummer (Open Food Facts liefert sie als additives_tags); aus dem Rezeptbuch-Scanner übernommen
 const SWEETENERS = {
   'en:e420': 'Sorbit', 'en:e421': 'Mannit', 'en:e950': 'Acesulfam', 'en:e951': 'Aspartam', 'en:e952': 'Cyclamat', 'en:e953': 'Isomalt',
@@ -1494,6 +1494,10 @@ async function fetchProduct(code) {
       sliceG: offSliceG(p.serving_size),
       liq: /\d\s*(ml|cl|l)\b/i.test(p.quantity || ''),
       sw: offSweeteners(p),
+      sf: num(nm['saturated-fat_100g']), sa: num(nm.salt_100g),
+      // Was Open Food Facts nicht kennt (statt 0), und die Kategorien für die Gruppen im Vorrat
+      miss: [['p', 'proteins_100g'], ['c', 'carbohydrates_100g'], ['f', 'fat_100g'], ['fi', 'fiber_100g'], ['su', 'sugars_100g']].filter(([, x]) => num(nm[x]) == null).map(([k]) => k),
+      cat: (p.categories_tags || []).filter((x) => x.startsWith('en:')).slice(-12),
     };
     state.offCache[code] = food; save();
     return { food };
@@ -1529,15 +1533,33 @@ function renderNew() {
   if ($('#newRecipe')) $('#newRecipe').onclick = () => openRecipe();
 }
 
-function openFoodForm(existing) {
+// Was im Formular schon eingetippt ist (für den Foto-Knopf)
+function formValues() {
+  const o = {};
+  const val = (id) => { const el = $('#' + id); return el ? el.value.trim() : ''; };
+  if (val('cName')) o.n = val('cName');
+  if (val('cBrand')) o.brand = val('cBrand');
+  if (val('cBarcode')) o.barcode = val('cBarcode').replace(/\D/g, '');
+  if (val('cServ')) o.serving = num(val('cServ'));
+  return o;
+}
+function openFoodForm(existing, opts = {}) {
   sheetMode = 'food';
   const e = existing || {};
+  const ocr = opts.ocr;
+  const ocrMsg = opts.ocrBusy ? 'Lese die Nährwerttabelle …'
+    : ocr ? (ocr.found.length
+      ? `Vom Foto gelesen: ${ocr.found.map((k) => OCR_NAMES[k]).join(', ')}.${ocr.kjOnly ? ' Nur kJ gefunden, kcal umgerechnet (1 kcal = 4,184 kJ).' : ''} ${['k', 'f', 'c', 'su', 'fi', 'p'].filter((k) => !ocr.found.includes(k)).length ? `Nicht erkannt: ${['k', 'f', 'c', 'su', 'fi', 'p'].filter((k) => !ocr.found.includes(k)).map((k) => OCR_NAMES[k]).join(', ')}. ` : ''}${ocr.fit === false ? 'Achtung: Die gelesenen Werte passen nicht zum Brennwert, da ist wohl etwas falsch gelesen. ' : ''}Bitte jede Zahl mit der Packung vergleichen, bevor du speicherst.`
+      : 'Auf dem Foto habe ich keine Nährwerte erkannt. Probier es näher und gerade, mit gutem Licht, oder tipp die Werte ab.')
+    : '';
   const isEdit = !!e.id;
   const v = (x) => (x == null || x === 0 && !isEdit ? '' : x);
   openSheet(`
     <div class="sheet-head"><button class="btn ghost" id="back">‹ Zurück</button><span></span></div>
     <h1>${isEdit ? 'Lebensmittel bearbeiten' : 'Eigenes Lebensmittel'}</h1>
     <p class="small muted">Werte pro 100 g bzw. 100 ml, z. B. von der Verpackung.</p>
+    <button type="button" class="btn secondary block" id="cPhoto">Nährwerttabelle fotografieren</button>
+    <p class="small ${ocr && ocr.found.length ? '' : 'muted'}" id="ocrNote" style="${ocr ? 'color:var(--accent-text)' : ''}">${esc(ocrMsg || 'Ich lese die Zahlen vom Foto ab, das Foto bleibt auf dem Handy.')}</p>
     <label for="cName">Name</label><input id="cName" type="text" value="${esc(e.n || '')}">
     <label for="cBrand">Marke (optional)</label><input id="cBrand" type="text" value="${esc(e.brand || '')}">
     <div class="row">
@@ -1551,6 +1573,10 @@ function openFoodForm(existing) {
     <div class="row">
       <div><label for="cFi">Ballaststoffe g</label><input id="cFi" inputmode="decimal" value="${v(e.fi)}"></div>
       <div><label for="cSu">davon Zucker g</label><input id="cSu" inputmode="decimal" value="${v(e.su)}"></div>
+    </div>
+    <div class="row">
+      <div><label for="cSf">davon gesättigte Fettsäuren g (optional)</label><input id="cSf" inputmode="decimal" value="${e.sf != null ? e.sf : ''}"></div>
+      <div><label for="cSa">Salz g (optional)</label><input id="cSa" inputmode="decimal" value="${e.sa != null ? e.sa : ''}"></div>
     </div>
     <label for="cFs">davon freier/zugesetzter Zucker g (optional)</label><input id="cFs" inputmode="decimal" value="${e.fs != null ? v(e.fs) : ''}" placeholder="leer = gesamter Zucker zählt als frei">
     <label class="chip" style="margin-top:10px"><input type="checkbox" id="cLiq" ${e.liq ? 'checked' : ''}> Flüssigkeit (Mengen in ml, Annahme 1 ml ≈ 1 g)</label>
@@ -1571,7 +1597,8 @@ function openFoodForm(existing) {
     <div style="height:14px"></div>
     <button class="btn block" id="cSave">${isEdit ? 'Speichern' : 'Speichern & auswählen'}</button>
     ${isEdit ? '<div style="height:10px"></div><button class="btn danger block" id="cDel">Lebensmittel löschen</button>' : ''}`);
-  $('#back').onclick = () => { if (isEdit) openAmount(e); else openAdd(addMeal); };
+  $('#back').onclick = () => { if (isEdit) openAmount(e); else if (pantryMode) openPantry('scan'); else openAdd(addMeal); };
+  $('#cPhoto').onclick = () => photoNutrition(Object.assign({}, e, formValues()));
   $('#cSave').onclick = () => {
     const n = $('#cName').value.trim(); const k = num($('#cK').value);
     if (!n || k == null) { toast('Name und kcal sind Pflicht.'); return; }
@@ -1585,6 +1612,14 @@ function openFoodForm(existing) {
       a: [...document.querySelectorAll('#cAll input:checked')].map((x) => x.value),
     };
     if (e.sw && e.sw.length) food.sw = e.sw; // Süßstoffe aus dem gescannten Produkt behalten
+    const sf = num($('#cSf').value), sa = num($('#cSa').value);
+    if (sf != null) food.sf = sf;
+    if (sa != null) food.sa = sa;
+    // Woher die Zahlen kommen (für die Nährwert-Ansicht im Vorrat); leere Felder = keine Angabe
+    food.ns = ocr ? 'foto' : e.ns || 'hand'; // foto = vom Foto gelesen, off-edit = Open Food Facts, selbst korrigiert
+    const miss = [['p', 'cP'], ['c', 'cC'], ['f', 'cF'], ['fi', 'cFi'], ['su', 'cSu']].filter(([, id]) => !$('#' + id).value.trim()).map(([k]) => k);
+    if (miss.length) food.miss = miss;
+    if (e.grp) food.grp = e.grp;
     saveOwnFood(food);
     if (isEdit) { toast('Gespeichert'); openAmount(food); } else openAmount(food);
   };

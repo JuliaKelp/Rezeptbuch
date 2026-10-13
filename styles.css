@@ -483,3 +483,13 @@ textarea.input { resize: vertical; font: inherit; }
 /* Backup */
 .backup-card { display: flex; flex-direction: column; gap: 10px; }
 .backup-card label.btn { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+
+/* Vorrat: Gruppen und Nährwerte */
+.vr-group { margin-top: 4px; }
+.vr-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.vr-open .vr-more { color: var(--accent-text); }
+.vr-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px; }
+.nutri-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.nutri-table th { text-align: right; font-size: 12px; color: var(--muted); font-weight: 800; padding: 4px 0 4px 8px; }
+.nutri-table td { padding: 5px 0; border-top: 1px solid var(--track); font-weight: 700; }
+.nutri-table td + td { text-align: right; padding-left: 8px; white-space: nowrap; }

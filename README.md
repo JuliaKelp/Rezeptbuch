@@ -12,6 +12,8 @@ Das Rezeptbuch kümmert sich ums Kochen. Alles rund ums Mitzählen macht der ein
 - Nährwerte pro Rezept: Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett und Ballaststoffe aus dem Bundeslebensmittelschlüssel (dieselbe Datei wie im Tracker), gemessen an den Tageszielen im Tracker.
 - Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
 - Vorratskammer (Rezepte → Vorrat): Gescannt wird im Tracker („Einkauf scannen“ springt hin), jedes Produkt zählt eine Packung; im Scan lässt sich die Anzahl mit − und + einstellen. Lose Zutaten ohne Barcode legt man mit Menge dazu. Mengen lassen sich ändern. „Fertig gekocht“ zieht die gekochten Zutaten ab, Gegessenes (im Rezeptbuch oder im Tracker-Journal) ebenfalls; Rückgängig/Löschen legt es zurück. Die Einkaufsliste rechnet den Vorrat ab.
+- Der Vorrat ist nach Gruppen sortiert (Fleisch & Fleischersatz, Fisch, Milch, Gemüse, Obst …; aus den Kategorien von Open Food Facts bzw. dem BLS, änderbar). Ein Tipp auf ein Lebensmittel zeigt seine Nährwerte pro 100 g und pro Portion mit Quelle; was die Quelle nicht nennt, steht als „keine Angabe“ da.
+- Unbekannte Produkte: Im Scanner lässt sich die Nährwerttabelle fotografieren. Die App liest die Zahlen auf dem Handy aus (tesseract.js) und füllt das Formular, man prüft und speichert.
 - Snack: Was darf ich jetzt? Zeigt für jeden Snack im Vorrat und die vorgesehenen Snack-Rezepte, wie viel davon heute noch in den Snack-Rahmen passt, und trägt es auf Wunsch ein.
 - Backup (unter „Ich“): Rezeptbuch und Tracker zusammen als Datei exportieren und wieder einlesen. Hat sich seit dem letzten Export etwas geändert, fragt die App beim Schließen nach (nur wo der Browser das erlaubt) und beim nächsten Öffnen.
 - Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
@@ -51,6 +53,6 @@ In der App unter „Ich“ → „Quellen und Lizenzen“ (`#/quellen`) ausführ
 - Produktdaten von Open Food Facts: Datenbank ODbL 1.0, Einträge DbCL 1.0
 - Kalorien- und Makroziele mit ihren Quellen: im Tracker
 - Nährwerte: Max Rubner-Institut (2025), Bundeslebensmittelschlüssel (BLS) 4.0, DOI 10.25826/Data20251217-134202-0
-- Kalorien-Tracker (`tracker/`): Copyright (c) 2026 ST0PTV, MIT-Lizenz; enthält ZXing (Apache-2.0, `tracker/vendor/ZXING-LICENSE`)
+- Kalorien-Tracker (`tracker/`): Copyright (c) 2026 ST0PTV, MIT-Lizenz; enthält ZXing (Apache-2.0, `tracker/vendor/ZXING-LICENSE`) und tesseract.js 5.1.1 mit Tesseract OCR und deutschem Sprachmodell (Apache-2.0, `tracker/vendor/tesseract/`)
 - Rezepte, Ginger, Icons und Design: für diese App selbst gemacht
 - Für den eigenen Programmcode ist noch keine Lizenz festgelegt (damit gilt: alle Rechte vorbehalten)

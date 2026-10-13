@@ -2162,29 +2162,36 @@ function snackAllowance() {
 const LARN = 'Standardportion SINU/LARN 2024';
 function snackPortion(x) {
   const id = String(x.id);
-  if (x.serving && !id.startsWith('rb:')) return { g: x.serving, src: id.startsWith('off:') ? 'Packungsportion laut Open Food Facts' : 'deine Portionsangabe' };
+  const grp = groupPortion(x);
+  // Packungsportion nur, wenn sie nicht größer ist als eine übliche Snack-Portion (manche Einträge nennen die ganze Packung)
+  if (x.serving && !id.startsWith('rb:') && (!grp || x.serving <= grp.g)) return { g: x.serving, src: id.startsWith('off:') ? 'Packungsportion laut Open Food Facts' : 'deine Portionsangabe' };
+  return grp;
+}
+// Übliche Menge als Snack. Grundlage: Standardportionen SINU/LARN 2024. Was dort eine Mahlzeit-Portion ist
+// (Wurst, Fleisch, Fisch, Käse, Hülsenfrüchte), zählt als Snack nur zur Hälfte.
+function groupPortion(x) {
   const n = x.n || '';
   const P = (g, what) => ({ g, src: `${LARN} (${what})` });
+  const H = (g, what) => ({ g: g / 2, src: `halbe ${LARN} (${what}, ${g} g)` });
   switch (vorratGroup(x)) {
     case 'obst': return /getrocknet|Trocken|Rosine|Dattel/i.test(n) ? P(30, 'Trockenobst') : P(150, '1 Stück Obst');
-    case 'gemuese': return /salat|rucola/i.test(n) ? P(80, 'Blattsalat') : /kartoffel/i.test(n) ? P(200, 'Kartoffeln') : P(200, 'Gemüse, z. B. 2–3 Tomaten');
+    case 'gemuese': return /salat|rucola/i.test(n) ? P(80, 'Blattsalat') : /kartoffel/i.test(n) ? null : P(200, 'Gemüse, z. B. 2 Tomaten');
     case 'nuesse': return /mus|butter|creme/i.test(n) ? null : P(30, 'Nüsse/Samen');
-    case 'huelsen': return /hummus/i.test(n) ? null : /reif|getrocknet|trocken/i.test(n) ? P(50, 'Hülsenfrüchte getrocknet') : P(150, 'Hülsenfrüchte gegart');
+    case 'huelsen': return /hummus/i.test(n) ? null : /reif|getrocknet|trocken/i.test(n) ? null : H(150, 'Hülsenfrüchte gegart');
     case 'getreide':
       if (/brot|brötchen|toast|tortilla|wrap/i.test(n)) return P(50, '1 Scheibe Brot');
       if (/flocken|müsli|cerealien|flakes/i.test(n)) return P(30, 'Frühstückscerealien');
-      if (/mehl/i.test(n)) return null;
-      return P(80, 'Nudeln/Reis roh');
+      return null; // Mehl, Nudeln, Reis sind kein Snack
     case 'milch':
       if (/joghurt|kefir|skyr/i.test(n)) return P(125, '1 Becher Joghurt');
       if (/milch|drink/i.test(n) && !/käse/i.test(n)) return P(125, '1 kleines Glas Milch');
       if (/\bei(er)?\b/i.test(n)) return P(50, '1 Ei');
       if (/butter|sahne|rahm/i.test(n)) return null;
-      return (x.f || 0) > 25 ? P(50, 'gereifter Käse') : P(100, 'Frischkäse/Quark/Mozzarella');
+      return (x.f || 0) > 25 ? H(50, 'gereifter Käse') : H(100, 'Frischkäse/Quark/Mozzarella');
     case 'fleisch':
       if (/tofu|tempeh|seitan/i.test(n)) return null;
-      return /salami|schinken|wurst|aufschnitt|mortadella|chorizo|speck|bacon|pastrami|bresaola|lyoner/i.test(n) ? P(50, 'Wurst/Aufschnitt, 3–4 Scheiben') : P(100, 'Fleisch');
-    case 'fisch': return /dose|konserve|thunfisch|sardine/i.test(n) ? P(50, 'Fischkonserve') : P(150, 'Fisch');
+      return /salami|schinken|wurst|aufschnitt|mortadella|chorizo|speck|bacon|pastrami|bresaola|lyoner|cabanossi|kabanos|landjäger/i.test(n) ? H(50, 'Wurst/Aufschnitt') : H(100, 'Fleisch');
+    case 'fisch': return /dose|konserve|thunfisch|sardine/i.test(n) ? H(50, 'Fischkonserve') : H(150, 'Fisch');
     default: return null;
   }
 }

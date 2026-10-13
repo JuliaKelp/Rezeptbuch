@@ -32,7 +32,7 @@ const INFO = {
   meals: 'Ginger teilt deine Kalorien auf die Mahlzeiten auf. Bei 2 Mahlzeiten bleiben die Portionen normal groß und den Rest bekommst du als zwei kleine Snacks.',
   times: 'Ginger schlägt pro Mahlzeit nur Rezepte vor, die in diese Zeit passen. Wenn es knapp ist, plant sie Vorbereitung ein, zum Beispiel Overnight Oats am Vorabend.',
   portions: 'Damit die Zutatenmengen in Rezepten und auf der Einkaufsliste stimmen, wenn du für mehrere kochst.',
-  snack: 'Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Gesund oder nicht spielt keine Rolle.',
+  snack: 'Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Darunter steht, wie viel deine restlichen kcal ganz ausnutzt, aber nie mehr als eine Packung. Gesund oder nicht spielt keine Rolle.',
   vorrat: 'Tipp auf ein Lebensmittel: Dort änderst du die Menge, trägst es als gegessen ein, markierst es als Snack (dann schlägt Ginger es dir als Snack vor) oder mit dem Herz (das magst du besonders). Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.',
   backup: 'Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.',
   heute: 'Gingers Vorschläge passen zu deiner Zeit, deinem Geschmack und dem, was heute laut Tracker noch frei ist. Was du schon im Vorrat hast, kommt zuerst. Unter jedem Gericht steht, ob alles da ist oder was fehlt.'
@@ -2449,14 +2449,20 @@ function snackAmount(x, left) {
   const por = snackPortion(x);
   const stock = V.grams(x);
   const room = left / (x.k / 100);
-  if (!por) return { g: 0, step: 10, none: true, stock };
+  // Restliche kcal ausnutzen: so viel, wie in den Rahmen passt, aber nie mehr als eine Packung und als da ist.
+  const pack = x.qu === 'pkg' && x.ug ? x.ug : x.pq;
+  // Ohne bekannte Packungsgröße (lose Ware, unbekannte Packung) bleibt es bei einer Portion
+  const fillCap = pack ? Math.min(room, pack, stock != null ? stock : Infinity) : 0;
+  const fill = Math.floor(fillCap / 5) * 5;
+  const fillWhy = fill <= 0 ? '' : stock != null && stock <= Math.min(room, pack || Infinity) ? 'stock' : pack && pack <= room ? 'pack' : 'room';
+  if (!por) return { g: 0, step: 10, none: true, stock, fill, fillWhy };
   let g = Math.min(por.g, room);
   let why = g < por.g ? 'room' : 'portion';
   if (stock != null && stock < g) { g = stock; why = 'stock'; }
   g = g >= por.g ? por.g : Math.floor(g / 5) * 5;
   const share = g / por.g;
   const text = share >= 0.99 ? `1 Portion (${fmt(g)} g)` : share >= 0.45 && share <= 0.55 ? `½ Portion (${fmt(g)} g)` : `${fmt(g)} g`;
-  return { g, step: por.g >= 50 ? 10 : 5, text, why, por, stock };
+  return { g, step: por.g >= 50 ? 10 : 5, text, why, por, stock, fill, fillWhy };
 }
 
 function viewSnacks() {
@@ -2475,6 +2481,7 @@ function viewSnacks() {
         <div class="info"><div class="title">${esc(x.n)}</div>
           <div class="meta">${m.none ? `100 g haben ${fmt(x.k)} kcal · keine Portionsangabe, wähl die Menge selbst` : ok ? `<b>${esc(m.text)}</b> · ca. ${fmt((m.g * x.k) / 100)} kcal` : `heute nicht mehr drin · 1 Portion (${fmt(m.por.g)} g) hat ${fmt((m.por.g * x.k) / 100)} kcal`}</div>
           <div class="meta">${[x.brand, x.qty != null ? `im Vorrat: ${V.label(x)}` : '', ok && m.why === 'stock' ? 'mehr hast du nicht da' : '', ok && m.why === 'room' ? 'mehr passt heute nicht' : ''].filter(Boolean).map(esc).join(' · ')}</div>
+          ${m.fill >= 5 && m.fill > m.g + 2 ? `<div class="meta snack-fill">Restliche ${fmt(left)} kcal ausnutzen: <b>${fmt(m.fill)} g</b> · ca. ${fmt((m.fill * x.k) / 100)} kcal${m.fillWhy === 'pack' ? ' (1 Packung, mehr nicht)' : m.fillWhy === 'stock' ? ' (alles, was da ist)' : ''} <button class="link-btn" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${m.fill}">So viel</button></div>` : ''}
           ${m.por ? `<div class="meta small muted">1 Portion: ${esc(m.por.src)}</div>` : ''}
         </div>
         <button class="chip" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${ok ? m.g : m.por ? Math.min(m.por.g, m.stock != null ? Math.max(5, Math.floor(m.stock)) : m.por.g) : 10}" aria-expanded="${pick}">Essen</button>
@@ -2486,7 +2493,7 @@ function viewSnacks() {
           <button class="round" data-action="snack-g" data-d="${m.step}" aria-label="Mehr">+</button>
         </div>
         ${g * x.k / 100 > left + 1 ? `<div class="small" style="color:var(--accent-text)">Das sind ${fmt((g * x.k) / 100 - left)} kcal über deinem Snack-Rahmen.</div>` : ''}
-        ${m.por && g > m.por.g ? `<div class="small" style="color:var(--accent-text)">Mehr als eine übliche Portion (${fmt(m.por.g)} g).</div>` : ''}
+        ${m.por && g > m.por.g && g > m.fill ? `<div class="small" style="color:var(--accent-text)">Mehr als eine übliche Portion (${fmt(m.por.g)} g).</div>` : ''}
         ${m.stock != null && g > m.stock ? `<div class="small" style="color:var(--accent-text)">So viel hast du nicht im Vorrat (${fmt(m.stock)} g).</div>` : ''}
         <button class="btn small-btn" data-action="snack-eat" data-id="${esc(x.id)}">Eintragen</button>
       </div>` : ''}
@@ -2884,8 +2891,9 @@ const actions = {
   },
   // ---------- Snacks ----------
   'snack-pick'(el) {
-    ui.snackPick = ui.snackPick === el.dataset.id ? null : el.dataset.id;
-    ui.snackG = Number(el.dataset.g) || 0;
+    const g = Number(el.dataset.g) || 0;
+    ui.snackPick = ui.snackPick === el.dataset.id && ui.snackG === g ? null : el.dataset.id;
+    ui.snackG = g;
   },
   'snack-g'(el) { ui.snackG = Math.max(0, ui.snackG + Number(el.dataset.d)); },
   'snack-more'() { ui.snackMore = !ui.snackMore; },

@@ -14,6 +14,9 @@
   --red-soft: #F8E1DC;
   --dark: #3B2A20;
   --radius: 20px;
+  --mp: #3E6FC4;
+  --mc: #C98A10;
+  --mf: #C24F93;
 }
 
 * { box-sizing: border-box; }
@@ -493,3 +496,17 @@ textarea.input { resize: vertical; font: inherit; }
 .nutri-table th { text-align: right; font-size: 12px; color: var(--muted); font-weight: 800; padding: 4px 0 4px 8px; }
 .nutri-table td { padding: 5px 0; border-top: 1px solid var(--track); font-weight: 700; }
 .nutri-table td + td { text-align: right; padding-left: 8px; white-space: nowrap; }
+
+/* Vorrat: Kategorien zum Wischen, Makro-Balken, Gegessen */
+.vr-tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; margin: 0 -20px; padding: 10px 20px; background: var(--bg); border-bottom: 1px solid var(--track); scrollbar-width: none; }
+.vr-tabs::-webkit-scrollbar { display: none; }
+.vr-tabs .chip { flex: 0 0 auto; white-space: nowrap; scroll-snap-align: start; }
+.vr-tabs .vr-n { color: var(--faint); font-weight: 700; }
+.vr-group { scroll-margin-top: 72px; }
+.vr-macro { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+.vr-macro > span:first-child { white-space: nowrap; }
+.mini-bar { display: flex; flex: 0 0 84px; height: 6px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--track); }
+.mini-bar i { display: block; height: 100%; }
+.vr-e { color: var(--mp); font-weight: 800; white-space: nowrap; }
+.vr-eat { padding: 0 12px; }
+.vr-meals { display: flex; flex-wrap: wrap; gap: 6px; }

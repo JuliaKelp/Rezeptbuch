@@ -2067,6 +2067,39 @@ async function refreshOff(id) {
   return 'ok';
 }
 
+// Packungsgröße zum Eintrag: aus Open Food Facts bzw. selbst eingetragen
+function packText(p) {
+  const u = p.liq ? 'ml' : 'g';
+  const pq = p.qu === 'pkg' && p.ug ? p.ug : p.pq;
+  if (pq) return `Packung ${fmt(pq)} ${u}`;
+  return p.qu === 'pkg' ? 'Packungsgröße unbekannt' : '';
+}
+// kcal und Makro-Balken wie im Tracker: Anteil von Eiweiß, Kohlenhydraten und Fett an der Energie
+function vorratMacros(p) {
+  const e = (p.p || 0) * 4 + (p.c || 0) * 4 + (p.f || 0) * 9 || 1;
+  const w = (x) => (x / e).toFixed(3);
+  const kcal = `<span>${fmt(p.k)} kcal/100 ${p.liq ? 'ml' : 'g'}</span>`;
+  if (p.p == null && p.c == null && p.f == null) return `<span class="vr-macro">${kcal}</span>`;
+  return `<span class="vr-macro">${kcal}<span class="mini-bar" aria-hidden="true"><i style="flex:${w((p.p || 0) * 4)};background:var(--mp)"></i><i style="flex:${w((p.c || 0) * 4)};background:var(--mc)"></i><i style="flex:${w((p.f || 0) * 9)};background:var(--mf)"></i></span><span class="vr-e">E ${r1n(p.p || 0)}</span></span>`;
+}
+// „Gegessen“: Menge wählen, in den Tracker eintragen, aus dem Vorrat nehmen
+function vorratEat(p) {
+  const g = ui.vrEatG;
+  const stock = V.grams(p);
+  const meals = [['fruehstueck', 'Frühstück'], ['mittag', 'Mittag'], ['abend', 'Abend'], ['snack', 'Snack']];
+  return `<div class="snack-eat vr-eat">
+    <div class="stepper" role="group" aria-label="Menge">
+      <button class="round" data-action="vr-eat-g" data-d="-${ui.vrEatStep}" aria-label="Weniger" ${g - ui.vrEatStep <= 0 ? 'disabled' : ''}>−</button>
+      <span><b>${fmt(g)} ${p.liq ? 'ml' : 'g'}</b> · ${fmt((g * p.k) / 100)} kcal</span>
+      <button class="round" data-action="vr-eat-g" data-d="${ui.vrEatStep}" aria-label="Mehr">+</button>
+    </div>
+    <div class="vr-meals" role="group" aria-label="Mahlzeit">${meals.map(([v, l]) => `<button class="chip" data-action="vr-eat-meal" data-meal="${v}" aria-pressed="${ui.vrEatMeal === v}">${l}</button>`).join('')}</div>
+    ${stock == null ? '<div class="small muted">Die Packungsgröße fehlt, deshalb kann ich nichts vom Vorrat abziehen. Trag sie unter „Ändern“ ein.</div>'
+      : g > stock ? `<div class="small" style="color:var(--accent-text)">So viel hast du nicht im Vorrat (${fmt(stock)} g).</div>` : ''}
+    <button class="btn small-btn" data-action="vr-eat" data-id="${esc(p.id)}">Eintragen</button>
+  </div>`;
+}
+
 function vorratItem(p) {
   const key = tasteKey(p.food);
   const taste = state.profile.taste;
@@ -2094,14 +2127,16 @@ function vorratItem(p) {
     <div class="pantry-item">
       <button class="info vr-open" data-action="vr-open" data-id="${esc(p.id)}" aria-expanded="${ui.vorratOpen === p.id}">
         <span class="title">${esc(p.n)}</span>
-        <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</span>
+        <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', packText(p)].filter(Boolean).map(esc).join(' · ')}</span>
+        ${p.k ? vorratMacros(p) : ''}
         <span class="meta vr-more">${ui.vorratOpen === p.id ? 'Nährwerte ausblenden' : 'Nährwerte zeigen'}</span>
       </button>
       <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
     </div>
     ${ui.vorratOpen === p.id ? vorratDetail(p) : ''}
-    <div class="vr-row">${amount}${p.qty != null && !editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}</div>
+    <div class="vr-row">${amount}${p.qty != null && !editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button>` : ''}</div>
+    ${ui.vrEat === p.id ? vorratEat(p) : ''}
     ${edit}
   </div>`;
 }
@@ -2110,6 +2145,7 @@ function viewEinkauf() {
   const items = pantryList();
   const have = items.filter((p) => p.qty !== 0);
   const empty = items.filter((p) => p.qty === 0);
+  const groups = VR_GROUPS.map(([g, label]) => [g, label, have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'))]).filter((x) => x[2].length);
   const ideas = allRecipes().filter((r) => !r.product && suitable(r)).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
   return `<main class="screen with-nav">
@@ -2130,12 +2166,10 @@ function viewEinkauf() {
     </section>
     ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
     <h2>Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}</h2>
-    ${have.length ? VR_GROUPS.map(([g, label]) => {
-      const list = have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'));
-      return list.length ? `<h3 class="vr-group">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}` : '';
-    }).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
+    ${have.length ? `<nav class="vr-tabs" aria-label="Kategorien">${groups.map(([g, label, list]) => `<button class="chip" data-action="vr-jump" data-g="${g}">${label} <span class="vr-n">${list.length}</span></button>`).join('')}${empty.length ? '<button class="chip" data-action="vr-jump" data-g="leer">Aufgebraucht</button>' : ''}</nav>` : ''}
+    ${have.length ? groups.map(([g, label, list]) => `<h3 class="vr-group" id="vr-g-${g}">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}`).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
     ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.</p>' : ''}
-    ${empty.length ? `<h2>Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
+    ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
 }
 
@@ -2538,6 +2572,32 @@ const actions = {
     return 'skip';
   },
   'vr-edit'(el) { ui.vorratEdit = el.dataset.id || null; },
+  'vr-jump'(el) {
+    const h = document.getElementById(`vr-g-${el.dataset.g}`);
+    if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return 'skip';
+  },
+  'vr-eat-open'(el) {
+    const id = el.dataset.id;
+    if (ui.vrEat === id) { ui.vrEat = null; return; }
+    const x = trackerPantry().find((y) => y.id === id);
+    if (!x) return;
+    // Vorschlag: eine Portion (Packungsportion oder übliche Portion), sonst 100 g; nie mehr als da ist
+    const por = snackPortion(x);
+    const stock = V.grams(x);
+    let g = por ? por.g : x.serving || 100;
+    if (stock != null && stock < g) g = Math.max(1, Math.round(stock));
+    ui.vrEat = id; ui.vrEatG = g; ui.vrEatStep = g >= 100 ? 25 : g >= 30 ? 10 : 5; ui.vrEatMeal = currentMeal();
+  },
+  'vr-eat-g'(el) { ui.vrEatG = Math.max(ui.vrEatStep, ui.vrEatG + Number(el.dataset.d)); },
+  'vr-eat-meal'(el) { ui.vrEatMeal = el.dataset.meal; },
+  'vr-eat'(el) {
+    const x = trackerPantry().find((y) => y.id === el.dataset.id);
+    if (!x || !(ui.vrEatG > 0)) return;
+    const id = addProductToTracker(x.id, ui.vrEatMeal || currentMeal(), Math.round(ui.vrEatG));
+    ui.vrEat = null;
+    toast(id ? `${fmt(ui.vrEatG)} ${x.liq ? 'ml' : 'g'} ${x.n} eingetragen${V.grams(x) != null ? ' und aus dem Vorrat genommen' : ''}.` : 'Das ging nicht.');
+  },
   'vr-open'(el) { ui.vorratOpen = ui.vorratOpen === el.dataset.id ? null : el.dataset.id; },
   'vr-refresh'(el) {
     const id = el.dataset.id;

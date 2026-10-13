@@ -511,3 +511,62 @@ textarea.input { resize: vertical; font: inherit; }
 .vr-eat { padding: 0 12px; }
 .vr-meals { display: flex; flex-wrap: wrap; gap: 6px; }
 .cook-missing { color: var(--accent-text); font-weight: 700; }
+
+/* ---------- Übersichtlicher (Okt. 2026) ---------- */
+/* Scan-Knopf sitzt in der Navigationsleiste statt über dem Inhalt */
+.nav-inner { padding-right: 56px; }
+.nav a { min-width: 56px; }
+.scan-fab { width: 48px; height: 48px; bottom: calc(env(safe-area-inset-bottom) + 12px); right: max(12px, calc(50% - 228px)); box-shadow: none; z-index: 6; }
+
+/* Makros auf Rezeptkarten: Balken + Gramm in den Tracker-Farben */
+.rc-macro { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rc-macro .mini-bar { flex: 0 0 64px; }
+.m-p { color: var(--mp); }
+.m-c { color: var(--mc); }
+.m-f { color: var(--mf); }
+.recipe-card .info { min-width: 0; }
+
+/* Heute: was noch frei ist */
+.journal-card { flex-direction: column; align-items: stretch; gap: 6px; }
+.kcal-bar > div { background: var(--accent); }
+.day-macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 4px; }
+.day-macro { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.day-macro b { font-size: 15px; font-weight: 900; color: var(--ink); }
+.day-macro b small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.day-macro .bar { height: 6px; }
+.day-macro .bar > div { height: 6px; }
+.bar > .f-p { background: var(--mp); }
+.bar > .f-c { background: var(--mc); }
+.bar > .f-f { background: var(--mf); }
+.cook-ok { display: flex; align-items: center; gap: 6px; color: var(--green); font-weight: 800; }
+.cook-ok svg { width: 16px; height: 16px; }
+.cook-list-btn { align-self: flex-start; }
+.idea-actions { gap: 8px; flex-wrap: wrap; }
+
+/* Rezepte: Suche und eine wischbare Filterreihe */
+.search-field input { width: 100%; min-height: 46px; border-radius: 14px; border: 2px solid var(--line); background: var(--card); padding: 0 14px; font: inherit; font-weight: 700; color: var(--ink); }
+.chip-scroll { flex-wrap: nowrap; overflow-x: auto; margin: 0 -20px; padding: 0 20px 2px; scrollbar-width: none; }
+.chip-scroll::-webkit-scrollbar { display: none; }
+.chip-scroll .chip { flex: 0 0 auto; white-space: nowrap; }
+
+/* Vorrat: zugeklappt eine Zeile */
+.vr-item { padding: 0; gap: 10px; }
+.vr-item.open { padding-bottom: 12px; }
+.vr-line { display: flex; flex-direction: column; gap: 3px; width: 100%; background: none; border: 0; padding: 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.vr-l1 { display: flex; align-items: center; gap: 8px; }
+.vr-l1 .title { font-weight: 800; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-l1 .fav-mark svg { width: 14px; height: 14px; }
+.vr-amount { margin-left: auto; font-size: 14px; font-weight: 800; white-space: nowrap; }
+.vr-chev { color: var(--faint); font-size: 12px; }
+.vr-line .meta { font-size: 13px; font-weight: 700; color: var(--muted); }
+.badge.snack-tag { color: var(--accent-text); background: var(--accent-soft); font-size: 11px; padding: 2px 7px; }
+.vr-item .vr-detail, .vr-item .vr-edit { padding: 0 12px; }
+
+/* Ich */
+.toggles { padding: 8px 16px; gap: 2px; }
+.toggles label { display: flex; align-items: center; gap: 10px; min-height: 48px; font-weight: 700; border-bottom: 1px solid var(--track); }
+.toggles label span { flex: 1; }
+.toggles .link-btn { font-size: 13px; }
+.toggles .small { padding: 8px 0 4px; }
+.danger-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 8px; }
+.link-btn.danger { color: #9A3324; }

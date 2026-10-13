@@ -700,3 +700,11 @@ body.in-settings .subbar, body.in-settings .rbnav, body.in-settings .scan-fab { 
 .si-count b { min-width: 2.2em; text-align: center; }
 .si-count .chip { min-width: 36px; font-size: 1rem; font-weight: 900; }
 .si-count .chip:disabled { opacity: 0.35; }
+
+/* Rezeptbuch: Knöpfe im warmen Design statt Lila/Rosa (Diagrammfarbe für Alkohol bleibt) */
+.alc .caf-add, .alc .tk-plus { background: #5B4A3E; box-shadow: none; }
+.card.supp.due { border-color: var(--line); background: #FFF1E4; }
+/* Scan-Knopf in der Navigationsleiste statt über dem Inhalt (wie im Rezeptbuch) */
+.rbnav-in { padding-right: 56px; }
+.rbnav a { min-width: 56px; }
+.scan-fab { width: 48px; height: 48px; bottom: calc(env(safe-area-inset-bottom) + 12px); right: max(12px, calc(50% - 228px)); box-shadow: none; }

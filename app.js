@@ -31,7 +31,11 @@ const INFO = {
   taste: 'Was du magst, schlägt Ginger öfter vor. Was du nicht magst, kommt gar nicht mehr. Lebensmittel, die du wegen Ernährung oder Allergie eh nicht isst, fragt sie gar nicht erst ab.',
   meals: 'Ginger teilt deine Kalorien auf die Mahlzeiten auf. Bei 2 Mahlzeiten bleiben die Portionen normal groß und den Rest bekommst du als zwei kleine Snacks.',
   times: 'Ginger schlägt pro Mahlzeit nur Rezepte vor, die in diese Zeit passen. Wenn es knapp ist, plant sie Vorbereitung ein, zum Beispiel Overnight Oats am Vorabend.',
-  portions: 'Damit die Zutatenmengen in Rezepten und auf der Einkaufsliste stimmen, wenn du für mehrere kochst.'
+  portions: 'Damit die Zutatenmengen in Rezepten und auf der Einkaufsliste stimmen, wenn du für mehrere kochst.',
+  snack: 'Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Gesund oder nicht spielt keine Rolle.',
+  vorrat: 'Tipp auf ein Lebensmittel: Dort änderst du die Menge, trägst es als gegessen ein, markierst es als Snack (dann schlägt Ginger es dir als Snack vor) oder mit dem Herz (das magst du besonders). Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.',
+  backup: 'Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.',
+  heute: 'Gingers Vorschläge passen zu deiner Zeit, deinem Geschmack und dem, was heute laut Tracker noch frei ist. Was du schon im Vorrat hast, kommt zuerst. Unter jedem Gericht steht, ob alles da ist oder was fehlt.'
 };
 function infoBtn(key) {
   const open = !!ui.info[key];
@@ -103,7 +107,7 @@ function save() {
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
-const ui = { info: {}, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeTab: 'alle', have: [], haveDraft: '', prevPage: '', portions: {}, form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', toast: '', justStamped: null };
+const ui = { info: {}, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeQuery: '', have: [], haveDraft: '', prevPage: '', portions: {}, form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', toast: '', justStamped: null };
 
 // ---------- Hilfsfunktionen ----------
 
@@ -212,6 +216,14 @@ function macroScore(r) {
 // Eiweiß, Kohlenhydrate, Fett kurz in einer Zeile
 function macroLine(n, f = 1) {
   return `${fmt(n.protein * f)} g Eiweiß · ${fmt(n.kh * f)} g KH · ${fmt(n.fett * f)} g Fett`;
+}
+
+// Makros als kleiner Balken (Anteil an der Energie, Farben wie im Tracker) und darunter die Gramm in denselben Farben
+function macroMini(n, f = 1) {
+  const p = (n.protein || 0) * f, c = (n.kh || 0) * f, fa = (n.fett || 0) * f;
+  const e = p * 4 + c * 4 + fa * 9 || 1;
+  const w = (x) => (x / e).toFixed(3);
+  return `<span class="rc-macro"><span class="mini-bar" aria-hidden="true"><i style="flex:${w(p * 4)};background:var(--mp)"></i><i style="flex:${w(c * 4)};background:var(--mc)"></i><i style="flex:${w(fa * 9)};background:var(--mf)"></i></span><span class="m-p" title="Eiweiß">E ${fmt(p)}</span><span class="m-c" title="Kohlenhydrate">KH ${fmt(c)}</span><span class="m-f" title="Fett">F ${fmt(fa)} g</span><span class="sr-only">${macroLine({ protein: p, kh: c, fett: fa })}</span></span>`;
 }
 
 // Drei kleine Balken für die Makros im Wochenplan, gemessen an einem (Teil-)Ziel aus dem Tracker. Ohne Makroziel nur die Gramm.
@@ -327,6 +339,8 @@ function ideasFor(meal) {
   const day = todayKey();
   const cookedToday = new Set(journal().map((e) => e.recipeId).filter(Boolean));
   const tipRecipe = meal === 'mittag' ? (prepTips().find((t) => t.recipe && t.recipe.mealprep) || {}).recipe?.id : null;
+  const stocked = trackerPantry().some((x) => x.qty !== 0);
+  const persons = state.profile.portions || 1;
   return allRecipes()
     .filter((r) => r.meals.includes(meal) && suitable(r))
     .map((r) => ({ recipe: r, mode: timeMode(r, meal) }))
@@ -336,7 +350,11 @@ function ideasFor(meal) {
       let score = likeScore(r) * 3 - Math.abs(r.kcal - budget) / 80;
       if (x.mode === 'vorkochen') score -= 2;
       if (x.mode === 'vorkochen' && r.id === tipRecipe) score += 4; // passt zum Vorkoch-Tipp
-      score += pantryScore(r) * 1.5; // Zutaten schon eingekauft
+      if (stocked && !r.product) {
+        // Was schon im Vorrat ist, kommt zuerst (dieselbe Prüfung wie bei „Kochen mit dem Vorrat“)
+        const c = cookCheck(r, persons);
+        score += c.missing.length ? -c.missing.filter((m) => !m.part).length * 1.2 - c.missing.filter((m) => m.part).length * 0.8 : 3;
+      } else score += pantryScore(r) * 1.5;
       score += macroScore(r); // passt zu deinen Makro-Zielen
       if (isFav(r)) score += 3;
       if (cookedToday.has(r.id)) score -= 10;
@@ -942,7 +960,7 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
   const cooked = !!state.stamps[recipe.id];
   let badge = cooked
     ? `<div class="stamp-mini" title="Schon gekocht">${ICONS.check}<span class="sr-only">Schon gekocht</span></div>`
-    : '<div class="badge new">Neu</div>';
+    : '';
   let meta = `${recipe.time} Min · ca. ${recipe.kcal} kcal`;
   if (mode === 'prep') { badge = '<div class="badge prep">Vorbereiten</div>'; meta = `Am Vorabend ${recipe.time} Min · ca. ${recipe.kcal} kcal`; }
   if (recipe.product) { badge = '<div class="badge new">Gekauft</div>'; meta = `${recipe.servingGuess ? 'ca. ' : ''}${fmt(recipe.serving)} g · ca. ${recipe.kcal} kcal`; }
@@ -951,7 +969,7 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
   const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}${meal && factor !== 1 ? '/' + factor : ''}`;
   return `<a class="recipe-card" href="${href}">
     <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
-    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div>${recipeNutrients(recipe).protein || recipeNutrients(recipe).kh ? `<div class="meta macro-meta">${macroLine(recipeNutrients(recipe), factor)}</div>` : ''}</div>
+    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div>${recipeNutrients(recipe).protein || recipeNutrients(recipe).kh ? `<div class="meta macro-meta">${macroMini(recipeNutrients(recipe), factor)}</div>` : ''}</div>
     ${badge}
   </a>`;
 }
@@ -961,8 +979,8 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
 // Ernährung, Allergien und Kalorienziel kommen aus dem Tracker; hier sieht man sie und springt zum Einstellen hin.
 // Einstellungen des Trackers, wie dort gruppiert; „Ich“ verlinkt direkt auf den jeweiligen Bereich
 const TRACKER_SETTINGS = [['Ziele', ['Tagesziel', 'Gewichtsziel']], ['Über mich', ['Ernährung & Allergien', 'Schlaf & Körper']],
-  ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']], ['Planung', ['Timeline', 'Abend-Vorschläge']],
-  ['Daten', ['Lebensmittel teilen', 'Quellen & Lizenzen']]];
+  ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']], ['Planung', ['Timeline']],
+  ['Daten', ['Lebensmittel teilen']]];
 function trackerSettingsSummary() {
   const d = trackerDiet();
   const allergens = d.allergens.map((c) => ALLERGEN_NAMES[c] || c).join(', ') || 'keine';
@@ -1078,17 +1096,47 @@ function snackBlock(eatenHere, eatenCard) {
   const shown = [];
   for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
   return `<section class="meal-block">
-    <div class="meal-head"><h3><a href="#/snacks" class="head-link">Snacks ›</a></h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
+    <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
     ${eatenHere.map(eatenCard).join('')}
     ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
-    ${need && ideas.length > need ? '<div class="idea-actions"><span></span><button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button></div>' : ''}
+    <div class="idea-actions"><a class="link-btn" href="#/snacks">Was darf ich jetzt?</a>${need && ideas.length > need ? '<button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button>' : ''}</div>
   </section>`;
+}
+
+// Unter einem Vorschlag: alles im Vorrat oder was fehlt (mit Knopf für die Einkaufsliste)
+function pantryStatus(r, f = 1) {
+  if (r.product || !trackerPantry().some((x) => x.qty !== 0)) return '';
+  const c = cookCheck(r, (state.profile.portions || 1) * f);
+  if (!c.total) return '';
+  if (!c.missing.length) return `<div class="small cook-ok">${ICONS.check}<span>Alles im Vorrat</span></div>`;
+  const onList = state.listExtra && state.listExtra[r.id];
+  return `<div class="small cook-missing">Fehlt: ${esc(c.missing.map((m) => (m.part ? 'noch ' : '') + m.text).join(', '))}</div>
+    <button class="link-btn cook-list-btn" data-action="cook-list" data-recipe="${r.id}" data-f="${f}">${onList ? 'Steht auf der Einkaufsliste ✓' : 'Fehlendes auf die Einkaufsliste'}</button>`;
+}
+
+// Oben auf „Heute“: was noch frei ist, mit Makro-Balken wie im Tracker
+function dayCard() {
+  const left = dayLeft();
+  const t = nutrientTargets();
+  const bar = (id, name, cls) => {
+    const goal = t[id];
+    const v = left.eaten[id];
+    return `<div class="day-macro"><span>${name}</span><b>${fmt(v)}${goal ? `<small> von ${fmt(goal)} g</small>` : '<small> g</small>'}</b>
+      <div class="bar"><div class="${cls}" style="width:${goal ? Math.min(100, (v / goal) * 100) : 0}%"></div></div></div>`;
+  };
+  return `<a class="card journal-card" href="tracker/">
+      <div class="peek">${gingerPeek(72)}</div>
+      <div class="small muted">Heute noch frei</div>
+      <div class="journal-kcal">${fmt(Math.max(0, left.kcal))} <small>kcal${hasKcalGoal() ? ` von ${fmt(kcalGoal())}` : ''}</small></div>
+      <div class="bar kcal-bar"><div style="width:${Math.min(100, (left.eaten.kcal / kcalGoal()) * 100)}%"></div></div>
+      ${t.protein || t.kh || t.fett ? `<div class="day-macros">${bar('protein', 'Eiweiß', 'f-p')}${bar('kh', 'KH', 'f-c')}${bar('fett', 'Fett', 'f-f')}</div>` : ''}
+      <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? `${fmt(left.eaten.kcal)} kcal gegessen · Zum Journal` : 'Kalorienziel im Tracker festlegen'}</div>
+    </a>`;
 }
 
 function viewHeute() {
   const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   const log = journal();
-  const eaten = eatenToday();
 
   const tips = prepTips().map((tip) => tip.recipe
     ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
@@ -1121,9 +1169,11 @@ function viewHeute() {
     return `<section class="meal-block">
       <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
+      ${pantryStatus(idea.recipe, idea.factor || 1)}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
         <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
         ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
+        <button class="link-btn" data-action="cook-open" data-meal="${m.id}">Mehr aus dem Vorrat</button>
       </div>`}
     </section>`;
   }).join('');
@@ -1136,18 +1186,9 @@ function viewHeute() {
         <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
       </div>
     </div>
-    <a class="card journal-card" href="tracker/">
-      <div class="peek">${gingerPeek(72)}</div>
-      <div style="display:flex;flex-direction:column;gap:2px">
-        <div class="small muted">Heute im Tracker</div>
-        <div class="journal-kcal">${fmt(eaten)} <small>${hasKcalGoal() ? `von ${fmt(kcalGoal())} kcal` : 'kcal'}</small></div>
-        <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? 'Zum Journal' : 'Kalorienziel im Tracker festlegen'}</div>
-      </div>
-    </a>
-    <a class="btn secondary snack-link" href="#/kochen">Kochen mit dem, was da ist</a>
-    <a class="btn secondary snack-link" href="#/snacks">Snack: Was darf ich jetzt?</a>
+    ${dayCard()}
     ${tips}
-    <h2>Gingers Vorschläge für heute</h2>
+    ${infoHead('h2', 'Gingers Vorschläge für heute', 'heute')}
     ${meals}
     ${extras.length ? `<section class="meal-block"><div class="meal-head"><h3>Sonstiges</h3></div>${extras.map(eatenCard).join('')}</section>` : ''}
   </main>${nav('heute')}`;
@@ -1156,31 +1197,32 @@ function viewHeute() {
 // ---------- Rezepte ----------
 
 function viewRezepte() {
-  const tab = ui.recipeTab;
-  const tabs = `<div class="seg tabs" role="tablist">${[['alle', 'Alle'], ['habe', 'Ich habe …'], ['fav', 'Favoriten']]
-    .map(([id, name]) => `<button role="tab" data-action="recipe-tab" data-id="${id}" aria-pressed="${tab === id}" aria-selected="${tab === id}">${name}</button>`).join('')}</div>`;
+  // Eine Filterreihe: Mahlzeiten, Favoriten und „Ich habe …“; darüber ein Suchfeld für Namen und Zutaten
+  const f = ui.recipeFilter;
+  const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS, { id: 'snack', name: 'Snacks' }, { id: 'fav', name: 'Favoriten' }, { id: 'habe', name: 'Ich habe …' }];
+  const chips = `<nav class="chips chip-scroll" aria-label="Filter">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</nav>`;
   let body;
-  if (tab === 'habe') body = viewHabe();
-  else if (tab === 'fav') body = viewFavoriten();
+  if (f === 'habe') body = viewHabe();
+  else if (f === 'fav') body = viewFavoriten();
   else {
-    const f = ui.recipeFilter;
+    const q = (ui.recipeQuery || '').trim().toLowerCase();
     const byMeal = (r) => f === 'alle' || r.meals.includes(f);
-    const own = state.ownRecipes.filter(byMeal);
-    const bought = f === 'alle' || f === 'snack' ? productSnacks().filter(suitable) : [];
-    const list = RECIPES.filter(suitable).filter(byMeal)
-      .sort((a, b) => likeScore(b) - likeScore(a) || a.time - b.time);
-    const filters = [{ id: 'alle', name: 'Alle' }, ...MEALS, { id: 'snack', name: 'Snacks' }];
-    body = `<p class="lead">Alles unter 30 Minuten und passend zu deinen Angaben. Deine Lieblingszutaten stehen oben.</p>
-    <a class="btn secondary" href="#/neu">+ Eigenes Rezept eintragen</a>
-    <div class="chips">${filters.map((x) => `<button class="chip" data-action="filter" data-id="${x.id}" aria-pressed="${f === x.id}">${x.name}</button>`).join('')}</div>
-    ${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}` : ''}
+    const byQuery = (r) => !q || r.name.toLowerCase().includes(q) || textOf(r).includes(q);
+    const mealIdx = (r) => Math.min(...r.meals.map((m) => { const i = ['fruehstueck', 'mittag', 'abend', 'snack'].indexOf(m); return i < 0 ? 9 : i; }));
+    const own = state.ownRecipes.filter(byMeal).filter(byQuery);
+    const bought = f === 'alle' || f === 'snack' ? productSnacks().filter(suitable).filter(byQuery) : [];
+    const list = RECIPES.filter(suitable).filter(byMeal).filter(byQuery)
+      .sort((a, b) => likeScore(b) - likeScore(a) || mealIdx(a) - mealIdx(b) || a.time - b.time);
+    body = `${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}` : ''}
     ${bought.length ? `<h2>Snacks aus deinem Einkauf</h2>${bought.map((r) => recipeCard(r)).join('')}` : ''}
     ${own.length || bought.length ? '<h2>Gingers Rezepte</h2>' : ''}
+    <div class="small muted">${list.length} ${list.length === 1 ? 'Rezept' : 'Rezepte'}${q ? ` mit „${esc(ui.recipeQuery.trim())}“` : ''}</div>
     ${list.map((r) => recipeCard(r)).join('') || '<div class="card small muted">Keine passenden Rezepte gefunden.</div>'}`;
   }
   return `<main class="screen with-nav">
-    <h1>Rezepte</h1>
-    ${tabs}
+    <div class="top-row"><h1>Rezepte</h1><a class="link-btn" href="#/neu">+ Eigenes Rezept</a></div>
+    ${f === 'habe' ? '' : `<div class="search-field"><label class="sr-only" for="rq">Rezept suchen</label><input id="rq" type="search" data-input="recipeQuery" placeholder="Rezept oder Zutat suchen" value="${esc(ui.recipeQuery || '')}" autocomplete="off"></div>`}
+    ${chips}
     ${body}
   </main>${nav('rezepte')}`;
 }
@@ -1587,20 +1629,30 @@ function viewIch() {
       <h3>Zeit und Portionen</h3>
       <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
     </a>
-    ${TRACKER_SETTINGS.map(([group, items]) => `<h2>${group}</h2>
+    ${TRACKER_SETTINGS.filter(([group]) => group !== 'Tracker').map(([group, items]) => `<h2>${group}</h2>
     <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
+    ${trackerCardsCard()}
     ${backupCard()}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
       <div class="small muted">Ähnliche Rezepte schlage ich dir seltener vor.${learnedFoods().length ? ` Gelernt: weniger mit ${esc(learnedFoods().join(', '))}.` : ''}</div>
       ${Object.keys(state.rejected).map((id) => allRecipes().find((r) => r.id === id)).filter(Boolean).map((r) => `<div class="row" style="justify-content:space-between"><span>${esc(r.name)}</span><button class="link-btn" data-action="unreject" data-recipe="${r.id}">Wieder vorschlagen</button></div>`).join('')}
     </section>` : ''}
-    <div class="bottom">${ui.confirmReset
+    <section class="card set-list"><a href="#/quellen"><span>Quellen und Lizenzen</span><span aria-hidden="true">›</span></a></section>
+    <div class="danger-zone">${ui.confirmReset
       ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel, Wochenplan und Geschmack sind dann weg. Dein Tracker bleibt, wie er ist.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
-      : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
-      <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
+      : '<button class="link-btn danger" data-action="ask-reset">Rezeptbuch zurücksetzen …</button>'}</div>
   </main>${nav('ich')}`;
+}
+
+// Welche Zusatz-Karten das Tracker-Journal zeigt (die Schalter gibt es im Tracker, hier alle an einer Stelle)
+const TRACKER_CARDS = [['water', 'Wasser'], ['caffeine', 'Koffein'], ['alcohol', 'Alkohol'], ['supp', 'Supplements'], ['sug', 'Abend-Vorschläge mit Tracker-Rezepten']];
+function trackerCardsCard() {
+  const t = readTracker();
+  return `<h2>Im Tracker anzeigen</h2>
+    <section class="card set-list toggles">${TRACKER_CARDS.map(([k, name]) => `<label class="row fit-row"><input type="checkbox" data-action="tracker-card" data-k="${k}" ${!t[k] || t[k].enabled !== false ? 'checked' : ''}><span>${esc(name)}</span><a class="link-btn" href="tracker/?zurueck=ich#set:${encodeURIComponent(name.split(' ')[0])}">Einstellen</a></label>`).join('')}
+      <div class="small muted">Was du nicht brauchst, blende ich im Journal aus. Deine Einträge bleiben gespeichert.</div></section>`;
 }
 
 // Backup für Rezeptbuch und Tracker zusammen (backup.js). Alles liegt nur auf diesem Gerät.
@@ -1609,14 +1661,13 @@ function backupCard() {
   const dirty = RBBackup.dirty();
   return `<h2 id="backup">Backup</h2>
     <section class="card backup-card">
-      <p class="small">Alle deine Daten (Rezeptbuch, Tracker, Vorrat) sind nur auf diesem Handy gespeichert, im Speicher des Browsers. Es gibt keinen Server und kein Konto. Löschst du die App oder die Browserdaten, sind sie weg. Deshalb ab und zu exportieren und die Datei sicher ablegen (z. B. „In Dateien sichern“).</p>
+      <p class="small">Deine Daten liegen nur auf diesem Handy. Löschst du die App oder die Browserdaten, sind sie weg. Exportier ab und zu und leg die Datei sicher ab (z. B. „In Dateien sichern“).</p>
       <div class="small ${dirty ? '' : 'muted'}" style="${dirty ? 'color:var(--accent-text)' : ''}">${esc(RBBackup.lastText())}${dirty ? ' Seitdem hat sich etwas geändert.' : m.at ? ' Seitdem nichts geändert.' : ''}</div>
       <div class="input-row">
         <button class="btn small-btn" data-action="backup-export" style="flex:1">Exportieren</button>
         <label class="btn secondary small-btn" style="flex:1">Importieren<input type="file" id="backup-file" accept="application/json,.json" hidden></label>
       </div>
-      <label class="row fit-row"><input type="checkbox" data-action="backup-remind" ${m.remind ? 'checked' : ''}><span class="small">Beim Schließen fragen, ob ich exportiert habe</span></label>
-      <p class="small muted">Ehrlich gesagt: Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.</p>
+      <div class="info-head"><label class="row fit-row"><input type="checkbox" data-action="backup-remind" ${m.remind ? 'checked' : ''}><span class="small">Ans Exportieren erinnern</span></label>${infoBtn('backup')}</div>${infoText('backup')}
     </section>`;
 }
 
@@ -2133,21 +2184,25 @@ function vorratItem(p) {
         <span class="vr-qty">${esc(V.label(p))}</span>
         <button class="round" data-action="vr-step" data-id="${esc(p.id)}" data-d="1" aria-label="Mehr">+</button>
       </div>`;
-  return `<div class="card vr-item${p.qty === 0 ? ' empty' : ''}">
-    <div class="pantry-item">
-      <button class="info vr-open" data-action="vr-open" data-id="${esc(p.id)}" aria-expanded="${ui.vorratOpen === p.id}">
-        <span class="title">${esc(p.n)}</span>
-        <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', packText(p)].filter(Boolean).map(esc).join(' · ')}</span>
-        ${p.k ? vorratMacros(p) : ''}
-        <span class="meta vr-more">${ui.vorratOpen === p.id ? 'Nährwerte ausblenden' : 'Nährwerte zeigen'}</span>
-      </button>
-      <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
-      ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
-    </div>
-    ${ui.vorratOpen === p.id ? vorratDetail(p) : ''}
-    <div class="vr-row">${amount}${p.qty != null && !editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button>` : ''}</div>
+  // Zu: eine Zeile mit Name, Menge und Makro-Balken. Antippen öffnet Menge, Gegessen, Snack, Herz, Ändern und Nährwerte.
+  const open = ui.vorratOpen === p.id;
+  const marks = `${state.snacks[p.id] ? '<span class="badge snack-tag">Snack</span>' : ''}${key && taste[key] === 'like' ? `<span class="fav-mark" title="Magst du besonders">${ICONS.heart}</span>` : ''}`;
+  return `<div class="card vr-item${p.qty === 0 ? ' empty' : ''}${open ? ' open' : ''}" id="vr-${esc(p.id)}">
+    <button class="vr-line" data-action="vr-open" data-id="${esc(p.id)}" aria-expanded="${open}">
+      <span class="vr-l1"><span class="title">${esc(p.n)}</span>${marks}<span class="vr-amount">${esc(p.qty == null ? 'Menge offen' : V.label(p).replace(/ \(.*\)$/, ''))}</span><span class="vr-chev" aria-hidden="true">${open ? '▴' : '▾'}</span></span>
+      <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', packText(p)].filter(Boolean).map(esc).join(' · ')}</span>
+      ${p.k ? vorratMacros(p) : ''}
+    </button>
+    ${open ? `<div class="vr-row">${amount}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button>` : ''}</div>
     ${ui.vrEat === p.id ? vorratEat(p) : ''}
+    <div class="vr-row">
+      <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Als Snack</button>
+      ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
+      <button class="link-btn" data-action="vr-nutri" aria-expanded="${!!ui.vrNutri}" style="margin-left:auto">${ui.vrNutri ? 'Nährwerte zu' : 'Nährwerte'}</button>
+      ${!editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}
+    </div>
     ${edit}
+    ${ui.vrNutri ? vorratDetail(p) : ''}` : ''}
   </div>`;
 }
 
@@ -2156,13 +2211,11 @@ function viewEinkauf() {
   const have = items.filter((p) => p.qty !== 0);
   const empty = items.filter((p) => p.qty === 0);
   const groups = VR_GROUPS.map(([g, label]) => [g, label, have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'))]).filter((x) => x[2].length);
-  const ideas = allRecipes().filter((r) => !r.product && suitable(r)).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
-    .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Deine Vorratskammer. Scann deinen Einkauf, dann zähle ich mit. Was du kochst oder isst, ziehe ich wieder ab.</div></div>
     <a class="btn" href="tracker/?zurueck=einkauf#einkauf">Einkauf scannen</a>
-    <a class="btn secondary" href="#/liste">Einkaufsliste aus dem Wochenplan</a>
-    <section class="card vr-add">
+    <div class="input-row"><a class="btn secondary small-btn" href="#/liste" style="flex:1">Einkaufsliste</a><a class="btn secondary small-btn" href="#/kochen" style="flex:1">Daraus kochen</a></div>
+    ${ui.vrAddOpen || ui.vrError ? `<section class="card vr-add">
       <h3>Ohne Barcode dazulegen</h3>
       <div class="small muted">Für Obst, Gemüse und Lose: z. B. 6 Stück Eier oder 500 g Kartoffeln.</div>
       <input type="text" list="vr-foods" placeholder="Zutat, z. B. Kartoffeln" data-input="vrName" value="${esc(ui.vrName || '')}" aria-label="Zutat">
@@ -2173,12 +2226,11 @@ function viewEinkauf() {
         <button class="btn small-btn" data-action="vr-add">Dazu</button>
       </div>
       ${ui.vrError ? `<div class="small" style="color:var(--accent-text)">${esc(ui.vrError)}</div>` : ''}
-    </section>
-    ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}<a class="btn secondary" href="#/kochen">Passend zu deinem Tag kochen</a>` : ''}
-    <h2>Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}</h2>
+      <button class="link-btn" data-action="vr-add-toggle">Schließen</button>
+    </section>` : '<button class="link-btn" data-action="vr-add-toggle">+ Ohne Barcode dazulegen (Obst, Gemüse, Loses)</button>'}
+    ${infoHead('h2', `Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}`, 'vorrat')}
     ${have.length ? `<nav class="vr-tabs" aria-label="Kategorien">${groups.map(([g, label, list]) => `<button class="chip" data-action="vr-jump" data-g="${g}">${label} <span class="vr-n">${list.length}</span></button>`).join('')}${empty.length ? '<button class="chip" data-action="vr-jump" data-g="leer">Aufgebraucht</button>' : ''}</nav>` : ''}
     ${have.length ? groups.map(([g, label, list]) => `<h3 class="vr-group" id="vr-g-${g}">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}`).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
-    ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.</p>' : ''}
     ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
 }
@@ -2463,10 +2515,9 @@ function viewSnacks() {
       <div class="journal-kcal">${fmt(left)} <small>kcal frei für Snacks</small></div>
       <div class="small muted">Snack-Rahmen heute ${fmt(a.total)} kcal${a.eaten ? ` · schon gesnackt ${fmt(a.eaten)} kcal` : ''}${Math.abs(a.over) >= 10 ? ` · Mahlzeiten bisher ${fmt(Math.abs(a.over))} kcal ${a.over > 0 ? 'über' : 'unter'} Plan` : ''}${hasKcalGoal() ? '' : ' · ohne Kalorienziel im Tracker rechne ich mit 2.000 kcal'}</div>
     </div>
-    <p class="small muted">Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Gesund oder nicht spielt keine Rolle.</p>
-    <h2>Aus deinem Vorrat</h2>
-    ${marked.length ? marked.map(productRow).join('') : '<div class="card small muted">Noch keine Snacks im Vorrat. Markier Produkte in der Vorratskammer mit „Snack“, dann tauchen sie hier auf.</div>'}
-    ${others.length ? `<button class="link-btn" data-action="snack-more-products" aria-expanded="${!!ui.snackOthers}">${ui.snackOthers ? 'Weitere Produkte ausblenden' : `Weitere ${others.length} Produkte aus dem Vorrat zeigen`}</button>
+    ${infoHead('h2', 'Aus deinem Vorrat', 'snack')}
+    ${marked.length ? marked.map(productRow).join('') : `<div class="card small muted">${others.length ? 'Noch nichts als Snack markiert. Unten kannst du trotzdem alles aus dem Vorrat ansehen, oder du markierst in der Vorratskammer, was als Snack gilt.' : 'Im Vorrat ist gerade nichts, was als Snack passt.'}</div>`}
+    ${others.length ? `<button class="link-btn" data-action="snack-more-products" aria-expanded="${!!ui.snackOthers}">${ui.snackOthers ? 'Andere Produkte ausblenden' : `${marked.length ? 'Weitere' : 'Alle'} ${others.length} Produkte aus dem Vorrat zeigen`}</button>
       ${ui.snackOthers ? others.map(productRow).join('') : ''}` : ''}
     <h2>Vorgesehen</h2>
     ${recipes.length ? recipes.map(recipeRow).join('') : '<div class="card small muted">Gerade kein passendes Snack-Rezept.</div>'}
@@ -2665,7 +2716,6 @@ const actions = {
     if (!w.meals.includes(meal)) w.meals = MEAL_ORDER.filter((x) => x === meal || w.meals.includes(x));
     toast(`Eingeplant: ${dayName(day)}, ${mealName(meal)}`);
   },
-  'recipe-tab'(el) { ui.recipeTab = el.dataset.id; },
   'have-add'() {
     const t = ui.haveDraft.trim();
     if (t && !ui.have.some((x) => x.toLowerCase() === t.toLowerCase())) ui.have.push(t);
@@ -2735,6 +2785,8 @@ const actions = {
     toast(`${food.name} liegt im Vorrat.`);
     return 'skip';
   },
+  'vr-nutri'() { ui.vrNutri = !ui.vrNutri; },
+  'vr-add-toggle'() { ui.vrAddOpen = !ui.vrAddOpen; ui.vrError = ''; },
   'vr-edit'(el) { ui.vorratEdit = el.dataset.id || null; },
   'vr-jump'(el) {
     const h = document.getElementById(`vr-g-${el.dataset.g}`);
@@ -2818,13 +2870,15 @@ const actions = {
     return 'skip';
   },
   // ---------- Kochen mit dem Vorrat ----------
+  'cook-open'(el) { ui.cookMeal = el.dataset.meal; ui.cookMore = false; go('#/kochen'); return 'skip'; },
   'cook-meal'(el) { ui.cookMeal = el.dataset.id; ui.cookMore = false; },
   'cook-more'() { ui.cookMore = !ui.cookMore; },
   'cook-list'(el) {
     const id = el.dataset.recipe;
     state.listExtra = state.listExtra || {};
-    if (state.listExtra[id]) { delete state.listExtra[id]; toast('Wieder von der Einkaufsliste genommen.'); return 'skip'; }
+    if (state.listExtra[id]) { delete state.listExtra[id]; save(); toast('Wieder von der Einkaufsliste genommen.'); return 'skip'; }
     state.listExtra[id] = { n: state.profile.portions || 1, f: Number(el.dataset.f) || 1 };
+    save();
     toast('Steht auf der Einkaufsliste, nur was im Vorrat fehlt.');
     return 'skip';
   },
@@ -2849,6 +2903,14 @@ const actions = {
     save();
     RBBackup.exportAll().then((ok) => { if (ok) toast('Backup exportiert. Leg die Datei an einem sicheren Ort ab.'); });
     return 'skip';
+  },
+  'tracker-card'(el) {
+    const t = readTracker();
+    const k = el.dataset.k;
+    if (!t[k] && k === 'supp') { toast('Öffne den Tracker einmal, dann kannst du das hier ändern.'); return; }
+    const on = !t[k] || t[k].enabled !== false; // fehlt der Eintrag, ist es im Tracker an
+    t[k] = Object.assign({}, t[k] || {}, { enabled: !on });
+    writeTracker(t);
   },
   'backup-remind'(el) { RBBackup.setMeta({ remind: el.checked }); },
   'tracker-one'(el) {
@@ -2979,6 +3041,13 @@ app.addEventListener('input', (e) => {
   }
   const key = e.target.dataset.input;
   if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
+  if (key === 'recipeQuery') {
+    ui.recipeQuery = t.value;
+    const pos = t.selectionStart;
+    render();
+    const n = document.getElementById('rq');
+    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (err) { /* type=search */ } }
+  }
 });
 
 app.addEventListener('keydown', (e) => {
@@ -3021,6 +3090,13 @@ for (const r of RECIPES) {
 }
 
 migrateToTracker();
+// Einmalig: Die Abend-Vorschläge des Trackers (eigene Rezepte dort) aus, Vorschläge gibt es nur noch auf „Heute“
+if (!state.oneSuggest && localStorage.getItem(TRACKER_KEY)) {
+  const t = readTracker();
+  if (!t.sug || t.sug.enabled !== false) { t.sug = Object.assign({}, t.sug || {}, { enabled: false }); writeTracker(t); }
+  state.oneSuggest = true;
+  save();
+}
 if (trackerPantry().some((x) => x.qty == null)) changePantry((pantry, t) => V.fillDefaults(pantry, t.offCache)); // alte Einträge: 1 Packung
 render();
 if (!nutritionOk) toast('Die Nährwerte ließen sich nicht laden. Öffne die App einmal mit Internet.');

@@ -474,7 +474,7 @@ function renderDiary() {
       <div class="nav"><button class="icon-btn" id="prevDay" aria-label="Vorheriger Tag">‹</button><button class="icon-btn" id="nextDay" aria-label="Nächster Tag">›</button></div>
     </div>`;
 
-  if (backupDue()) {
+  if (backupDue() && !localStorage.getItem('rezeptbuch-v1')) { // im Rezeptbuch erinnert dessen Backup-Nachfrage
     html += `<div class="card notice"><div><strong>Backup fällig</strong><div class="small muted">${backupText()} Deine Daten liegen nur auf diesem Handy.</div></div>
       <button class="btn secondary" id="quickBackup" style="flex:0 0 auto">Sichern</button></div>`;
   }

@@ -33,6 +33,13 @@
     return !!(rb.onboarded || Object.keys(ct.days || {}).length || (ct.pantry || []).length);
   }
   function dirty() { return hasData() && meta().hash !== fingerprint(); }
+  // Erinnern erst, wenn eingerichtet ist und es echte Einträge gibt (nicht schon beim allerersten Öffnen)
+  function worthAsking() {
+    const rb = parse(read(KEYS.rezeptbuch)) || {};
+    const ct = parse(read(KEYS.tracker)) || {};
+    const days = Object.values(ct.days || {}).some((d) => Array.isArray(d) && d.length);
+    return !!(rb.onboarded && (days || (ct.pantry || []).length || Object.keys(rb.stamps || {}).length || (rb.ownRecipes || []).length));
+  }
 
   function stamp() { return new Date().toISOString().slice(0, 10); }
   function payload() {
@@ -96,14 +103,14 @@
   }, true);
 
   window.addEventListener('beforeunload', (e) => {
-    if (recentNav() || !meta().remind || !dirty()) return;
+    if (recentNav() || !meta().remind || !worthAsking() || !dirty()) return;
     e.preventDefault();
     e.returnValue = ''; // Text bestimmt der Browser selbst
   });
 
   function laterOk() { try { return Date.now() - Number(sessionStorage.getItem('rbAskLater') || 0) > LATER_MS; } catch (e) { return true; } }
   function ask() {
-    if (document.getElementById('rb-backup-ask') || !meta().remind || !laterOk() || /^#\/start/.test(location.hash) || !dirty()) return;
+    if (document.getElementById('rb-backup-ask') || !meta().remind || !laterOk() || /^#\/start/.test(location.hash) || !worthAsking() || !dirty()) return;
     style();
     const box = document.createElement('div');
     box.id = 'rb-backup-ask';

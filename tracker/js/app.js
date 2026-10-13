@@ -2076,6 +2076,8 @@ function renderSettingsInner() {
       <h2 style="color:var(--ink)">Quellen & Lizenzen</h2>
       <p>Lebensmitteldaten: Max Rubner-Institut (2025). Bundeslebensmittelschlüssel (BLS), Version 4.0. Karlsruhe.
         DOI: <a href="https://doi.org/10.25826/Data20251217-134202-0" target="_blank" rel="noopener">10.25826/Data20251217-134202-0</a>.
+        Lizenz: <a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener">CC BY 4.0</a>.
+        Verändert: nur ein Auszug; freier Zucker, Ernährungsform und Allergene sind daraus abgeleitet, nicht vom Max Rubner-Institut.
         ${blsMeta ? `In dieser App: ${esc(blsMeta.count)} Lebensmittel; Energie, Makronährstoffe, Ballaststoffe und Zucker.` : ''}</p>
       <p>Barcode-Daten: <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, Datenbank unter der
         <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">Open Database License (ODbL)</a>,

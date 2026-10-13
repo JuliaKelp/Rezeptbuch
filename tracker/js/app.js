@@ -108,6 +108,7 @@ function normalizeState(data) {
   if (!s.slices || typeof s.slices !== 'object') s.slices = {};
   if (!s.waterFoods || typeof s.waterFoods !== 'object') s.waterFoods = {};
   if (!Array.isArray(s.pantry)) s.pantry = [];
+  Vorrat.fillDefaults(s.pantry, s.offCache); // ohne Menge = 1 Packung (../vorrat.js)
   s.wgoal = Object.assign(WG_DEFAULTS(), data.wgoal || {});
   if (!s.weightLog || typeof s.weightLog !== 'object') s.weightLog = {};
   s.water = Object.assign(emptyState().water, data.water || {});

@@ -1834,7 +1834,7 @@ function stockOf(foodName) {
   for (const x of trackerPantry()) {
     if (vorratFood(x) !== foodName) continue;
     const have = V.grams(x);
-    if (have == null) open = open || x.qty == null; else g += have;
+    if (have == null) open = open || x.qty == null || x.qty > 0; else g += have; // Menge ohne Grammangabe: da, aber wie viel unklar
   }
   return { g, open };
 }
@@ -2134,7 +2134,7 @@ function viewEinkauf() {
       const list = have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'));
       return list.length ? `<h3 class="vr-group">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}` : '';
     }).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
-    ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Bei „Menge offen“ weiß ich nur, dass du es hast.</p>' : ''}
+    ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.</p>' : ''}
     ${empty.length ? `<h2>Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
 }
@@ -2741,6 +2741,7 @@ for (const r of RECIPES) {
 }
 
 migrateToTracker();
+if (trackerPantry().some((x) => x.qty == null)) changePantry((pantry, t) => V.fillDefaults(pantry, t.offCache)); // alte Einträge: 1 Packung
 render();
 if (!nutritionOk) toast('Die Nährwerte ließen sich nicht laden. Öffne die App einmal mit Internet.');
 // Zurück aus dem Tracker (Seite aus dem Zwischenspeicher des Browsers): neu zeichnen

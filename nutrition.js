@@ -243,6 +243,15 @@ export const MICROS = [
   { id: 'vd', name: 'Vitamin D', unit: 'µg' }, { id: 'jod', name: 'Jod', unit: 'µg' }
 ];
 const MICRO = {};
+let BLS_ROWS = new Map();
+// Mikronährstoffe je 100 g zu einer BLS-Nummer (Tracker-IDs „bls:C133000“), null wenn unbekannt
+export function blsMicros(id) {
+  const r = BLS_ROWS.get(String(id || '').replace(/^bls:/, ''));
+  if (!r) return null;
+  const v = {};
+  for (const m of MICROS) if (r[m.id] != null) v[m.id] = r[m.id];
+  return v;
+}
 let microsLoaded = false;
 export function hasMicros() { return microsLoaded; }
 for (const [name, v] of Object.entries(NOT_FROM_BLS_VALUES)) NUTR[name] = [v[0], v[1], v[2], 0, v[3], v[4]];
@@ -254,6 +263,7 @@ export async function loadNutrition(url = 'tracker/data/bls.json') {
   try {
     const data = await (await fetch(url)).json();
     map = new Map(data.foods.map((f) => [f.id, f]));
+    BLS_ROWS = map;
   } catch (e) { /* ohne Datei weiter, Werte 0 */ }
   let missing = 0;
   for (const food of FOODS) {

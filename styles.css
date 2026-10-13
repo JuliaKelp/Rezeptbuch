@@ -604,3 +604,4 @@ textarea.input { resize: vertical; font: inherit; }
 .nut-row.mine span:first-child { font-weight: 800; color: var(--ink); }
 .src-list { padding-left: 18px; margin: 6px 0; line-height: 1.5; }
 details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
+.badge.micro-tag { width: fit-content; }

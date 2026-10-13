@@ -77,6 +77,7 @@ function defaultState() {
     cookedEntries: {}, // { Tracker-Eintrags-ID: recipeId } Einträge, die einen Stempel gebracht haben
     rejected: {},  // { recipeId: true } abgelehnte Vorschläge
     favorites: {}, // { recipeId: true }
+    listExtra: {}, // { recipeId: { n, f } } fehlende Zutaten zum Kochen aus dem Vorrat auf der Einkaufsliste
     week: null     // { seed, meals, slots: { 'JJJJ-MM-TT|meal': { id, ok } }, bought: { key: true }, portions }
   };
 }
@@ -501,12 +502,18 @@ function portionStepper(action, n, attrs) {
 
 function weekPortions() { return (state.week && state.week.portions) || state.profile.portions || 1; }
 
+// Gerichte, deren fehlende Zutaten man unter „Kochen mit dem, was da ist“ auf die Einkaufsliste gesetzt hat
+function extraSlots() {
+  return Object.entries(state.listExtra || {}).map(([id, x]) => ({ key: `extra|${id}`, recipe: recipeById(id), n: x.n || 1, f: x.f || 1 }))
+    .filter((x) => x.recipe && !x.recipe.product);
+}
+
 // Zutaten aller übernommenen Gerichte zusammenzählen
 const STAPLES = ['Gewürze', 'Öl', 'Gemüsebrühe'];
 function shoppingList() {
   const groups = new Map();
   const staples = new Map();
-  for (const { recipe, n, f } of acceptedSlots()) {
+  for (const { recipe, n, f } of [...acceptedSlots(), ...extraSlots()]) {
     if (recipe.product) {
       const key = `p|${recipe.code}`;
       const g = groups.get(key) || { key, product: recipe, amount: 0, recipes: new Set() };
@@ -692,12 +699,14 @@ function viewListe() {
   const tag = (x) => (x.stock === 'part' ? ` <em class="have part">${esc(x.stockText)}</em>` : x.stock === 'open' ? ` <em class="have">${esc(x.stockText || 'im Vorrat')}</em>` : '');
   const row = (x) => `<label class="step list-item"><input type="checkbox" data-action="list-check" data-key="${esc(x.key)}" ${bought[x.key] ? 'checked' : ''}>
     <span>${x.stock === 'part' ? 'noch ' : ''}${esc(x.text)}${tag(x)}<small>${esc(x.recipes.join(', '))}</small></span></label>`;
+  const extras = extraSlots();
   return `<main class="screen with-nav">
     <a class="back" href="#/woche">${ICONS.back}Wochenplan</a>
     <h1>Einkaufsliste</h1>
     ${items.length ? `
       ${listMacros(slots)}
-      <p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>
+      ${extras.length ? `<div class="card small">Dazu zum Kochen aus dem Vorrat: ${extras.map((x) => `${esc(x.recipe.name)} <button class="link-btn" data-action="cook-list" data-recipe="${x.recipe.id}" aria-label="${esc(x.recipe.name)} von der Liste nehmen">✕</button>`).join(' · ')}</div>` : ''}
+      ${slots.length ? `<p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>` : ''}
       <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
       ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>
         ${done.some((x) => x.food && x.needG) ? '<button class="btn secondary" data-action="list-to-vorrat">Gekauftes in den Vorrat legen</button><p class="small muted">Für Lose ohne Barcode. Gescannte Produkte zählt der Scanner schon mit.</p>' : ''}` : ''}
@@ -1135,6 +1144,7 @@ function viewHeute() {
         <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? 'Zum Journal' : 'Kalorienziel im Tracker festlegen'}</div>
       </div>
     </a>
+    <a class="btn secondary snack-link" href="#/kochen">Kochen mit dem, was da ist</a>
     <a class="btn secondary snack-link" href="#/snacks">Snack: Was darf ich jetzt?</a>
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
@@ -1220,7 +1230,7 @@ function viewFavoriten() {
 // ---------- Rezept und Kochen ----------
 
 function viewProdukt(r, meal) {
-  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute'].includes(ui.prevPage) ? ui.prevPage : '#/heute';
+  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute', '#/kochen'].includes(ui.prevPage) ? ui.prevPage : '#/heute';
   return `<main class="screen">
     <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
@@ -1256,7 +1266,7 @@ function viewRezept(id, meal, factorParam) {
   let note = '';
   if (r.prep) note = `<div class="hint">${ICONS.paw}<span>Am Vorabend vorbereiten, dann ist es morgens sofort fertig.</span></div>`;
   else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>${r.own && r.portions >= 2 ? `Vorkoch-Tipp: Das Rezept reicht für ${r.portions} Portionen. Den Rest kannst du am nächsten Tag essen.` : 'Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.'}</span></div>`;
-  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute'].includes(ui.prevPage) ? ui.prevPage : meal ? '#/heute' : '#/rezepte';
+  const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute', '#/kochen'].includes(ui.prevPage) ? ui.prevPage : meal ? '#/heute' : '#/rezepte';
 
   return `<main class="screen">
     <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
@@ -2164,13 +2174,159 @@ function viewEinkauf() {
       </div>
       ${ui.vrError ? `<div class="small" style="color:var(--accent-text)">${esc(ui.vrError)}</div>` : ''}
     </section>
-    ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
+    ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}<a class="btn secondary" href="#/kochen">Passend zu deinem Tag kochen</a>` : ''}
     <h2>Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}</h2>
     ${have.length ? `<nav class="vr-tabs" aria-label="Kategorien">${groups.map(([g, label, list]) => `<button class="chip" data-action="vr-jump" data-g="${g}">${label} <span class="vr-n">${list.length}</span></button>`).join('')}${empty.length ? '<button class="chip" data-action="vr-jump" data-g="leer">Aufgebraucht</button>' : ''}</nav>` : ''}
     ${have.length ? groups.map(([g, label, list]) => `<h3 class="vr-group" id="vr-g-${g}">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}`).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
     ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.</p>' : ''}
     ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
+}
+
+// ---------- Kochen mit dem Vorrat ----------
+// Gerichte aus Gingers und eigenen Rezepten, sortiert danach, wie viel schon im Vorrat ist und wie gut kcal und Makros
+// zu dem passen, was heute laut Tracker noch frei ist. Nährwerte kommen aus den Rezepten (BLS), nichts geschätzt.
+
+// Heute schon gegessen (Tracker-Journal) und was vom Tagesziel noch frei ist
+function dayLeft() {
+  const t = nutrientTargets();
+  const eaten = { kcal: 0, protein: 0, kh: 0, fett: 0 };
+  for (const e of (readTracker().days || {})[todayKey()] || []) {
+    const f = (e.grams || 0) / 100;
+    eaten.kcal += (e.k || 0) * f;
+    eaten.protein += (e.p || 0) * f;
+    eaten.kh += (e.c || 0) * f;
+    eaten.fett += (e.f || 0) * f;
+  }
+  const rest = (goal, x) => (goal ? goal - x : null);
+  return { eaten, kcal: kcalGoal() - eaten.kcal, protein: rest(t.protein, eaten.protein), kh: rest(t.kh, eaten.kh), fett: rest(t.fett, eaten.fett) };
+}
+
+// kcal für dieses Gericht: was heute frei ist, minus die Rahmen der Mahlzeiten, die danach noch kommen
+function cookTarget(meal, left) {
+  const log = journal();
+  const order = dayMeals().map((m) => m.id);
+  let later = 0;
+  for (const m of order.slice(order.indexOf(meal) + 1)) {
+    if (m === 'snack') later += mealBudget('snack') * Math.max(0, SNACKS_PER_DAY - log.filter((e) => e.meal === 'snack').length);
+    else if (!log.some((e) => e.meal === m)) later += mealBudget(m);
+  }
+  return Math.max(0, left.kcal - later);
+}
+
+// Was vom Rezept (n Rezeptportionen) im Vorrat ist und was fehlt. Gewürze, Öl, Brühe und „etwas …“ zählen nicht.
+function cookCheck(r, n) {
+  const need = new Map();
+  for (const line of scaledIngredients(r, n)) {
+    const p = parseIngredient(line);
+    if (p.amount === null) continue;
+    const food = findFood(p.name.replace(/[()]/g, ' '));
+    if (food && STAPLES.includes(food.name)) continue;
+    const key = food ? food.name : p.name.toLowerCase();
+    const x = need.get(key) || { food, g: 0, lines: [] };
+    x.g += gramsOfText(line);
+    x.lines.push(line);
+    need.set(key, x);
+  }
+  const have = [];
+  const missing = [];
+  for (const x of need.values()) {
+    const st = x.food ? stockOf(x.food.name) : { g: 0, open: false };
+    if (st.open || (x.g && st.g >= x.g * 0.98)) { have.push(x.food.name); continue; }
+    const share = x.g && st.g > 0 ? (x.g - st.g) / x.g : 1;
+    const text = x.lines.length === 1 ? scaleIngredient(x.lines[0], share) : `${fmt(x.g * share)} g ${x.food ? x.food.name : x.lines[0]}`;
+    missing.push({ text, part: share < 1, food: x.food ? x.food.name : null });
+  }
+  return { have, missing, total: need.size };
+}
+
+// Abweichung der Makros vom Rest des Tages, als Anteil der kcal (0 = passt genau). null ohne Makroziele im Tracker.
+function macroGap(n, f, left) {
+  if (left.protein == null || left.fett == null || left.kh == null || left.kcal <= 0) return null;
+  const k = n.kcal * f;
+  if (!k) return null;
+  const share = Math.min(1, k / left.kcal);
+  let dev = 0;
+  for (const [id, kcalPerG] of [['protein', 4], ['kh', 4], ['fett', 9]]) {
+    const ideal = Math.max(0, left[id]) * share;
+    let d = n[id] * f - ideal;
+    if (id === 'protein' && goalDir() !== 'gain' && d > 0) d = 0; // mehr Eiweiß ist kein Problem
+    dev += (Math.abs(d) * kcalPerG) / k;
+  }
+  return dev;
+}
+
+function cookIdeas(meal) {
+  const left = dayLeft();
+  const target = cookTarget(meal, left);
+  const persons = state.profile.portions || 1;
+  const cookedToday = new Set(journal().map((e) => e.recipeId).filter(Boolean));
+  const list = allRecipes()
+    .filter((r) => !r.product && r.meals.includes(meal) && suitable(r))
+    .map((r) => {
+      const n = recipeNutrients(r);
+      const f = target > 0 && r.kcal ? Math.min(FIT_MAX, Math.max(FIT_MIN, Math.round((target / r.kcal) * 10) / 10)) : 1;
+      const c = cookCheck(r, persons * f);
+      const gap = macroGap(n, f, left);
+      let score = -c.missing.filter((m) => !m.part).length * 3 - c.missing.filter((m) => m.part).length * 2;
+      score += c.total ? (c.have.length / c.total) * 2 : 0;
+      if (target > 0) score -= (Math.abs(r.kcal * f - target) / target) * 4;
+      if (gap != null) score -= gap * 6;
+      score += likeScore(r) + (isFav(r) ? 2 : 0) - rejectPenalty(r) - (cookedToday.has(r.id) ? 5 : 0);
+      return { r, n, f, c, gap, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  return { left, target, all: list.filter((x) => !x.c.missing.length), few: list.filter((x) => x.c.missing.length && x.c.missing.length <= 2) };
+}
+
+// Einschätzung, wie gut die Makros zum Rest passen (aus der Abweichung oben)
+function gapLabel(gap) {
+  if (gap == null) return '';
+  return gap < 0.25 ? 'Makros passen gut zu deinem Rest' : gap < 0.5 ? 'Makros passen ganz gut' : 'Makros passen weniger gut';
+}
+
+function viewKochen() {
+  const meals = dayMeals();
+  const meal = meals.some((m) => m.id === ui.cookMeal) ? ui.cookMeal : (meals.find((m) => m.id === currentMeal()) || meals[0]).id;
+  const { left, target, all, few } = cookIdeas(meal);
+  const pantryEmpty = !trackerPantry().some((x) => x.qty !== 0);
+  const more = !!ui.cookMore;
+  const after = (x) => {
+    const k = Math.max(0, left.kcal - x.n.kcal * x.f);
+    const parts = [`${fmt(k)} kcal`];
+    if (left.protein != null) parts.push(`${fmt(Math.max(0, left.protein - x.n.protein * x.f))} g Eiweiß`);
+    if (left.kh != null) parts.push(`${fmt(Math.max(0, left.kh - x.n.kh * x.f))} g KH`);
+    if (left.fett != null) parts.push(`${fmt(Math.max(0, left.fett - x.n.fett * x.f))} g Fett`);
+    return parts.join(' · ');
+  };
+  const card = (x) => {
+    const onList = state.listExtra && state.listExtra[x.r.id];
+    return `<div class="have-hit cook-hit">${recipeCard(x.r, { meal, factor: x.f })}
+      <div class="small muted">${x.gap != null ? `${esc(gapLabel(x.gap))} · ` : ''}danach noch frei: ${esc(after(x))}</div>
+      ${x.c.missing.length ? `<div class="small cook-missing">Fehlt: ${esc(x.c.missing.map((m) => (m.part ? 'noch ' : '') + m.text).join(', '))}</div>
+        <div class="idea-actions"><span></span><button class="link-btn" data-action="cook-list" data-recipe="${x.r.id}" data-f="${x.f}">${onList ? 'Steht auf der Einkaufsliste ✓ (wieder runter)' : 'Fehlendes auf die Einkaufsliste'}</button></div>` : ''}
+    </div>`;
+  };
+  const free = [`<b>${fmt(Math.max(0, left.kcal))} kcal</b>`];
+  if (left.protein != null) free.push(`${fmt(Math.max(0, left.protein))} g Eiweiß`, `${fmt(Math.max(0, left.kh))} g KH`, `${fmt(Math.max(0, left.fett))} g Fett`);
+  return `<main class="screen with-nav">
+    <a class="back" href="#/heute">${ICONS.back}Heute</a>
+    <h1>Kochen mit dem, was da ist</h1>
+    <div class="chips">${meals.map((m) => `<button class="chip" data-action="cook-meal" data-id="${m.id}" aria-pressed="${m.id === meal}">${m.name}</button>`).join('')}</div>
+    <div class="card snack-budget">
+      <div class="small muted">Heute noch frei laut Tracker</div>
+      <div>${free.join(' · ')}</div>
+      <div class="small muted">Für ${esc(mealName(meal))} rechne ich mit ca. ${fmt(Math.round(target / 10) * 10)} kcal, damit noch Platz für die restlichen Mahlzeiten bleibt.${hasKcalGoal() ? '' : ' Ohne Kalorienziel im Tracker rechne ich mit 2.000 kcal.'}${left.protein == null ? ' Ohne Makroziele im Tracker zählen nur die Kalorien.' : ''}</div>
+    </div>
+    ${pantryEmpty ? '<div class="card small muted">Im Vorrat ist noch nichts. Scann deinen Einkauf oder leg Zutaten in der Vorratskammer dazu, dann finde ich Gerichte dazu.</div><a class="btn secondary" href="#/einkauf">Zur Vorratskammer</a>' : ''}
+    ${target < 150 ? '<div class="hint">' + ICONS.paw + '<span>Heute ist kaum noch Platz. Die Gerichte unten sind dann schon auf die kleinste Menge (0,6×) gerechnet.</span></div>' : ''}
+    <h2>Alles da</h2>
+    ${all.length ? all.slice(0, more ? 20 : 5).map(card).join('') : '<div class="card small muted">Für alles reicht der Vorrat gerade bei keinem Rezept.</div>'}
+    <h2>Fehlt nur wenig</h2>
+    ${few.length ? few.slice(0, more ? 20 : 5).map(card).join('') : '<div class="card small muted">Kein Rezept, bei dem nur 1 oder 2 Zutaten fehlen.</div>'}
+    ${all.length > 5 || few.length > 5 ? `<button class="link-btn" data-action="cook-more">${more ? 'Weniger zeigen' : 'Mehr Gerichte zeigen'}</button>` : ''}
+    <p class="small muted">Gewürze, Öl und Brühe zähle ich nicht mit, schau kurz selbst nach. Die Menge (z. B. 1,2×) ist so gewählt, dass das Gericht zu deinen restlichen Kalorien passt. Nährwerte aus dem Bundeslebensmittelschlüssel.</p>
+  </main>${nav('heute')}`;
 }
 
 // ---------- Snack: Was darf ich jetzt? ----------
@@ -2345,6 +2501,7 @@ function render() {
   else if (page === 'liste') html = viewListe();
   else if (page === 'quellen') html = viewQuellen();
   else if (page === 'snacks') html = viewSnacks();
+  else if (page === 'kochen') html = viewKochen();
   else html = viewHeute();
   const sub = { rezepte: 'rezepte', woche: 'woche', liste: 'woche', einkauf: 'einkauf', stempel: 'stempel' }[page];
   if (sub) html = html.replace('<main class="screen with-nav">', `<main class="screen with-nav">${subnav(sub)}`);
@@ -2527,6 +2684,7 @@ const actions = {
     const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f)); // gekochte Portionen aus dem Vorrat
     const entryId = addToTracker(r, meal, f, vr.used.length ? { vu: vr.used } : null);
     if (!entryId && vr.used.length) writeTracker(t);
+    if (state.listExtra) delete state.listExtra[r.id]; // gekocht, muss nicht mehr eingekauft werden
     ui.justVorrat = vr.text;
     if (entryId) state.cookedEntries[entryId] = r.id;
     ui.justEntry = entryId;
@@ -2659,6 +2817,17 @@ const actions = {
     toast(n ? `${n} ${n === 1 ? 'Zutat liegt' : 'Zutaten liegen'} jetzt im Vorrat.` : 'Hak erst ab, was du gekauft hast.');
     return 'skip';
   },
+  // ---------- Kochen mit dem Vorrat ----------
+  'cook-meal'(el) { ui.cookMeal = el.dataset.id; ui.cookMore = false; },
+  'cook-more'() { ui.cookMore = !ui.cookMore; },
+  'cook-list'(el) {
+    const id = el.dataset.recipe;
+    state.listExtra = state.listExtra || {};
+    if (state.listExtra[id]) { delete state.listExtra[id]; toast('Wieder von der Einkaufsliste genommen.'); return 'skip'; }
+    state.listExtra[id] = { n: state.profile.portions || 1, f: Number(el.dataset.f) || 1 };
+    toast('Steht auf der Einkaufsliste, nur was im Vorrat fehlt.');
+    return 'skip';
+  },
   // ---------- Snacks ----------
   'snack-pick'(el) {
     ui.snackPick = ui.snackPick === el.dataset.id ? null : el.dataset.id;
@@ -2690,6 +2859,7 @@ const actions = {
     const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f));
     const id = addToTracker(r, el.dataset.meal || currentMeal(), f, vr.used.length ? { vu: vr.used } : null);
     if (!id && vr.used.length) writeTracker(t);
+    if (id && state.listExtra) delete state.listExtra[r.id];
     toast(id ? `Im Tracker eingetragen. ${vr.text}`.trim() : 'Dazu kenne ich noch keine Nährwerte.');
   },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },

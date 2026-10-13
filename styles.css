@@ -510,3 +510,4 @@ textarea.input { resize: vertical; font: inherit; }
 .vr-e { color: var(--mp); font-weight: 800; white-space: nowrap; }
 .vr-eat { padding: 0 12px; }
 .vr-meals { display: flex; flex-wrap: wrap; gap: 6px; }
+.cook-missing { color: var(--accent-text); font-weight: 700; }

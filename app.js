@@ -438,21 +438,33 @@ function ensureWeek() {
 
 // ---------- Mängel (Eisen, B12 …) ----------
 // Tageswerte der DGE für Erwachsene (Referenzwerte, Abruf 13.10.2026). w = Frauen, m = Männer.
+// Tageswerte der DGE nach Alter und Geschlecht (Altersgruppen 15–<19, 19–<25, 25–<51, 51–<65, ab 65; Tabellen auf dge.de).
+// Ohne Altersangabe gelten die Werte für Erwachsene. Geschlecht kommt aus dem Tracker-Profil, ohne Angabe gelten die Frauenwerte.
 const DGE = {
-  fe: { w: 16, m: 11, kind: 'Empfehlung', year: 2023, note: 'Frauen vor den Wechseljahren 16 mg, danach und ohne Regelblutung 14 bzw. 11 mg', url: 'https://www.dge.de/wissenschaft/referenzwerte/eisen/' },
-  mg: { w: 300, m: 350, kind: 'Schätzwert', year: 2021, url: 'https://www.dge.de/wissenschaft/referenzwerte/magnesium/' },
-  b12: { w: 4, m: 4, kind: 'Schätzwert', year: 2018, url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-b12/' },
-  zn: { w: 8, m: 14, kind: 'Empfehlung', year: 2019, note: 'bei mittlerer Phytatzufuhr; Frauen 7 bis 10 mg, Männer 11 bis 16 mg', url: 'https://www.dge.de/wissenschaft/referenzwerte/zink/' },
-  ca: { w: 1000, m: 1000, kind: 'Empfehlung', year: 2013, url: 'https://www.dge.de/wissenschaft/referenzwerte/calcium/' },
-  fol: { w: 300, m: 300, kind: 'Empfehlung', year: 2015, note: 'Folat-Äquivalente', url: 'https://www.dge.de/wissenschaft/referenzwerte/folat/' },
-  vd: { w: 20, m: 20, kind: 'Schätzwert', year: 2012, note: 'bei fehlender Bildung in der Haut durch Sonne', url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-d/' },
-  jod: { w: 150, m: 150, kind: 'Empfehlung', year: 2025, url: 'https://www.dge.de/wissenschaft/referenzwerte/jod/' }
+  fe: { kind: 'Empfehlung', year: 2023, url: 'https://www.dge.de/wissenschaft/referenzwerte/eisen/',
+    ref: (m, a, c) => m ? 11 : c === 'none' ? 11 : c === 'post' ? 14 : c === 'yes' ? 16 : a >= 65 ? 14 : 16,
+    note: (m, a, c) => m ? '' : c === 'none' ? 'ohne Regelblutung gilt der Wert der Männer' : c === 'post' ? 'nach den Wechseljahren' : c === 'yes' ? 'mit Regelblutung' : a >= 65 ? 'ab 65 Jahren' : 'mit Regelblutung; ohne 11 mg, nach den Wechseljahren 14 mg' },
+  mg: { kind: 'Schätzwert', year: 2021, url: 'https://www.dge.de/wissenschaft/referenzwerte/magnesium/',
+    ref: (m, a) => a < 19 ? (m ? 330 : 260) : (m ? 350 : 300) },
+  b12: { kind: 'Schätzwert', year: 2018, url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-b12/',
+    ref: () => 4 },
+  zn: { kind: 'Empfehlung', year: 2019, url: 'https://www.dge.de/wissenschaft/referenzwerte/zink/',
+    ref: (m, a) => a < 19 ? (m ? 14 : 11) : (m ? 14 : 8),
+    note: (m, a) => a < 19 ? '' : `bei mittlerer Phytatzufuhr; ${m ? '11 bis 16 mg' : '7 bis 10 mg'} je nach Phytat (Vollkorn, Hülsenfrüchte)` },
+  ca: { kind: 'Empfehlung', year: 2013, url: 'https://www.dge.de/wissenschaft/referenzwerte/calcium/',
+    ref: (m, a) => a < 19 ? 1200 : 1000 },
+  fol: { kind: 'Empfehlung', year: 2015, url: 'https://www.dge.de/wissenschaft/referenzwerte/folat/',
+    ref: () => 300, note: () => 'Folat-Äquivalente' },
+  vd: { kind: 'Schätzwert', year: 2012, url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-d/',
+    ref: () => 20, note: () => 'bei fehlender Bildung in der Haut durch Sonne' },
+  jod: { kind: 'Empfehlung', year: 2025, url: 'https://www.dge.de/wissenschaft/referenzwerte/jod/',
+    ref: () => 150 }
 };
-function dgeRef(id) {
-  const sex = (readTracker().profile || {}).sex;
-  const d = DGE[id];
-  return sex === 'm' ? d.m : d.w;
-}
+// Alter zählt ab 15 (jüngere Altersgruppen haben eigene Werte, die die App nicht kennt)
+function profileAge() { const a = Number(state.profile.age); return a >= 15 && a <= 120 ? a : 30; }
+function dgeArgs() { return [(readTracker().profile || {}).sex === 'm', profileAge(), state.profile.cycle || null]; }
+function dgeRef(id) { return DGE[id].ref(...dgeArgs()); }
+function dgeNote(id) { return DGE[id].note ? DGE[id].note(...dgeArgs()) : ''; }
 function deficits() { return hasMicros() ? (state.profile.deficits || []).filter((id) => DGE[id]) : []; }
 // Wie reich ist ein Gericht an dem, was fehlt? Verglichen wird der Anteil am DGE-Tageswert mit dem Anteil an den
 // Tages-kcal: 1 = so viel, wie es für seine kcal „sein Teil“ wäre. Fehlt der Wert in der Quelle, zählt das Gericht nicht.
@@ -1042,15 +1054,20 @@ function trackerSettingsSummary() {
   return `${DIET_NAMES[d.type]} · Allergien: ${esc(allergens)} · ${t.kcal ? `${fmt(t.kcal)} kcal am Tag` : 'noch kein Kalorienziel'}${t.protein ? ` · ${fmt(t.protein)} g Eiweiß` : ''}`;
 }
 
+const CYCLE = [['yes', 'Ja'], ['none', 'Nein, z. B. Pille durchgehend'], ['post', 'Nach den Wechseljahren']];
 function viewStart1(edit) {
   const back = edit ? 'edit/1' : 'start/1';
   return `<main class="screen">
     ${edit ? '' : stepsBar(1)}
-    <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Wie heißt du? Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
+    <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Wie heißt du, und wie alt bist du? Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
     <section class="card" style="display:flex;flex-direction:column;gap:8px">
       <label for="pname"><h3>Wie soll ich dich nennen?</h3></label>
       <input id="pname" type="text" data-input="profileName" value="${esc(state.profile.name || '')}" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
-      <div class="small muted">Bleibt nur auf diesem Handy.</div>
+      <label for="page"><h3>Wie alt bist du?</h3></label>
+      <input id="page" type="number" inputmode="numeric" min="15" max="120" data-input="profileAge" value="${esc(state.profile.age || '')}" placeholder="Alter in Jahren">
+      ${(readTracker().profile || {}).sex === 'm' ? '' : `<h3>Hast du deine Regel?</h3>
+      <div class="chips" role="group" aria-label="Regelblutung">${CYCLE.map(([k, label]) => `<button class="chip" data-action="cycle" data-k="${k}" aria-pressed="${state.profile.cycle === k}">${label}</button>`).join('')}</div>`}
+      <div class="small muted">Danach richten sich deine Tageswerte für Eisen, Magnesium, Calcium und Co. (DGE). Bleibt nur auf diesem Handy.</div>
     </section>
     <section class="card" style="display:flex;flex-direction:column;gap:10px">
       ${infoHead('h3', 'Aus deinem Tracker', 'tracker')}
@@ -1231,7 +1248,8 @@ function viewHeute() {
 
   const tips = prepTips().slice(0, 1).map((tip) => tip.recipe
     ? `<a class="hint tip-line" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span>${esc(tip.text)}</span></a>`
-    : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('');
+    : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('')
+    + (state.profile.age ? '' : '<a class="hint tip-line" href="#/edit/1"><span>Wie alt bist du? Dann passe ich deine Tageswerte für Eisen, Magnesium und Co. an. ›</span></a>');
   const indexed = log;
   const extras = indexed.filter((e) => !dayMeals().some((m) => m.id === e.meal));
   const shownToday = new Set();
@@ -1706,8 +1724,8 @@ function viewIch() {
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <h2>Rezeptbuch</h2>
     <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Name</h3>
-      <div class="small muted">${esc((state.profile.name || '').trim() || 'noch keiner')}</div>
+      <h3>Name und Alter</h3>
+      <div class="small muted">${esc((state.profile.name || '').trim() || 'noch kein Name')} · ${state.profile.age ? `${esc(state.profile.age)} Jahre` : 'Alter fehlt'}${state.profile.cycle ? ` · Regel: ${esc(CYCLE.find(([k]) => k === state.profile.cycle)[1])}` : ''}</div>
     </a>
     <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
       <h3>Geschmack</h3>
@@ -1745,7 +1763,7 @@ function deficitCard() {
       <div class="chips">${MICROS.map((m) => `<button class="chip" data-action="deficit" data-id="${m.id}" aria-pressed="${mine.includes(m.id)}">${m.name}</button>`).join('')}</div>
       ${hasMicros() ? '' : '<div class="small" style="color:var(--accent-text)">Die Werte aus dem Bundeslebensmittelschlüssel fehlen noch in der App, deshalb wirkt das noch nicht.</div>'}
       <details class="small muted"><summary>Tageswerte und Quellen</summary>
-        <ul class="src-list">${MICROS.map((m) => { const d = DGE[m.id]; return `<li>${m.name}: ${fmt(dgeRef(m.id))} ${m.unit} am Tag (DGE-${d.kind}, Stand ${d.year}${d.note ? `; ${esc(d.note)}` : ''}). <a href="${d.url}" target="_blank" rel="noopener">dge.de</a></li>`; }).join('')}</ul>
+        <ul class="src-list">${MICROS.map((m) => { const d = DGE[m.id]; const nt = dgeNote(m.id); return `<li>${m.name}: ${fmt(dgeRef(m.id))} ${m.unit} am Tag (DGE-${d.kind}, Stand ${d.year}${nt ? `; ${esc(nt)}` : ''}). <a href="${d.url}" target="_blank" rel="noopener">dge.de</a></li>`; }).join('')}</ul>
         Gehalt der Lebensmittel: Bundeslebensmittelschlüssel 4.0, Max Rubner-Institut 2025 (CC BY 4.0).
       </details>
     </section>`;
@@ -1934,7 +1952,7 @@ const SOURCES = [
   ] },
   { group: 'Grundlage für Zahlen', items: [
     { name: 'Bundeslebensmittelschlüssel (BLS) 4.0', what: 'Kalorien, Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett und Ballaststoffe sowie Eisen, Magnesium, Vitamin B12, Zink, Calcium, Folat-Äquivalent, Vitamin D und Jodid pro 100 g für die Zutaten der Rezepte. Ausnahmen: Kokosmilch light und Gewürze (kein BLS-Eintrag, geschätzt).', who: 'Max Rubner-Institut (2025): Bundeslebensmittelschlüssel (BLS), Version 4.0 – Deutsche Nährstoffdatenbank. Karlsruhe', license: 'CC BY 4.0 (Creative Commons Namensnennung 4.0 International)', licenseLink: 'https://creativecommons.org/licenses/by/4.0/deed.de', link: 'https://doi.org/10.25826/Data20251217-134202-0', note: 'Verändert: Die App nutzt nur einen Auszug (Energie, Makronährstoffe, Ballaststoffe, Zucker und acht Mineralstoffe/Vitamine je 100 g; Werte unter der Nachweisgrenze als 0, fehlende Werte gelten als unbekannt, tools/bls_micros.py); freier Zucker, Ernährungsform und Allergene sind daraus abgeleitet, nicht vom Max Rubner-Institut. Das Rezeptbuch liest die Werte beim Start aus derselben Datei wie der Tracker (tracker/data/bls.json). Welche Zutat welcher BLS-Eintrag ist, steht in nutrition.js. Freier Zucker ist die abgeleitete Spalte des Trackers.' },
-    { name: 'Referenzwerte der DGE', what: 'Tageswerte für Eisen, Magnesium, Vitamin B12, Zink, Calcium, Folat, Vitamin D und Jod für Erwachsene, als Bezug bei „Mängel“ und in den Nährwerttabellen.', who: 'Deutsche Gesellschaft für Ernährung e. V. (DGE): Referenzwerte für die Nährstoffzufuhr (Stand der Ableitung je Nährstoff 2012 bis 2025, abgerufen am 13.10.2026)', license: 'Zitiert, nicht kopiert', link: 'https://www.dge.de/wissenschaft/referenzwerte/', note: 'Eisen: Frauen vor den Wechseljahren 16 mg (danach 14, ohne Regelblutung 11), Männer 11 mg. Zink bei mittlerer Phytatzufuhr. Vitamin D bei fehlender Bildung in der Haut. Die App kennt Alter und Wechseljahre nicht und nimmt den Frauenwert, solange im Tracker nicht „männlich“ steht.' },
+    { name: 'Referenzwerte der DGE', what: 'Tageswerte für Eisen, Magnesium, Vitamin B12, Zink, Calcium, Folat, Vitamin D und Jod nach Alter und Geschlecht, als Bezug bei „Mängel“ und in den Nährwerttabellen.', who: 'Deutsche Gesellschaft für Ernährung e. V. (DGE): Referenzwerte für die Nährstoffzufuhr (Stand der Ableitung je Nährstoff 2012 bis 2025, abgerufen am 13.10.2026)', license: 'Zitiert, nicht kopiert', link: 'https://www.dge.de/wissenschaft/referenzwerte/', note: 'Eisen: Frauen vor den Wechseljahren 16 mg (danach 14, ohne Regelblutung 11), Männer 11 mg. Zink bei mittlerer Phytatzufuhr. Vitamin D bei fehlender Bildung in der Haut. Die App kennt Alter und Wechseljahre nicht und nimmt den Frauenwert, solange im Tracker nicht „männlich“ steht.' },
     { name: 'Kalorien- und Makroziele', what: 'Kommen aus dem Tracker (Einstellungen → Tagesziel). Dort stehen auch die Studien und Leitlinien, auf die sich die Ziele stützen (DGE, WHO, Morton 2018 u. a.).', who: 'siehe Tracker', license: 'zitiert' }
   ] },
   { group: 'Selbst gemacht', items: [
@@ -3067,6 +3085,9 @@ const actions = {
     RBBackup.exportAll().then((ok) => { if (ok) toast('Backup exportiert. Leg die Datei an einem sicheren Ort ab.'); });
     return 'skip';
   },
+  cycle(el) {
+    state.profile.cycle = state.profile.cycle === el.dataset.k ? null : el.dataset.k;
+  },
   deficit(el) {
     const d = new Set(state.profile.deficits || []);
     if (d.has(el.dataset.id)) d.delete(el.dataset.id); else d.add(el.dataset.id);
@@ -3210,6 +3231,7 @@ app.addEventListener('input', (e) => {
   const key = e.target.dataset.input;
   if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
   if (key === 'profileName') { state.profile.name = t.value.slice(0, 30); save(); }
+  if (key === 'profileAge') { const a = parseInt(t.value, 10); state.profile.age = a >= 15 && a <= 120 ? a : null; save(); }
   if (key === 'recipeQuery' || key === 'vrQuery') {
     ui[key] = t.value;
     const pos = t.selectionStart;

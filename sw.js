@@ -1,5 +1,5 @@
 // Speichert die App auf dem Handy, damit sie auch ohne Internet startet.
-const CACHE = 'rezeptbuch-v31';
+const CACHE = 'rezeptbuch-v32';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'vorrat.js', 'backup.js', 'recipes.js', 'nutrition.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'tracker/', 'tracker/index.html', 'tracker/css/style.css', 'tracker/vendor/zxing.min.js', 'tracker/data/bls.json', 'tracker/data/recipes.json',
   ...['caffeine', 'alcohol', 'weightgoal', 'food', 'ocr', 'timeline', 'supp_catalog', 'supplements', 'app'].map((n) => `tracker/js/${n}.js`)];

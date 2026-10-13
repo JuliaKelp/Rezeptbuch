@@ -2211,6 +2211,10 @@ function viewEinkauf() {
   const have = items.filter((p) => p.qty !== 0);
   const empty = items.filter((p) => p.qty === 0);
   const groups = VR_GROUPS.map(([g, label]) => [g, label, have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'))]).filter((x) => x[2].length);
+  // Suche: Name, Marke, „zählt als“ und Gruppe; Vorhandenes zuerst, Aufgebrauchtes danach
+  const q = (ui.vrQuery || '').trim().toLowerCase();
+  const groupName = Object.fromEntries(VR_GROUPS);
+  const found = q ? [...have, ...empty].filter((p) => [p.n, p.brand, p.food, groupName[vorratGroup(p)]].some((v) => v && String(v).toLowerCase().includes(q))) : [];
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Deine Vorratskammer. Scann deinen Einkauf, dann zähle ich mit. Was du kochst oder isst, ziehe ich wieder ab.</div></div>
     <a class="btn" href="tracker/?zurueck=einkauf#einkauf">Einkauf scannen</a>
@@ -2229,9 +2233,11 @@ function viewEinkauf() {
       <button class="link-btn" data-action="vr-add-toggle">Schließen</button>
     </section>` : '<button class="link-btn" data-action="vr-add-toggle">+ Ohne Barcode dazulegen (Obst, Gemüse, Loses)</button>'}
     ${infoHead('h2', `Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}`, 'vorrat')}
+    ${items.length ? `<div class="search-field"><label class="sr-only" for="vq">Im Vorrat suchen</label><input id="vq" type="search" data-input="vrQuery" placeholder="Im Vorrat suchen, z. B. Salami" value="${esc(ui.vrQuery || '')}" autocomplete="off"></div>` : ''}
+    ${q ? `<div class="small muted">${found.length ? `${found.length} Treffer für „${esc(ui.vrQuery.trim())}“` : `Nichts im Vorrat passt zu „${esc(ui.vrQuery.trim())}“.`}</div>${found.map(vorratItem).join('')}` : `
     ${have.length ? `<nav class="vr-tabs" aria-label="Kategorien">${groups.map(([g, label, list]) => `<button class="chip" data-action="vr-jump" data-g="${g}">${label} <span class="vr-n">${list.length}</span></button>`).join('')}${empty.length ? '<button class="chip" data-action="vr-jump" data-g="leer">Aufgebraucht</button>' : ''}</nav>` : ''}
     ${have.length ? groups.map(([g, label, list]) => `<h3 class="vr-group" id="vr-g-${g}">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}`).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
-    ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
+    ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}`}
   </main>${nav('einkauf')}`;
 }
 
@@ -3049,11 +3055,11 @@ app.addEventListener('input', (e) => {
   }
   const key = e.target.dataset.input;
   if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
-  if (key === 'recipeQuery') {
-    ui.recipeQuery = t.value;
+  if (key === 'recipeQuery' || key === 'vrQuery') {
+    ui[key] = t.value;
     const pos = t.selectionStart;
     render();
-    const n = document.getElementById('rq');
+    const n = document.getElementById(key === 'vrQuery' ? 'vq' : 'rq');
     if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (err) { /* type=search */ } }
   }
 });

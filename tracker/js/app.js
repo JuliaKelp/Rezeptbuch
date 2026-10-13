@@ -1016,10 +1016,10 @@ function renderAddResults() {
     ul.innerHTML = `<div class="empty">${!blsReady ? 'Lade Lebensmitteldaten…' : bls.length ? `${bls.length.toLocaleString('de-DE')} Lebensmittel aus dem BLS verfügbar.` : 'Lebensmitteldatenbank nicht geladen – nutze Barcode oder „Neu“.'}</div>`;
     return;
   }
-  const hits = searchFoods(addQuery);
-  ul.innerHTML = hits.length ? hits.map((f, i) => foodLi(f, i)).join('')
+  const hits = pastQuicks(addQuery).concat(searchFoods(addQuery));
+  ul.innerHTML = hits.length ? hits.map((f, i) => (f.src === 'quick' ? quickLi(f, i) : foodLi(f, i))).join('')
     : '<div class="empty">Nichts gefunden. Unter „Neu“ kannst du es selbst anlegen.</div>';
-  bindList(ul, hits, (f) => openAmount(f));
+  bindList(ul, hits, (f) => (f.src === 'quick' ? openQuick(addMeal, null, f) : openAmount(f)));
 }
 
 let mineQuery = '';
@@ -1037,15 +1037,17 @@ function drawMine() {
   const recent = state.recent.filter((r) => !isFav(r.id)).slice(0, 30).map(liveFood).filter(hit);
   const own = state.custom.filter(hit);
   const pantry = (state.pantry || []).map(liveFood).filter(hit);
+  const quicks = pastQuicks(mineQuery, true);
   const li = (f, i, key) => `<li data-i="${i}"><div>${isFav(f.id) && key !== 'fav' ? '<span class="star">★</span>' : ''}${esc(f.n)}${{ off: '<span class="tag">Barcode</span>', custom: '<span class="tag">Eigenes</span>', recipe: '<span class="tag">Rezept</span>', rcp: '<span class="tag">Rezept</span>' }[f.src] || ''}<div class="meta">${f.brand ? esc(f.brand) + ' · ' : ''}${fmt(f.k)} kcal / 100 ${unitOf(f)}</div></div><div class="meta">›</div></li>`;
   const sec = (title, items, key) => items.length ? `<h2 class="sec">${title}</h2><ul class="list" data-sec="${key}">${items.map((f, i) => li(f, i, key)).join('')}</ul>` : '';
-  const any = state.favs.length || state.recent.length || state.custom.length || (state.pantry || []).length;
+  const any = state.favs.length || state.recent.length || state.custom.length || (state.pantry || []).length || pastQuicks('', true).length;
   $('#mineList').innerHTML = (!any ? '<div class="empty">Noch nichts vorhanden. Favoriten markierst du mit dem Stern beim Eintragen.</div>'
-    : (favs.length || recent.length || own.length || pantry.length) ? sec('★ Favoriten', favs, 'fav') + sec('Vorgemerkt', pantry, 'pantry') + sec('Zuletzt verwendet', recent, 'recent') + sec('Eigene Lebensmittel & Rezepte', own, 'own')
+    : (favs.length || recent.length || own.length || pantry.length || quicks.length) ? sec('★ Favoriten', favs, 'fav') + sec('Vorgemerkt', pantry, 'pantry') + sec('Zuletzt verwendet', recent, 'recent')
+      + (quicks.length ? `<h2 class="sec">Schnelleinträge</h2><ul class="list" data-sec="quick">${quicks.map(quickLi).join('')}</ul>` : '') + sec('Eigene Lebensmittel & Rezepte', own, 'own')
     : '<div class="empty">Nichts gefunden.</div>')
     + (any ? '<button type="button" class="linkbtn mine-manage" id="mineManage">Verwalten (Favoriten, Vorgemerkt, Löschen) im Reiter „Essen“ ›</button>' : '');
-  const map = { fav: favs, recent, own, pantry };
-  document.querySelectorAll('#mineList [data-sec]').forEach((ul) => bindList(ul, map[ul.dataset.sec], (f) => openAmount(f)));
+  const map = { fav: favs, recent, own, pantry, quick: quicks };
+  document.querySelectorAll('#mineList [data-sec]').forEach((ul) => bindList(ul, map[ul.dataset.sec], (f) => (f.src === 'quick' ? openQuick(addMeal, null, f) : openAmount(f))));
   const mm = $('#mineManage'); if (mm) mm.onclick = () => { closeSheet(); goTab('food'); };
 }
 // Eigenes Lebensmittel überall entfernen (Journal-Einträge bleiben)
@@ -1310,13 +1312,34 @@ function openAmount(food, opts = {}) {
 }
 
 /* ---------- Schnelleintrag ---------- */
-function openQuick(meal, entry) {
+// Frühere Schnelleinträge mit eigenem Namen, je Name nur der neueste – zum erneuten Eintragen an anderen Tagen.
+// all = auch ohne Suchbegriff alle liefern (sonst nur Treffer).
+function pastQuicks(q, all) {
+  const terms = norm(q || '').split(/\s+/).filter(Boolean);
+  if (!terms.length && !all) return [];
+  const seen = new Map();
+  Object.keys(state.days).sort().reverse().forEach((d) => {
+    (state.days[d] || []).slice().reverse().forEach((e) => {
+      if (!e || !e.quick || e.src !== 'quick' || e.alcId || e.cafId) return;
+      const n = (e.n || '').trim(); const key = norm(n);
+      if (!n || n === 'Schnelleintrag' || seen.has(key)) return;
+      seen.set(key, { src: 'quick', n, k: e.k || 0, p: e.p || 0, c: e.c || 0, f: e.f || 0, date: d });
+    });
+  });
+  return [...seen.values()].filter((x) => terms.every((t) => norm(x.n).includes(t))).slice(0, terms.length ? 8 : 30);
+}
+function quickLi(f, i) {
+  return `<li data-i="${i}"><div>${esc(f.n)}<span class="tag">Schnelleintrag</span><div class="meta">${fmt(f.k)} kcal · zuletzt ${esc(dateLabelShort(f.date))}</div></div><div class="meta">›</div></li>`;
+}
+function dateLabelShort(iso) { const [y, m, d] = iso.split('-'); return `${+d}.${+m}.${y === isoDate(new Date()).slice(0, 4) ? '' : y}`; }
+function openQuick(meal, entry, prefill) {
   sheetMode = 'quick';
-  const e = entry || {};
+  const e = entry || prefill || {};
   openSheet(`
     ${sheetHead('back', 'Schnelleintrag', !entry)}
     <p class="small muted">Für Restaurant oder Unterwegs: nur die Gesamtwerte eintragen.</p>
-    <label for="qN">Bezeichnung (optional)</label><input id="qN" type="text" value="${esc(e.n && e.n !== 'Schnelleintrag' ? e.n : '')}" placeholder="z. B. Pizza beim Italiener">
+    <label for="qN">Bezeichnung (optional)</label><input id="qN" type="text" autocomplete="off" value="${esc(e.n && e.n !== 'Schnelleintrag' ? e.n : '')}" placeholder="z. B. Pizza beim Italiener">
+    ${entry ? '' : '<ul class="list" id="qPast"></ul>'}
     <label for="qK">Kalorien (kcal)</label><input id="qK" inputmode="decimal" value="${e.k ?? ''}">
     <div class="row">
       <div><label for="qP">Eiweiß g</label><input id="qP" inputmode="decimal" value="${e.p || ''}"></div>
@@ -1324,7 +1347,7 @@ function openQuick(meal, entry) {
       <div><label for="qF">Fett g</label><input id="qF" inputmode="decimal" value="${e.f || ''}"></div>
     </div>
     <label for="qMeal">Mahlzeit</label>
-    <select id="qMeal">${MEALS.map((m) => `<option value="${m.id}" ${m.id === (e.meal || meal) ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
+    <select id="qMeal">${MEALS.map((m) => `<option value="${m.id}" ${m.id === ((entry && e.meal) || meal) ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
     ${state.timeline.enabled ? `<label for="qT">Abweichende Uhrzeit (optional)</label><input id="qT" type="time" value="${e.t ? esc(e.t) : ''}"><p class="small muted" id="qTHint" style="margin-top:4px">${mealTimeHint(e.meal || meal)}</p>` : ''}
     <div style="height:14px"></div>
     <button class="btn block" id="qSave">${entry ? 'Speichern' : 'Hinzufügen'}</button>
@@ -1332,6 +1355,17 @@ function openQuick(meal, entry) {
   const back = () => { if (entry) closeSheet(); else openAdd(addMeal); };
   $('#back').onclick = back;
   const qm = $('#qMeal'), qh = $('#qTHint'); if (qm && qh) qm.addEventListener('change', () => { qh.textContent = mealTimeHint(qm.value); });
+  // Beim Tippen frühere Schnelleinträge vorschlagen; Antippen übernimmt Name und Werte.
+  const past = $('#qPast');
+  if (past) {
+    const drawPast = () => {
+      const typed = $('#qN').value.trim();
+      const hits = pastQuicks(typed, !typed).filter((x) => norm(x.n) !== norm(typed)).slice(0, typed ? 5 : 3);
+      past.innerHTML = hits.length ? `<div class="small muted" style="margin-top:6px">${typed ? 'Schon mal eingetragen' : 'Zuletzt als Schnelleintrag'}</div>` + hits.map(quickLi).join('') : '';
+      bindList(past, hits, (f) => { $('#qN').value = f.n; $('#qK').value = f.k; $('#qP').value = f.p || ''; $('#qC').value = f.c || ''; $('#qF').value = f.f || ''; drawPast(); });
+    };
+    $('#qN').addEventListener('input', drawPast); drawPast();
+  }
   $('#qSave').onclick = () => {
     const k = num($('#qK').value);
     if (k == null || k < 0) { toast('Bitte Kalorien eingeben.'); return; }

@@ -1087,7 +1087,7 @@ function viewStart3(edit) {
 // ---------- Heute ----------
 
 // Zwei kleine Snacks, wenn man nur 2 Mahlzeiten am Tag isst
-function snackBlock(eatenHere, eatenCard) {
+function snackBlock(eatenHere) {
   const need = Math.max(0, SNACKS_PER_DAY - eatenHere.length);
   const planned = plannedRecipe(todayKey(), 'snack');
   let ideas = ideasFor('snack');
@@ -1097,7 +1097,7 @@ function snackBlock(eatenHere, eatenCard) {
   for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
   return `<section class="meal-block">
     <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
-    ${eatenHere.map(eatenCard).join('')}
+    ${eatenHere.length ? eatenRow('Gegessen', mealTotals('snack')) : ''}
     ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
     <div class="idea-actions"><a class="link-btn" href="#/snacks">Was darf ich jetzt?</a>${need && ideas.length > need ? '<button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button>' : ''}</div>
   </section>`;
@@ -1109,28 +1109,52 @@ function pantryStatus(r, f = 1) {
   const c = cookCheck(r, (state.profile.portions || 1) * f);
   if (!c.total) return '';
   if (!c.missing.length) return `<div class="small cook-ok">${ICONS.check}<span>Alles im Vorrat</span></div>`;
+  return `<div class="small cook-missing">Fehlt: ${esc(c.missing.map((m) => (m.part ? 'noch ' : '') + m.text).join(', '))}</div>`;
+}
+// Knopf „Auf die Einkaufsliste“, nur wenn etwas fehlt
+function listButton(r, f = 1) {
+  if (r.product || !trackerPantry().some((x) => x.qty !== 0)) return '';
+  if (!cookCheck(r, (state.profile.portions || 1) * f).missing.length) return '';
   const onList = state.listExtra && state.listExtra[r.id];
-  return `<div class="small cook-missing">Fehlt: ${esc(c.missing.map((m) => (m.part ? 'noch ' : '') + m.text).join(', '))}</div>
-    <button class="link-btn cook-list-btn" data-action="cook-list" data-recipe="${r.id}" data-f="${f}">${onList ? 'Steht auf der Einkaufsliste ✓' : 'Fehlendes auf die Einkaufsliste'}</button>`;
+  return `<button class="link-btn" data-action="cook-list" data-recipe="${r.id}" data-f="${f}">${onList ? 'Auf der Liste ✓' : 'Auf die Einkaufsliste'}</button>`;
+}
+
+// Gegessenes einer Mahlzeit zusammengezählt (kcal, Eiweiß, KH, Fett), aus dem Tracker-Journal
+function mealTotals(meal) {
+  const sum = { kcal: 0, protein: 0, kh: 0, fett: 0, n: 0 };
+  for (const e of (readTracker().days || {})[todayKey()] || []) {
+    if ((FROM_TRACKER_MEAL[e.meal] || 'snack') !== meal) continue;
+    const f = (e.grams || 0) / 100;
+    sum.kcal += (e.k || 0) * f; sum.protein += (e.p || 0) * f; sum.kh += (e.c || 0) * f; sum.fett += (e.f || 0) * f; sum.n++;
+  }
+  return sum;
+}
+// Eine Zeile pro gegessener Mahlzeit: kcal und Makros, die einzelnen Einträge stehen im Tracker
+function eatenRow(name, t) {
+  return `<a class="card eaten-row" href="tracker/">
+    <span class="eaten-l1"><b>${esc(name)}</b><span class="small muted">${t.n} ${t.n === 1 ? 'Eintrag' : 'Einträge'}</span><span class="eaten-kcal">${fmt(t.kcal)} kcal</span></span>
+    ${macroMini(t)}
+  </a>`;
 }
 
 // Oben auf „Heute“: was noch frei ist, mit Makro-Balken wie im Tracker
 function dayCard() {
   const left = dayLeft();
   const t = nutrientTargets();
-  const bar = (id, name, cls) => {
-    const goal = t[id];
-    const v = left.eaten[id];
-    return `<div class="day-macro"><span>${name}</span><b>${fmt(v)}${goal ? `<small> von ${fmt(goal)} g</small>` : '<small> g</small>'}</b>
-      <div class="bar"><div class="${cls}" style="width:${goal ? Math.min(100, (v / goal) * 100) : 0}%"></div></div></div>`;
-  };
+  const e = left.eaten;
+  const goal = kcalGoal();
+  // Gefüllt wird nach dem Anteil von Eiweiß, KH und Fett an den gegessenen kcal, die Länge ist gegessen / Ziel
+  const parts = [['protein', 4, 'var(--mp)'], ['kh', 4, 'var(--mc)'], ['fett', 9, 'var(--mf)']];
+  const macroKcal = parts.reduce((x, [id, k]) => x + e[id] * k, 0) || 1;
+  const full = Math.min(100, (e.kcal / goal) * 100);
+  const seg = parts.map(([id, k, c]) => `<i style="width:${((e[id] * k) / macroKcal) * full}%;background:${c}"></i>`).join('');
+  const leg = (id, name, cls) => `<span class="${cls}"><b>${fmt(e[id])}</b>${t[id] ? ` / ${fmt(t[id])}` : ''} g ${name}</span>`;
   return `<a class="card journal-card" href="tracker/">
       <div class="peek">${gingerPeek(72)}</div>
-      <div class="small muted">Heute noch frei</div>
-      <div class="journal-kcal">${fmt(Math.max(0, left.kcal))} <small>kcal${hasKcalGoal() ? ` von ${fmt(kcalGoal())}` : ''}</small></div>
-      <div class="bar kcal-bar"><div style="width:${Math.min(100, (left.eaten.kcal / kcalGoal()) * 100)}%"></div></div>
-      ${t.protein || t.kh || t.fett ? `<div class="day-macros">${bar('protein', 'Eiweiß', 'f-p')}${bar('kh', 'KH', 'f-c')}${bar('fett', 'Fett', 'f-f')}</div>` : ''}
-      <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? `${fmt(left.eaten.kcal)} kcal gegessen · Zum Journal` : 'Kalorienziel im Tracker festlegen'}</div>
+      <div class="day-top"><div><div class="journal-kcal">${fmt(Math.max(0, left.kcal))} <small>kcal frei</small></div>
+        <div class="small muted">${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen${hasKcalGoal() ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
+      <div class="comp-bar" aria-hidden="true">${seg}</div>
+      <div class="comp-legend">${leg('protein', 'Eiweiß', 'm-p')}${leg('kh', 'KH', 'm-c')}${leg('fett', 'Fett', 'm-f')}</div>
     </a>`;
 }
 
@@ -1138,23 +1162,16 @@ function viewHeute() {
   const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   const log = journal();
 
-  const tips = prepTips().map((tip) => tip.recipe
-    ? `<a class="prep-banner" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span><b>Nebenbei vorbereiten:</b> ${esc(tip.text)}</span></a>`
-    : `<div class="prep-banner">${ICONS.clock}<span><b>Tipp:</b> ${esc(tip.text)}</span></div>`).join('');
-
-  const eatenCard = (e) => `<div class="recipe-card"><div class="info"><div class="title">${esc(e.name)}</div><div class="meta">ca. ${fmt(e.kcal)} kcal</div></div>
-      <button class="round" data-action="undo-eaten" data-entry="${esc(e.id)}" aria-label="${esc(e.name)} wieder austragen">${ICONS.cross}</button></div>`;
+  const tips = prepTips().slice(0, 1).map((tip) => tip.recipe
+    ? `<a class="hint tip-line" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span>${esc(tip.text)}</span></a>`
+    : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('');
   const indexed = log;
   const extras = indexed.filter((e) => !dayMeals().some((m) => m.id === e.meal));
   const shownToday = new Set();
   const meals = dayMeals().map((m) => {
     const eatenHere = indexed.filter((e) => e.meal === m.id);
-    if (m.id === 'snack') return snackBlock(eatenHere, eatenCard);
-    if (eatenHere.length) {
-      return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3><span class="small muted">gegessen</span></div>
-        ${eatenHere.map(eatenCard).join('')}
-      </section>`;
-    }
+    if (m.id === 'snack') return snackBlock(eatenHere);
+    if (eatenHere.length) return `<section class="meal-block">${eatenRow(m.name, mealTotals(m.id))}</section>`;
     // Dasselbe Gericht nicht mittags und abends vorschlagen
     let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
     const planned = plannedRecipe(todayKey(), m.id);
@@ -1171,9 +1188,9 @@ function viewHeute() {
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
       ${pantryStatus(idea.recipe, idea.factor || 1)}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
-        <button class="link-btn" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
         ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
-        <button class="link-btn" data-action="cook-open" data-meal="${m.id}">Mehr aus dem Vorrat</button>
+        ${listButton(idea.recipe, idea.factor || 1)}
+        <button class="link-btn muted-link" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
       </div>`}
     </section>`;
   }).join('');
@@ -1187,10 +1204,11 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
-    ${tips}
-    ${infoHead('h2', 'Gingers Vorschläge für heute', 'heute')}
+    ${infoHead('h2', 'Deine Mahlzeiten', 'heute')}
     ${meals}
-    ${extras.length ? `<section class="meal-block"><div class="meal-head"><h3>Sonstiges</h3></div>${extras.map(eatenCard).join('')}</section>` : ''}
+    ${[...new Set(extras.map((e) => e.meal))].map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id))}</section>`).join('')}
+    <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
+    ${tips}
   </main>${nav('heute')}`;
 }
 
@@ -1331,7 +1349,7 @@ function viewRezept(id, meal, factorParam) {
           <span><b>${portionsOf(r)}</b> ${portionsOf(r) === 1 ? 'Portion' : 'Portionen'}</span>
           <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) + 1}" aria-label="Eine Portion mehr" ${portionsOf(r) >= 12 ? 'disabled' : ''}>+</button>
         </div></div>
-      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => { const n = nutrientsOfText(x); return `<li><span>${esc(x)}</span>${n.kcal >= 1 ? `<span class="ing-n">${fmt(n.kcal)} kcal ${macroMini(n)}</span>` : ''}</li>`; }).join('')}</ul>
     </section>
     ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f))}
     <h2>So geht’s</h2>
@@ -2141,7 +2159,7 @@ function vorratMacros(p) {
   const w = (x) => (x / e).toFixed(3);
   const kcal = `<span>${fmt(p.k)} kcal/100 ${p.liq ? 'ml' : 'g'}</span>`;
   if (p.p == null && p.c == null && p.f == null) return `<span class="vr-macro">${kcal}</span>`;
-  return `<span class="vr-macro">${kcal}<span class="mini-bar" aria-hidden="true"><i style="flex:${w((p.p || 0) * 4)};background:var(--mp)"></i><i style="flex:${w((p.c || 0) * 4)};background:var(--mc)"></i><i style="flex:${w((p.f || 0) * 9)};background:var(--mf)"></i></span><span class="vr-e">E ${r1n(p.p || 0)}</span></span>`;
+  return `<span class="vr-macro">${kcal}<span class="mini-bar" aria-hidden="true"><i style="flex:${w((p.p || 0) * 4)};background:var(--mp)"></i><i style="flex:${w((p.c || 0) * 4)};background:var(--mc)"></i><i style="flex:${w((p.f || 0) * 9)};background:var(--mf)"></i></span><span class="m-p">E ${r1n(p.p || 0)}</span><span class="m-c">KH ${r1n(p.c || 0)}</span><span class="m-f">F ${r1n(p.f || 0)} g</span></span>`;
 }
 // „Gegessen“: Menge wählen, in den Tracker eintragen, aus dem Vorrat nehmen
 function vorratEat(p) {
@@ -3110,6 +3128,15 @@ if (!state.oneSuggest && localStorage.getItem(TRACKER_KEY)) {
   if (!t.sug || t.sug.enabled !== false) { t.sug = Object.assign({}, t.sug || {}, { enabled: false }); writeTracker(t); }
   state.oneSuggest = true;
   save();
+}
+// Lose Zutaten aus älteren Versionen ohne Makros: Werte aus dem BLS nachtragen (wie beim Dazulegen)
+if (trackerPantry().some((x) => String(x.id).startsWith('rb:') && x.p == null)) {
+  changePantry((pantry) => {
+    for (const x of pantry) {
+      const food = String(x.id).startsWith('rb:') && x.p == null && FOODS.find((f) => f.name === x.id.slice(3));
+      if (food) { const v = vorratEntry(food); Object.assign(x, { k: v.k, p: v.p, c: v.c, f: v.f, fi: v.fi, su: v.su, fs: v.fs }); }
+    }
+  });
 }
 if (trackerPantry().some((x) => x.qty == null)) changePantry((pantry, t) => V.fillDefaults(pantry, t.offCache)); // alte Einträge: 1 Packung
 render();

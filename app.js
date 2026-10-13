@@ -2194,7 +2194,13 @@ function snackAllowance() {
 // sonst die Standardportion für Erwachsene nach SINU, LARN – V Revisione 2024 „Porzioni standard“ (dieselbe Quelle wie im Tracker).
 // Ohne beides gibt es keine Portion; dann schlage ich keine Menge vor.
 const LARN = 'Standardportion SINU/LARN 2024';
+// Nie mehr als eine Packung vorschlagen, auch wenn mehrere da sind
 function snackPortion(x) {
+  const por = portionOf(x);
+  const pack = x.qu === 'pkg' && x.ug ? x.ug : x.pq;
+  return por && pack && pack < por.g ? { g: pack, src: `1 Packung (${fmt(pack)} ${x.liq ? 'ml' : 'g'}), kleiner als eine übliche Portion` } : por;
+}
+function portionOf(x) {
   const id = String(x.id);
   const grp = groupPortion(x);
   // Packungsportion nur, wenn sie nicht größer ist als eine übliche Snack-Portion (manche Einträge nennen die ganze Packung)

@@ -2268,6 +2268,22 @@ function vorratEat(p) {
   </div>`;
 }
 
+// „Weggeworfen“: schlecht gewordenes aus dem Vorrat nehmen, ohne Tracker-Eintrag. Menge in der Einheit des Eintrags.
+function vorratToss(p) {
+  const n = Math.min(ui.vrTossQ, p.qty);
+  const st = V.step(p);
+  const lbl = V.label({ ...p, qty: n });
+  return `<div class="snack-eat vr-eat">
+    <div class="small muted">Wie viel ist schlecht geworden? Das kommt aus dem Vorrat, aber nicht in den Tracker.</div>
+    <div class="stepper" role="group" aria-label="Menge wegwerfen">
+      <button class="round" data-action="vr-toss-q" data-d="-${st}" aria-label="Weniger" ${n - st <= 0 ? 'disabled' : ''}>−</button>
+      <span><b>${esc(lbl)}</b>${n >= p.qty ? ' · alles' : ''}</span>
+      <button class="round" data-action="vr-toss-q" data-d="${st}" aria-label="Mehr" ${n >= p.qty ? 'disabled' : ''}>+</button>
+    </div>
+    <div class="input-row"><button class="btn small-btn" data-action="vr-toss" data-id="${esc(p.id)}">Wegwerfen</button><button class="btn secondary small-btn" data-action="vr-toss-open" data-id="${esc(p.id)}">Abbrechen</button></div>
+  </div>`;
+}
+
 function vorratItem(p) {
   const key = tasteKey(p.food);
   const taste = state.profile.taste;
@@ -2301,8 +2317,9 @@ function vorratItem(p) {
       ${p.k ? vorratMacros(p) : ''}
       ${deficits().filter((id) => p.mi && p.mi[id] != null).map((id) => { const m = MICROS.find((x) => x.id === id); return `<span class="small micro-line">${m.name} ${g1(p.mi[id])} ${m.unit}/100 g · ${Math.round((p.mi[id] / dgeRef(id)) * 100)} % vom Tageswert</span>`; }).join('')}
     </button>
-    ${open ? `<div class="vr-row">${amount}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button>` : ''}</div>
+    ${open ? `<div class="vr-row">${amount}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button><button class="chip" data-action="vr-toss-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrToss === p.id}">Weggeworfen</button>` : ''}</div>
     ${ui.vrEat === p.id ? vorratEat(p) : ''}
+    ${ui.vrToss === p.id ? vorratToss(p) : ''}
     <div class="vr-row">
       <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Als Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
@@ -2924,7 +2941,7 @@ const actions = {
     const stock = V.grams(x);
     let g = por ? por.g : x.serving || 100;
     if (stock != null && stock < g) g = Math.max(1, Math.round(stock));
-    ui.vrEat = id; ui.vrEatG = g; ui.vrEatStep = g >= 100 ? 25 : g >= 30 ? 10 : 5; ui.vrEatMeal = currentMeal();
+    ui.vrEat = id; ui.vrToss = null; ui.vrEatG = g; ui.vrEatStep = g >= 100 ? 25 : g >= 30 ? 10 : 5; ui.vrEatMeal = currentMeal();
   },
   'vr-eat-g'(el) { ui.vrEatG = Math.max(ui.vrEatStep, ui.vrEatG + Number(el.dataset.d)); },
   'vr-eat-meal'(el) { ui.vrEatMeal = el.dataset.meal; },
@@ -2934,6 +2951,29 @@ const actions = {
     const id = addProductToTracker(x.id, ui.vrEatMeal || currentMeal(), Math.round(ui.vrEatG));
     ui.vrEat = null;
     toast(id ? `${fmt(ui.vrEatG)} ${x.liq ? 'ml' : 'g'} ${x.n} eingetragen${V.grams(x) != null ? ' und aus dem Vorrat genommen' : ''}.` : 'Das ging nicht.');
+  },
+  'vr-toss-open'(el) {
+    const id = el.dataset.id;
+    if (ui.vrToss === id) { ui.vrToss = null; return; }
+    const x = trackerPantry().find((y) => y.id === id);
+    if (!x || !(x.qty > 0)) return;
+    ui.vrToss = id; ui.vrEat = null; ui.vrTossMax = x.qty;
+    ui.vrTossQ = x.qty; // meist ist alles schlecht; mit − weniger
+  },
+  'vr-toss-q'(el) { ui.vrTossQ = Math.min(ui.vrTossMax, Math.max(0, Math.round((ui.vrTossQ + Number(el.dataset.d)) * 100) / 100)); },
+  'vr-toss'(el) {
+    const id = el.dataset.id;
+    let name = '';
+    let lbl = '';
+    changePantry((pantry) => {
+      const x = pantry.find((y) => y.id === id);
+      if (!x || x.qty == null) return;
+      const n = Math.min(ui.vrTossQ, x.qty);
+      name = x.n; lbl = V.label({ ...x, qty: n });
+      x.qty = Math.max(0, Math.round((x.qty - n) * 100) / 100);
+    });
+    ui.vrToss = null;
+    if (name) toast(`${lbl} ${name} weggeworfen und aus dem Vorrat genommen.`);
   },
   'vr-open'(el) { ui.vorratOpen = ui.vorratOpen === el.dataset.id ? null : el.dataset.id; },
   'vr-refresh'(el) {

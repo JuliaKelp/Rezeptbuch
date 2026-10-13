@@ -1771,9 +1771,9 @@ const SOURCES = [
   ] },
   { group: 'Selbst gemacht', items: [
     { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
-    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Julias Fotos ihrer Katze', license: 'eigene Inhalte' },
+    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Fotos einer echten Katze', license: 'eigene Inhalte' },
     { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
-    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, styles.css, index.html, sw.js.', who: 'von Claude für Julia geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, styles.css, index.html, sw.js.', who: 'von Claude geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
   ] }
 ];
 

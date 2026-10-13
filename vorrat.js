@@ -59,5 +59,18 @@
     }
   }
 
-  globalThis.Vorrat = { UNIT, grams, label, step, addPack, take, giveBack };
+  // Einträge ohne Menge (vor der Vorratskammer gescannt) zählen als 1 Packung; ändern geht mit − und +
+  function fillDefaults(pantry, offCache) {
+    let n = 0;
+    for (const x of pantry || []) {
+      if (!x || x.qty != null) continue;
+      const pq = x.pq || (String(x.id).startsWith('off:') && offCache && offCache[String(x.id).slice(4)] ? offCache[String(x.id).slice(4)].pq : null) || null;
+      Object.assign(x, { qty: 1, qu: 'pkg', ug: pq });
+      if (pq) x.pq = pq;
+      n++;
+    }
+    return n;
+  }
+
+  globalThis.Vorrat = { UNIT, grams, label, step, addPack, take, giveBack, fillDefaults };
 })();

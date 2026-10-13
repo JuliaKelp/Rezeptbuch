@@ -32,8 +32,9 @@ function pantryAdd(food) {
     const item = scanSession.find((x) => x.code === scanFix.code);
     pantryStore(food, scanFix.oldId || undefined);
     if (item) { item.food = food; item.state = 'ok'; }
+    else scanSession.unshift({ code: scanFix.code, n: 1, state: 'ok', food, before: null }); // ohne Barcode, vom Foto
     scanFix = null;
-    toast('Korrigiert');
+    toast(item ? 'Korrigiert' : `„${food.n}“ vorgemerkt`);
     openPantry('scan');
     return;
   }
@@ -50,11 +51,13 @@ function renderPantryScan() {
     <div class="scanner"><video id="video" playsinline muted></video><div class="frame"></div>${TORCH_BTN}</div>
     <p class="small muted" style="margin-top:8px">Einfach nacheinander scannen. Jedes Produkt wird sofort vorgemerkt und erscheint unten. Prüf kurz, ob es stimmt. Nur der Barcode wird an Open Food Facts gesendet.</p>
     <div class="row"><input id="code" type="text" inputmode="numeric" placeholder="Barcode eintippen" aria-label="Barcode eintippen"><button class="btn" id="lookup" style="flex:0 0 auto">Dazu</button></div>
+    <button type="button" class="btn secondary block" id="ocrNew" style="margin-top:8px">Ohne Barcode: Nährwerttabelle fotografieren</button>
     <div class="scan-head"><strong id="scanN"></strong><span class="small muted">neueste oben</span></div>
     <div class="scan-list" id="scanList"></div>
     <button class="btn block" id="scanDone" style="margin-top:12px">Fertig</button>`;
   $('#lookup').onclick = () => { const c = ($('#code').value || '').replace(/\D/g, ''); if (c) { $('#code').value = ''; scanHit(c); } };
   $('#scanDone').onclick = () => $('#closeSheet').click();
+  $('#ocrNew').onclick = () => { scanFix = { code: 'foto-' + Date.now(), oldId: null }; photoNutrition({}); };
   drawScanList();
   startScanner(scanHit);
 }
@@ -107,7 +110,7 @@ function drawScanList(fresh) {
         <button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Gegessen</button>`;
     } else if (x.state === 'missing') {
       main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div>`;
-      acts = `<button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;
+      acts = `<button type="button" class="chip" data-a="photo" data-i="${i}">Foto der Nährwerte</button><button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;
     } else {
       main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Keine Verbindung zu Open Food Facts</div>`;
       acts = `<button type="button" class="chip" data-a="retry" data-i="${i}">Nochmal</button>`;
@@ -142,12 +145,13 @@ function drawScanList(fresh) {
     }
     stopScanner();
     if (a === 'new') { scanFix = { code: x.code, oldId: null }; openFoodForm({ barcode: x.code }); return; }
+    if (a === 'photo') { scanFix = { code: x.code, oldId: null }; photoNutrition({ barcode: x.code }); return; }
     const f = liveFood(x.food);
     if (a === 'edit') {
       scanFix = { code: x.code, oldId: f.ref || f.id };
       const own = state.custom.find((y) => y.id === (f.ref || f.id));
       // Produkt aus Open Food Facts: als eigenes Lebensmittel mit gleichem Barcode speichern, das gilt dann beim nächsten Scan
-      openFoodForm(own || Object.assign({}, f, { id: null, src: 'custom', barcode: x.code }));
+      openFoodForm(own || Object.assign({}, f, { id: null, src: 'custom', barcode: x.code, ns: 'off-edit' }));
       return;
     }
     if (a === 'eat') { pantryMode = false; addMeal = mealByTime(); openAmount(f, { direct: true, after: () => openPantry('scan') }); }

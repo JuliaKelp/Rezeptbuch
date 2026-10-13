@@ -1759,7 +1759,8 @@ function migrateToTracker() {
 const SOURCES = [
   { group: 'In der App enthalten', items: [
     { name: 'Kalorien-Tracker', what: 'Der ganze Bereich „Tracker“ (Ordner tracker/): Journal, Timeline, Essen, Analytics, Ziele und Makros, Ernährungsform und Allergien, Barcode-Scanner und Vormerken, Wasser, Koffein, Alkohol, Supplements, Gewichtsziel. Das Rezeptbuch liest Ziele, Ernährung und Einkauf von dort und trägt Gekochtes in sein Journal ein. Für das Rezeptbuch umgefärbt.', who: 'ST0PTV', license: 'MIT-Lizenz', link: 'https://github.com/st0ptv/Calorie-Tracker', note: 'Lizenztext liegt bei: tracker/LICENSE. Studien und Quellen des Trackers (z. B. zu Eiweiß, Fett und Zucker) stehen dort unter Einstellungen → Quellen & Lizenzen.' },
-    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes beim Scannen im Tracker (tracker/vendor/zxing.min.js).', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library', note: 'Lizenztext liegt bei: tracker/vendor/ZXING-LICENSE' }
+    { name: 'ZXing für JavaScript (@zxing/library)', what: 'Erkennt die Barcodes beim Scannen im Tracker (tracker/vendor/zxing.min.js).', who: 'ZXing-Autoren', license: 'Apache License 2.0', link: 'https://github.com/zxing-js/library', note: 'Lizenztext liegt bei: tracker/vendor/ZXING-LICENSE' },
+    { name: 'tesseract.js mit Tesseract OCR', what: 'Liest im Scanner die Zahlen vom Foto der Nährwerttabelle (tracker/vendor/tesseract/). Läuft auf dem Handy, das Foto wird nicht verschickt. Mit deutschem Sprachmodell (tessdata).', who: 'Projekt Naptha / tesseract.js-Autoren; Tesseract OCR (Google u. a.)', license: 'Apache License 2.0 (Sprachmodell-Paket MIT)', link: 'https://github.com/naptha/tesseract.js', note: 'Lizenztext und Herkunft: tracker/vendor/tesseract/LICENSE und README.md' }
   ] },
   { group: 'Aus dem Internet geladen', items: [
     { name: 'Schrift Nunito', what: 'Die Schrift der ganzen App, geladen von Google Fonts.', who: 'The Nunito Project Authors (Vernon Adams u. a.)', license: 'SIL Open Font License 1.1', link: 'https://github.com/googlefonts/nunito', note: 'Beim Laden der Schrift sieht Google deine IP-Adresse.' },
@@ -1773,7 +1774,7 @@ const SOURCES = [
     { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
     { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Fotos einer echten Katze', license: 'eigene Inhalte' },
     { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
-    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, styles.css, index.html, sw.js.', who: 'von Claude geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, vorrat.js, backup.js, styles.css, index.html, sw.js.', who: 'von Claude geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
   ] }
 ];
 
@@ -1943,6 +1944,129 @@ function addToVorrat(food, amount, unit) {
   return true;
 }
 
+// ---------- Gruppen und Nährwerte im Vorrat ----------
+const VR_GROUPS = [
+  ['fleisch', 'Fleisch & Fleischersatz'], ['fisch', 'Fisch'], ['milch', 'Milch, Käse & Eier'], ['gemuese', 'Gemüse'], ['obst', 'Obst'],
+  ['huelsen', 'Hülsenfrüchte'], ['getreide', 'Brot, Nudeln & Getreide'], ['nuesse', 'Nüsse & Samen'], ['suess', 'Süßes & Snacks'],
+  ['getraenke', 'Getränke'], ['wuerzen', 'Öle, Saucen & Gewürze'], ['sonst', 'Sonstiges']
+];
+// Zutaten aus nutrition.js → Gruppe
+const FOOD_GROUP = {
+  fleisch: ['Hähnchen', 'Hackfleisch', 'Rindfleisch', 'Schinken', 'Speck', 'Tofu'],
+  fisch: ['Lachs', 'Thunfisch', 'Garnelen'],
+  milch: ['Milch', 'Haferdrink', 'Joghurt', 'Magerquark', 'Frischkäse', 'Feta', 'Käse', 'Mozzarella', 'Parmesan', 'Sahne', 'Schmand', 'Butter', 'Ei'],
+  huelsen: ['Linsen', 'Kichererbsen', 'Kidneybohnen', 'Hummus'],
+  getreide: ['Nudeln', 'Gekochter Reis', 'Reis', 'Haferflocken', 'Brot', 'Toast', 'Tortilla', 'Couscous', 'Quinoa', 'Mehl'],
+  obst: ['Avocado', 'Banane', 'Apfel', 'Beeren', 'Zitrone'],
+  nuesse: ['Nüsse', 'Erdnussbutter', 'Chiasamen', 'Leinsamen'],
+  suess: ['Zucker', 'Honig', 'Ahornsirup', 'Schokolade'],
+  wuerzen: ['Öl', 'Kokosmilch light', 'Kokosmilch', 'Pesto', 'Mayonnaise', 'Salsa', 'Gemüsebrühe', 'Sojasauce', 'Gewürze', 'Tomatenmark']
+};
+function foodGroup(name) {
+  if (!name) return null;
+  for (const [g, list] of Object.entries(FOOD_GROUP)) if (list.includes(name)) return g;
+  const f = FOODS.find((x) => x.name === name);
+  return f && f.group === 'gemuese' ? 'gemuese' : name === 'Kartoffeln' || name === 'Süßkartoffel' ? 'gemuese' : null;
+}
+// Kategorien von Open Food Facts → Gruppe (Reihenfolge zählt: Spezielles vor Allgemeinem)
+const OFF_GROUP = [
+  ['fleisch', /meat-analogue|meat-alternative|meat-substitute|tofu|meats|sausage|ham|poultr|salami|chicken|beef|pork/],
+  ['fisch', /fishes|fish|seafood|tuna|salmon/],
+  ['milch', /dairies|cheese|milk|yogurt|yoghurt|eggs|butter|cream|quark/],
+  ['suess', /snack|chocolate|confectioner|biscuit|cookie|cake|sweet|candies|candy|chips|crisps|dessert|ice-cream|spread|bar/],
+  ['getraenke', /beverage|drink|juice|water|soda|coffee|tea/],
+  ['huelsen', /legume|pulse|bean|lentil|chickpea/],
+  ['nuesse', /nuts|seeds/],
+  ['getreide', /bread|cereal|pasta|rice|flour|grain|breakfast|noodle/],
+  ['obst', /fruit/],
+  ['gemuese', /vegetable|potato|mushroom|tomato/],
+  ['wuerzen', /sauce|condiment|oil|fat|spice|vinegar|broth|soup|seasoning|ketchup|mustard|mayonnaise/]
+];
+// BLS-Code: erster Buchstabe = Hauptgruppe des Bundeslebensmittelschlüssels
+function blsGroup(code) {
+  const c = String(code || '');
+  if (/^H7/.test(c)) return 'huelsen';
+  if (/^H86/.test(c)) return 'fleisch';
+  if (/^E1/.test(c)) return 'milch';
+  return { B: 'getreide', C: 'getreide', E: 'getreide', D: 'suess', F: 'obst', G: 'gemuese', H: 'nuesse', K: 'gemuese', M: 'milch', N: 'getraenke', P: 'getraenke', Q: 'wuerzen', R: 'wuerzen', S: 'suess', T: 'fisch', U: 'fleisch', V: 'fleisch', W: 'fleisch' }[c[0]] || null;
+}
+// Die Daten hinter einem Vorrats-Eintrag: Werte pro 100 g, woher sie stammen, was fehlt
+function vorratSource(x) {
+  const t = readTracker();
+  const id = String(x.id);
+  if (id.startsWith('off:')) {
+    const o = (t.offCache || {})[id.slice(4)];
+    return { v: o || x, src: `Open Food Facts, Barcode ${id.slice(4)}`, miss: (o && o.miss) || [], cat: (o && o.cat) || null, off: true, old: !o || !o.cat };
+  }
+  if (id.startsWith('custom:')) {
+    const o = (t.custom || []).find((c) => c.id === id) || x;
+    const src = o.ns === 'foto' ? 'Vom Foto der Nährwerttabelle gelesen und von dir geprüft'
+      : o.ns === 'off-edit' ? 'Open Food Facts, von dir korrigiert' : o.src === 'recipe' ? 'Rezept im Tracker' : 'Von dir eingetragen';
+    return { v: o, src, miss: o.miss || [], grp: o.grp };
+  }
+  if (id.startsWith('bls:')) return { v: x, src: 'Bundeslebensmittelschlüssel (BLS) 4.0, Max Rubner-Institut', miss: [], grp: blsGroup(id.slice(4)) };
+  if (id.startsWith('rb:')) {
+    const name = id.slice(3);
+    return { v: x, src: NOT_FROM_BLS.includes(name) ? 'Rezeptbuch-Zutat ohne BLS-Eintrag (Wert aus dem Rezeptbuch)' : 'Bundeslebensmittelschlüssel (BLS) 4.0, Max Rubner-Institut', miss: [] };
+  }
+  return { v: x, src: 'Tracker', miss: [] };
+}
+function vorratGroup(x) {
+  if (x.grp) return x.grp; // selbst gewählt
+  const s = vorratSource(x);
+  if (s.grp) return s.grp;
+  if (s.cat && s.cat.length) {
+    const tags = s.cat.map((c) => c.slice(3)).reverse().join(' '); // spezifischste Kategorie zuerst
+    for (const [g, re] of OFF_GROUP) if (re.test(tags)) return g;
+  }
+  return foodGroup(x.fn || (matchFood(x.n) || {}).name) || 'sonst';
+}
+const r1n = (x) => (x > 0 && x < 1 ? Math.round(x * 100) / 100 : Math.round(x * 10) / 10).toLocaleString('de-DE');
+function vorratDetail(x) {
+  const s = vorratSource(x);
+  const v = s.v || {};
+  const rows = [['k', 'Energie', 'kcal'], ['f', 'Fett', 'g'], ['sf', 'davon gesättigte Fettsäuren', 'g', true], ['c', 'Kohlenhydrate', 'g'], ['su', 'davon Zucker', 'g'],
+    ['fs', 'davon freier Zucker', 'g', true], ['fi', 'Ballaststoffe', 'g'], ['p', 'Eiweiß', 'g'], ['sa', 'Salz', 'g', true]];
+  const sv = x.serving || v.serving;
+  const unit = x.liq || v.liq ? 'ml' : 'g';
+  const val = (k, opt) => (s.miss.includes(k) || (opt && v[k] == null) ? null : v[k] || 0);
+  const cell = (k, opt, f, u) => { const a = val(k, opt); return a == null ? '<span class="muted">keine Angabe</span>' : `${k === 'k' ? fmt(a * f) : r1n(a * f)} ${u}`; };
+  return `<div class="vr-detail">
+    <table class="nutri-table"><thead><tr><th></th><th>pro 100 ${unit}</th>${sv ? `<th>pro Portion (${fmt(sv)} ${unit})</th>` : ''}</tr></thead>
+      <tbody>${rows.map(([k, label, u, opt]) => `<tr><td>${label}</td><td>${cell(k, opt, 1, u)}</td>${sv ? `<td>${cell(k, opt, sv / 100, u)}</td>` : ''}</tr>`).join('')}</tbody></table>
+    <div class="small muted">Quelle: ${esc(s.src)}.${s.miss.length ? ' „keine Angabe“ heißt: Die Quelle nennt den Wert nicht, ich rechne dafür mit 0. Im Scanner kannst du das Produkt unter „Bearbeiten“ mit einem Foto der Nährwerttabelle ergänzen.' : ''}</div>
+    ${s.off ? `<button class="chip" style="align-self:flex-start" data-action="vr-refresh" data-id="${esc(x.id)}">Bei Open Food Facts neu laden</button>` : ''}
+  </div>`;
+}
+
+// Produkt neu bei Open Food Facts holen (z. B. wenn dort inzwischen mehr Werte stehen oder für die Gruppe)
+async function refreshOff(id) {
+  const code = String(id).slice(4);
+  const fields = 'product_name,product_name_de,brands,nutriments,serving_quantity,product_quantity,quantity,categories_tags';
+  const n = (x) => (x == null || x === '' || Number.isNaN(Number(x)) ? null : Number(x));
+  let data;
+  try { data = await (await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`)).json(); }
+  catch (e) { return 'offline'; }
+  const p = data && data.product;
+  const nm = p && p.nutriments;
+  if (!p || data.status !== 1 || !nm) return 'missing';
+  let k = n(nm['energy-kcal_100g']);
+  if (k == null && n(nm['energy_100g']) != null) k = n(nm['energy_100g']) / 4.184;
+  if (k == null) return 'missing';
+  const keys = [['p', 'proteins_100g'], ['c', 'carbohydrates_100g'], ['f', 'fat_100g'], ['fi', 'fiber_100g'], ['su', 'sugars_100g']];
+  const upd = { k, sf: n(nm['saturated-fat_100g']), sa: n(nm.salt_100g), fs: n(nm['added-sugars_100g']), miss: keys.filter(([, f]) => n(nm[f]) == null).map(([key]) => key), cat: (p.categories_tags || []).filter((x) => x.startsWith('en:')).slice(-12) };
+  for (const [key, f] of keys) upd[key] = n(nm[f]) || 0;
+  if (n(p.serving_quantity)) upd.serving = n(p.serving_quantity);
+  if (n(p.product_quantity)) upd.pq = n(p.product_quantity);
+  changePantry((pantry, t) => {
+    t.offCache = t.offCache || {};
+    t.offCache[code] = Object.assign({ src: 'off', id: 'off:' + code, barcode: code, n: p.product_name_de || p.product_name || ('Produkt ' + code), brand: (p.brands || '').split(',')[0].trim() }, t.offCache[code] || {}, upd);
+    const x = pantry.find((y) => y.id === id);
+    if (x) { for (const key of ['k', 'p', 'c', 'f', 'fi', 'su', 'fs', 'serving']) if (upd[key] != null) x[key] = upd[key]; if (upd.pq) { x.pq = upd.pq; if (x.qu === 'pkg' && !x.ug) x.ug = upd.pq; } }
+  });
+  return 'ok';
+}
+
 function vorratItem(p) {
   const key = tasteKey(p.food);
   const taste = state.profile.taste;
@@ -1954,6 +2078,7 @@ function vorratItem(p) {
         <label class="vr-field"><span class="small muted">Einheit</span><select id="vr-qu">${unitOpts.map(([v, l]) => `<option value="${v}" ${(p.qu || 'pkg') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
       <label class="vr-field"><span class="small muted">Packungsgröße in g bzw. ml (nur bei Packungen)</span><input id="vr-pq" type="text" inputmode="decimal" value="${p.qu === 'pkg' && p.ug ? p.ug : p.pq || ''}" placeholder="steht auf der Packung"></label>
+      <label class="vr-field"><span class="small muted">Gruppe</span><select id="vr-grp">${VR_GROUPS.map(([v, l]) => `<option value="${v}" ${vorratGroup(p) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="vr-field"><span class="small muted">Zählt bei Rezepten als</span><select id="vr-fn"><option value="">nichts davon</option>${FOODS.filter((f) => f.name !== 'Gewürze').map((f) => `<option ${p.food === f.name ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
       <div class="input-row"><button class="btn small-btn" data-action="vr-save" data-id="${esc(p.id)}">Speichern</button><button class="btn secondary small-btn" data-action="vr-edit" data-id="">Abbrechen</button></div>
       <button class="link-btn" data-action="vr-remove" data-id="${esc(p.id)}">Aus dem Vorrat entfernen</button>
@@ -1967,13 +2092,15 @@ function vorratItem(p) {
       </div>`;
   return `<div class="card vr-item${p.qty === 0 ? ' empty' : ''}">
     <div class="pantry-item">
-      <div class="info">
-        <div class="title">${esc(p.n)}</div>
-        <div class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</div>
-      </div>
+      <button class="info vr-open" data-action="vr-open" data-id="${esc(p.id)}" aria-expanded="${ui.vorratOpen === p.id}">
+        <span class="title">${esc(p.n)}</span>
+        <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</span>
+        <span class="meta vr-more">${ui.vorratOpen === p.id ? 'Nährwerte ausblenden' : 'Nährwerte zeigen'}</span>
+      </button>
       <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
     </div>
+    ${ui.vorratOpen === p.id ? vorratDetail(p) : ''}
     <div class="vr-row">${amount}${p.qty != null && !editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}</div>
     ${edit}
   </div>`;
@@ -2003,7 +2130,10 @@ function viewEinkauf() {
     </section>
     ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
     <h2>Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}</h2>
-    ${have.length ? have.map(vorratItem).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
+    ${have.length ? VR_GROUPS.map(([g, label]) => {
+      const list = have.filter((p) => vorratGroup(p) === g).sort((a, b) => a.n.localeCompare(b.n, 'de'));
+      return list.length ? `<h3 class="vr-group">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}` : '';
+    }).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
     ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Bei „Menge offen“ weiß ich nur, dass du es hast.</p>' : ''}
     ${empty.length ? `<h2>Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
@@ -2161,6 +2291,7 @@ window.addEventListener('hashchange', (e) => {
   ui.justEntry = null;
   ui.justVorrat = '';
   ui.vorratEdit = null;
+  ui.vorratOpen = null;
   ui.vrError = '';
   ui.snackPick = null;
   ui.confirmReset = false;
@@ -2363,6 +2494,13 @@ const actions = {
     return 'skip';
   },
   'vr-edit'(el) { ui.vorratEdit = el.dataset.id || null; },
+  'vr-open'(el) { ui.vorratOpen = ui.vorratOpen === el.dataset.id ? null : el.dataset.id; },
+  'vr-refresh'(el) {
+    const id = el.dataset.id;
+    el.disabled = true;
+    refreshOff(id).then((r) => toast(r === 'ok' ? 'Neu geladen.' : r === 'offline' ? 'Keine Verbindung zu Open Food Facts.' : 'Open Food Facts hat dazu keine Nährwerte.'));
+    return 'skip';
+  },
   'vr-step'(el) {
     const d = Number(el.dataset.d);
     changePantry((pantry) => {
@@ -2376,6 +2514,7 @@ const actions = {
     const qu = val('vr-qu') || 'pkg';
     const pq = Number(val('vr-pq').replace(',', '.')) || null;
     const fn = val('vr-fn');
+    const grp = val('vr-grp');
     if (!(qty >= 0) || val('vr-qty').trim() === '') { toast('Bitte eine Menge eintragen.'); return 'skip'; }
     changePantry((pantry) => {
       const x = pantry.find((y) => y.id === el.dataset.id);
@@ -2387,6 +2526,7 @@ const actions = {
       if (qu === 'pkg' && pq) x.pq = pq;
       if (qu === 'ml') x.liq = true;
       x.fn = fn;
+      if (grp && grp !== vorratGroup(Object.assign({}, x, { grp: undefined }))) x.grp = grp; else delete x.grp;
     });
     ui.vorratEdit = null;
   },

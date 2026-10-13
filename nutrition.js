@@ -236,6 +236,15 @@ const NOT_FROM_BLS_VALUES = { 'Kokosmilch light': [0.8, 2, 1.5, 7, 0.2], 'Gewür
 
 // [Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett, Ballaststoffe] pro 100 g
 const NUTR = {};
+// Mineralstoffe und Vitamine je 100 g aus dem BLS (null = Quelle nennt keinen Wert). Nur gefüllt, wenn bls.json sie enthält.
+export const MICROS = [
+  { id: 'fe', name: 'Eisen', unit: 'mg' }, { id: 'mg', name: 'Magnesium', unit: 'mg' }, { id: 'b12', name: 'Vitamin B12', unit: 'µg' },
+  { id: 'zn', name: 'Zink', unit: 'mg' }, { id: 'ca', name: 'Calcium', unit: 'mg' }, { id: 'fol', name: 'Folat', unit: 'µg' },
+  { id: 'vd', name: 'Vitamin D', unit: 'µg' }, { id: 'jod', name: 'Jod', unit: 'µg' }
+];
+const MICRO = {};
+let microsLoaded = false;
+export function hasMicros() { return microsLoaded; }
 for (const [name, v] of Object.entries(NOT_FROM_BLS_VALUES)) NUTR[name] = [v[0], v[1], v[2], 0, v[3], v[4]];
 
 // Liest die Nährwerte aus der BLS-Datei des Trackers (dieselben Daten, die der Tracker selbst nutzt).
@@ -255,6 +264,11 @@ export async function loadNutrition(url = 'tracker/data/bls.json') {
     const avg = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0) / rows.length;
     food.kcal = Math.round(avg('k'));
     NUTR[food.name] = [avg('p'), avg('c'), avg('su'), avg('fs'), avg('f'), avg('fi')];
+    // Mikronährstoffe nur, wenn jede verwendete BLS-Zeile einen Wert hat
+    MICRO[food.name] = {};
+    for (const m of MICROS) {
+      if (rows.every((r) => r[m.id] != null)) { MICRO[food.name][m.id] = avg(m.id); microsLoaded = true; }
+    }
   }
   return missing === 0;
 }
@@ -274,8 +288,13 @@ export const NUTRIENTS = [
 ];
 
 export function emptyNutrients() {
-  return { kcal: 0, protein: 0, kh: 0, zucker: 0, zugesetzt: 0, fruktose: 0, fett: 0, ballast: 0 };
+  const n = { kcal: 0, protein: 0, kh: 0, zucker: 0, zugesetzt: 0, fruktose: 0, fett: 0, ballast: 0 };
+  // je Mikronährstoff der Wert und wie viele Zutaten keinen Wert in der Quelle haben (miss_…)
+  for (const m of MICROS) { n[m.id] = 0; n['miss_' + m.id] = 0; }
+  return n;
 }
+// Mikronährstoffe einer Zutat je 100 g (für den Vorrat); null, wenn unbekannt
+export function microsOf(food) { return (food && MICRO[food.name]) || null; }
 
 export function addNutrients(a, b, factor = 1) {
   const out = { ...a };
@@ -290,8 +309,15 @@ export function nutrientsFor(food, grams, kcal100) {
   const v = (food && NUTR[food.name]) || [0, 0, 0, 0, 0, 0];
   const f = grams / 100;
   n.kcal = (kcal100 != null && kcal100 !== '' ? Number(kcal100) : food.kcal) * f;
+  if (!food) for (const m of MICROS) n['miss_' + m.id] = 1;
   if (food) {
     [n.protein, n.kh, n.zucker, n.zugesetzt, n.fett, n.ballast] = v.map((x) => x * f);
+    // Gewürze in Rezeptmengen sind zu wenig, um zu zählen; sonst fehlt der Wert ehrlich
+    const mic = MICRO[food.name] || {};
+    for (const m of MICROS) {
+      if (mic[m.id] != null) n[m.id] = mic[m.id] * f;
+      else if (food.name !== 'Gewürze' && grams > 0) n['miss_' + m.id] = 1;
+    }
   }
   return n;
 }

@@ -597,3 +597,10 @@ textarea.input { resize: vertical; font: inherit; }
 .idea-actions .link-btn { white-space: nowrap; padding-left: 4px; padding-right: 4px; }
 .idea-actions .muted-link { margin-left: auto; }
 .vr-macro { flex-wrap: wrap; gap: 4px 8px; font-weight: 700; }
+
+/* Mängel */
+.badge.micro-tag { display: inline-block; margin-top: 4px; color: #2D6A42; background: var(--green-soft); font-size: 11px; padding: 2px 8px; }
+.micro-line { color: #2D6A42; font-weight: 700; }
+.nut-row.mine span:first-child { font-weight: 800; color: var(--ink); }
+.src-list { padding-left: 18px; margin: 6px 0; line-height: 1.5; }
+details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }

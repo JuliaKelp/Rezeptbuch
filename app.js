@@ -1,5 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition, NOT_FROM_BLS } from './nutrition.js';
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition, NOT_FROM_BLS, MICROS, hasMicros, microsOf } from './nutrition.js';
 
 // ---------- Grunddaten ----------
 
@@ -35,6 +35,7 @@ const INFO = {
   snack: 'Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Darunter steht, wie viel deine restlichen kcal ganz ausnutzt, aber nie mehr als eine Packung. Gesund oder nicht spielt keine Rolle.',
   vorrat: 'Tipp auf ein Lebensmittel: Dort änderst du die Menge, trägst es als gegessen ein, markierst es als Snack (dann schlägt Ginger es dir als Snack vor) oder mit dem Herz (das magst du besonders). Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.',
   backup: 'Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.',
+  deficit: 'Ich bevorzuge Gerichte, die im Verhältnis zu ihren Kalorien viel davon enthalten, gemessen am Tageswert der Deutschen Gesellschaft für Ernährung (DGE). Das ersetzt keine ärztliche Behandlung: Ob und wie viel du ergänzen solltest, klärst du mit deiner Ärztin oder deinem Arzt. Nichts davon wird geschätzt; fehlt in der Quelle ein Wert, zählt das Gericht nicht.',
   heute: 'Gingers Vorschläge passen zu deiner Zeit, deinem Geschmack und dem, was heute laut Tracker noch frei ist. Was du schon im Vorrat hast, kommt zuerst. Unter jedem Gericht steht, ob alles da ist oder was fehlt.'
 };
 function infoBtn(key) {
@@ -359,6 +360,7 @@ function ideasFor(meal) {
       if (isFav(r)) score += 3;
       if (cookedToday.has(r.id)) score -= 10;
       score -= rejectPenalty(r); // ähnlich wie abgelehnte Rezepte
+      score += microBonus(r); // reich an dem, was dir fehlt
       score += (hashStr(day + r.id) % 100) / 60; // jeden Tag etwas Abwechslung
       return { ...x, score };
     })
@@ -434,6 +436,47 @@ function ensureWeek() {
   return w;
 }
 
+// ---------- Mängel (Eisen, B12 …) ----------
+// Tageswerte der DGE für Erwachsene (Referenzwerte, Abruf 13.10.2026). w = Frauen, m = Männer.
+const DGE = {
+  fe: { w: 16, m: 11, kind: 'Empfehlung', year: 2023, note: 'Frauen vor den Wechseljahren 16 mg, danach und ohne Regelblutung 14 bzw. 11 mg', url: 'https://www.dge.de/wissenschaft/referenzwerte/eisen/' },
+  mg: { w: 300, m: 350, kind: 'Schätzwert', year: 2021, url: 'https://www.dge.de/wissenschaft/referenzwerte/magnesium/' },
+  b12: { w: 4, m: 4, kind: 'Schätzwert', year: 2018, url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-b12/' },
+  zn: { w: 8, m: 14, kind: 'Empfehlung', year: 2019, note: 'bei mittlerer Phytatzufuhr; Frauen 7 bis 10 mg, Männer 11 bis 16 mg', url: 'https://www.dge.de/wissenschaft/referenzwerte/zink/' },
+  ca: { w: 1000, m: 1000, kind: 'Empfehlung', year: 2013, url: 'https://www.dge.de/wissenschaft/referenzwerte/calcium/' },
+  fol: { w: 300, m: 300, kind: 'Empfehlung', year: 2015, note: 'Folat-Äquivalente', url: 'https://www.dge.de/wissenschaft/referenzwerte/folat/' },
+  vd: { w: 20, m: 20, kind: 'Schätzwert', year: 2012, note: 'bei fehlender Bildung in der Haut durch Sonne', url: 'https://www.dge.de/wissenschaft/referenzwerte/vitamin-d/' },
+  jod: { w: 150, m: 150, kind: 'Empfehlung', year: 2025, url: 'https://www.dge.de/wissenschaft/referenzwerte/jod/' }
+};
+function dgeRef(id) {
+  const sex = (readTracker().profile || {}).sex;
+  const d = DGE[id];
+  return sex === 'm' ? d.m : d.w;
+}
+function deficits() { return hasMicros() ? (state.profile.deficits || []).filter((id) => DGE[id]) : []; }
+// Wie reich ist ein Gericht an dem, was fehlt? Verglichen wird der Anteil am DGE-Tageswert mit dem Anteil an den
+// Tages-kcal: 1 = so viel, wie es für seine kcal „sein Teil“ wäre. Fehlt der Wert in der Quelle, zählt das Gericht nicht.
+function microRatio(n, id) {
+  if (!n || n['miss_' + id] > 0 || !n.kcal) return null;
+  return (n[id] / dgeRef(id)) / (n.kcal / kcalGoal());
+}
+function microBonus(r) {
+  const ids = deficits();
+  if (!ids.length) return 0;
+  const n = recipeNutrients(r);
+  let b = 0;
+  for (const id of ids) {
+    const q = microRatio(n, id);
+    if (q != null) b += Math.max(-1, Math.min(2, q - 1)) * 2;
+  }
+  return b;
+}
+// Kleines Schild auf Rezeptkarten: reich an dem, was dir fehlt (mindestens 1,5× „sein Teil“)
+function microTags(r) {
+  const n = recipeNutrients(r);
+  return deficits().filter((id) => (microRatio(n, id) || 0) >= 1.5).map((id) => MICROS.find((m) => m.id === id).name);
+}
+
 function weekCandidates(meal, day, used) {
   const budget = mealBudget(meal);
   const seed = state.week.seed;
@@ -445,6 +488,7 @@ function weekCandidates(meal, day, used) {
       if (timeMode(r, meal) === 'vorkochen') s -= 2;
       s -= (used[r.id] || 0) * 5; // Abwechslung über die Woche
       s -= rejectPenalty(r); // ähnlich wie abgelehnte Rezepte
+      s += microBonus(r); // reich an dem, was dir fehlt
       s += (hashStr(seed + day + meal + r.id) % 100) / 40;
       return { r, s };
     })
@@ -870,7 +914,9 @@ function recipeNutrients(r) {
     }, emptyNutrients());
     return addNutrients(emptyNutrients(), sum, 1 / (r.portions || 1));
   }
-  return { ...emptyNutrients(), kcal: r.kcal };
+  const n = { ...emptyNutrients(), kcal: r.kcal };
+  for (const m of MICROS) n['miss_' + m.id] = 1; // gekaufte Produkte: keine BLS-Werte
+  return n;
 }
 
 // Tabelle mit Nährwerten und dem Anteil an den Tageszielen aus dem Tracker
@@ -891,7 +937,15 @@ function nutrientTable(n, { title = 'Nährwerte pro Portion' } = {}) {
   return `<section class="card nut-card"><h2 style="margin-bottom:8px">${title}</h2>
     <div class="nut-row"><span>Kalorien</span><b>${fmt(n.kcal)} kcal</b>${t.kcal ? `<div class="bar small-bar"><div style="width:${Math.min(100, (n.kcal / t.kcal) * 100)}%"></div></div><span class="small muted nut-goal">von ${fmt(t.kcal)}</span>` : '<span></span><span class="small muted nut-goal">kein Ziel</span>'}</div>
     ${NUTRIENTS.map((x) => row(x.id, x.name)).join('')}
-    <p class="small muted" style="margin-top:6px">Aus dem Bundeslebensmittelschlüssel. Die Balken zeigen den Anteil an deinen Tageszielen im Tracker.</p>
+    ${hasMicros() ? `<h3 style="margin:12px 0 4px">Mineralstoffe und Vitamine</h3>${MICROS.map((m) => {
+      const ref = dgeRef(m.id);
+      const miss = n['miss_' + m.id] > 0;
+      const mine = deficits().includes(m.id);
+      const v = n[m.id] || 0;
+      return `<div class="nut-row${mine ? ' mine' : ''}"><span>${m.name}${mine ? ' ★' : ''}</span><b>${miss ? '<span class="muted">unvollständig</span>' : `${v >= 10 ? fmt(v) : g1(v)} ${m.unit}`}</b>
+        ${miss ? '<span></span><span></span>' : `<div class="bar small-bar"><div style="width:${Math.min(100, (v / ref) * 100)}%"></div></div><span class="small muted nut-goal">${Math.round((v / ref) * 100)} % von ${fmt(ref)}</span>`}</div>`;
+    }).join('')}` : ''}
+    <p class="small muted" style="margin-top:6px">Aus dem Bundeslebensmittelschlüssel. Die Balken zeigen den Anteil an deinen Tageszielen im Tracker${hasMicros() ? ', bei Mineralstoffen und Vitaminen am Tageswert der DGE (Quellen unter „Ich“)' : ''}.${hasMicros() ? ' „Unvollständig“: Für mindestens eine Zutat nennt die Quelle keinen Wert, dann rechne ich nichts.' : ''}</p>
   </section>`;
 }
 
@@ -969,7 +1023,7 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
   const href = `#/rezept/${recipe.id}${meal ? '/' + meal : ''}${meal && factor !== 1 ? '/' + factor : ''}`;
   return `<a class="recipe-card" href="${href}">
     <div class="thumb" style="background:${recipe.tint}">${gingerPeek(44)}</div>
-    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div>${recipeNutrients(recipe).protein || recipeNutrients(recipe).kh ? `<div class="meta macro-meta">${macroMini(recipeNutrients(recipe), factor)}</div>` : ''}</div>
+    <div class="info"><div class="title">${isFav(recipe) ? `<span class="fav-mark" title="Favorit">${ICONS.heart}</span>` : ''}${esc(recipe.name)}</div><div class="meta">${meta}</div>${microTags(recipe).map((t) => `<span class="badge micro-tag">viel ${esc(t)}</span>`).join(' ')}${recipeNutrients(recipe).protein || recipeNutrients(recipe).kh ? `<div class="meta macro-meta">${macroMini(recipeNutrients(recipe), factor)}</div>` : ''}</div>
     ${badge}
   </a>`;
 }
@@ -1243,7 +1297,7 @@ function viewRezepte() {
     const own = state.ownRecipes.filter(byMeal).filter(byQuery);
     const bought = f === 'alle' || f === 'snack' ? productSnacks().filter(suitable).filter(byQuery) : [];
     const list = RECIPES.filter(suitable).filter(byMeal).filter(byQuery)
-      .sort((a, b) => likeScore(b) - likeScore(a) || mealIdx(a) - mealIdx(b) || a.time - b.time);
+      .sort((a, b) => likeScore(b) + microBonus(b) / 2 - likeScore(a) - microBonus(a) / 2 || mealIdx(a) - mealIdx(b) || a.time - b.time);
     body = `${own.length ? `<h2>Meine Rezepte</h2>${own.map((r) => recipeCard(r)).join('')}` : ''}
     ${bought.length ? `<h2>Snacks aus deinem Einkauf</h2>${bought.map((r) => recipeCard(r)).join('')}` : ''}
     ${own.length || bought.length ? '<h2>Gingers Rezepte</h2>' : ''}
@@ -1275,7 +1329,7 @@ function viewHabe() {
   const results = terms.length ? allRecipes().filter(suitable)
     .map((r) => ({ r, hit: haveMatches(r, terms) }))
     .filter((x) => x.hit.length)
-    .sort((a, b) => b.hit.length - a.hit.length || isFav(b.r) - isFav(a.r) || likeScore(b.r) - likeScore(a.r) || a.r.time - b.r.time) : [];
+    .sort((a, b) => b.hit.length - a.hit.length || isFav(b.r) - isFav(a.r) || likeScore(b.r) + microBonus(b.r) / 2 - likeScore(a.r) - microBonus(a.r) / 2 || a.r.time - b.r.time) : [];
   return `<p class="lead">Sag mir, was weg muss oder worauf du Lust hast. Ich suche Gerichte, die dazu und zu dir passen.</p>
     <div class="input-row">
       <label class="sr-only" for="have">Lebensmittel</label>
@@ -1666,6 +1720,7 @@ function viewIch() {
     </a>
     ${TRACKER_SETTINGS.filter(([group]) => group !== 'Tracker').map(([group, items]) => `<h2>${group}</h2>
     <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
+    ${deficitCard()}
     ${trackerCardsCard()}
     ${backupCard()}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
@@ -1679,6 +1734,21 @@ function viewIch() {
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
       : '<button class="link-btn danger" data-action="ask-reset">Rezeptbuch zurücksetzen …</button>'}</div>
   </main>${nav('ich')}`;
+}
+
+// Mängel: Was du ankreuzt, bevorzugt Ginger überall (Vorschläge, Rezepte, Wochenplan, Kochen, Snacks). Nur auf diesem Handy.
+function deficitCard() {
+  const mine = state.profile.deficits || [];
+  return `${infoHead('h2', 'Mängel', 'deficit')}
+    <section class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="small muted">Hast du einen festgestellten Mangel? Dann schlage ich dir Gerichte vor, die davon viel enthalten.</div>
+      <div class="chips">${MICROS.map((m) => `<button class="chip" data-action="deficit" data-id="${m.id}" aria-pressed="${mine.includes(m.id)}">${m.name}</button>`).join('')}</div>
+      ${hasMicros() ? '' : '<div class="small" style="color:var(--accent-text)">Die Werte aus dem Bundeslebensmittelschlüssel fehlen noch in der App, deshalb wirkt das noch nicht.</div>'}
+      <details class="small muted"><summary>Tageswerte und Quellen</summary>
+        <ul class="src-list">${MICROS.map((m) => { const d = DGE[m.id]; return `<li>${m.name}: ${fmt(dgeRef(m.id))} ${m.unit} am Tag (DGE-${d.kind}, Stand ${d.year}${d.note ? `; ${esc(d.note)}` : ''}). <a href="${d.url}" target="_blank" rel="noopener">dge.de</a></li>`; }).join('')}</ul>
+        Gehalt der Lebensmittel: Bundeslebensmittelschlüssel 4.0, Max Rubner-Institut 2025 (CC BY 4.0).
+      </details>
+    </section>`;
 }
 
 // Welche Zusatz-Karten das Tracker-Journal zeigt (die Schalter gibt es im Tracker, hier alle an einer Stelle)
@@ -2024,7 +2094,8 @@ function vorratEntry(food) {
   return {
     src: NOT_FROM_BLS.includes(food.name) ? 'custom' : 'bls', id: 'rb:' + food.name, n: food.name, brand: '', serving: food.piece || null,
     liq: false, k: Math.round(n.kcal), p: r1(n.protein), c: r1(n.kh), f: r1(n.fett), fi: r1(n.ballast), su: r1(n.zucker), fs: r1(n.zugesetzt),
-    fn: food.name
+    fn: food.name,
+    mi: microsOf(food) ? { ...microsOf(food) } : undefined
   };
 }
 function addToVorrat(food, amount, unit) {
@@ -2228,6 +2299,7 @@ function vorratItem(p) {
       <span class="vr-l1"><span class="title">${esc(p.n)}</span>${marks}<span class="vr-amount">${esc(p.qty == null ? 'Menge offen' : V.label(p).replace(/ \(.*\)$/, ''))}</span><span class="vr-chev" aria-hidden="true">${open ? '▴' : '▾'}</span></span>
       <span class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', packText(p)].filter(Boolean).map(esc).join(' · ')}</span>
       ${p.k ? vorratMacros(p) : ''}
+      ${deficits().filter((id) => p.mi && p.mi[id] != null).map((id) => { const m = MICROS.find((x) => x.id === id); return `<span class="small micro-line">${m.name} ${g1(p.mi[id])} ${m.unit}/100 g · ${Math.round((p.mi[id] / dgeRef(id)) * 100)} % vom Tageswert</span>`; }).join('')}
     </button>
     ${open ? `<div class="vr-row">${amount}${p.qty > 0 ? `<button class="chip" data-action="vr-eat-open" data-id="${esc(p.id)}" aria-expanded="${ui.vrEat === p.id}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht eintragen"'}>Gegessen</button>` : ''}</div>
     ${ui.vrEat === p.id ? vorratEat(p) : ''}
@@ -2366,7 +2438,7 @@ function cookIdeas(meal) {
       score += c.total ? (c.have.length / c.total) * 2 : 0;
       if (target > 0) score -= (Math.abs(r.kcal * f - target) / target) * 4;
       if (gap != null) score -= gap * 6;
-      score += likeScore(r) + (isFav(r) ? 2 : 0) - rejectPenalty(r) - (cookedToday.has(r.id) ? 5 : 0);
+      score += likeScore(r) + (isFav(r) ? 2 : 0) - rejectPenalty(r) - (cookedToday.has(r.id) ? 5 : 0) + microBonus(r);
       return { r, n, f, c, gap, score };
     })
     .sort((a, b) => b.score - a.score);
@@ -2953,6 +3025,11 @@ const actions = {
     save();
     RBBackup.exportAll().then((ok) => { if (ok) toast('Backup exportiert. Leg die Datei an einem sicheren Ort ab.'); });
     return 'skip';
+  },
+  deficit(el) {
+    const d = new Set(state.profile.deficits || []);
+    if (d.has(el.dataset.id)) d.delete(el.dataset.id); else d.add(el.dataset.id);
+    state.profile.deficits = [...d];
   },
   'tracker-card'(el) {
     const t = readTracker();

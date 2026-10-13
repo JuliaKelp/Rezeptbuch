@@ -1,5 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
-import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition } from './nutrition.js';
+import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition, NOT_FROM_BLS } from './nutrition.js';
 
 // ---------- Grunddaten ----------
 
@@ -506,7 +506,6 @@ const STAPLES = ['Gewürze', 'Öl', 'Gemüsebrühe'];
 function shoppingList() {
   const groups = new Map();
   const staples = new Map();
-  const bought = new Set(pantryList().map((p) => p.food).filter(Boolean));
   for (const { recipe, n, f } of acceptedSlots()) {
     if (recipe.product) {
       const key = `p|${recipe.code}`;
@@ -528,18 +527,35 @@ function shoppingList() {
         continue;
       }
       const key = `${food ? food.name : p.name.toLowerCase()}|${p.unit}`;
-      const g = groups.get(key) || { key, p, food, amount: 0, recipes: new Set() };
+      const g = groups.get(key) || { key, p, food, amount: 0, grams: 0, recipes: new Set() };
       g.amount += p.amount * n * f;
+      g.grams += gramsOfText(line) * n * f;
       g.recipes.add(recipe.name);
       groups.set(key, g);
     }
   }
-  const items = [...groups.values()].map((g) => ({
-    key: g.key,
-    text: g.product ? `${g.amount}× ${g.product.name}${g.product.brand ? ` (${g.product.brand})` : ''}` : scaleIngredient(`1 ${g.p.unitWord ? g.p.unitWord + ' ' : ''}${g.p.name}`, g.amount),
-    have: g.product ? true : !!(g.food && bought.has(g.food.name)),
-    recipes: [...g.recipes]
-  })).sort((a, b) => a.key.localeCompare(b.key, 'de'));
+  // Mit der Vorratskammer verrechnen: was da ist, muss nicht gekauft werden; bei zu wenig nur der Rest
+  const pantry = trackerPantry();
+  const items = [...groups.values()].map((g) => {
+    const base = { key: g.key, recipes: [...g.recipes], food: g.food || null, unit: g.p ? g.p.unit : null };
+    if (g.product) {
+      const x = pantry.find((y) => y.id === g.product.code);
+      const need = g.amount * g.product.serving;
+      const have = x ? V.grams(x) : null;
+      const text = `${g.amount}× ${g.product.name}${g.product.brand ? ` (${g.product.brand})` : ''}`;
+      if (have == null || have >= need) return { ...base, product: true, text, stock: have == null ? 'open' : 'full', stockText: x ? `${V.label(x)} da` : '' };
+      return { ...base, product: true, text, stock: 'part', stockText: V.label(x) };
+    }
+    const text = (amount) => scaleIngredient(`1 ${g.p.unitWord ? g.p.unitWord + ' ' : ''}${g.p.name}`, amount);
+    const st = g.food ? stockOf(g.food.name) : { g: 0, open: false };
+    if (!g.grams || (!st.g && !st.open)) return { ...base, text: text(g.amount), needG: g.grams, stock: null };
+    if (st.g >= g.grams * 0.98) return { ...base, text: text(g.amount), needG: 0, stock: 'full', stockText: `${fmt(st.g)} g da` };
+    if (st.g > 0) {
+      const rest = g.grams - st.g;
+      return { ...base, text: text(g.amount * (rest / g.grams)), needG: rest, stock: 'part', stockText: `${fmt(st.g)} g schon da` };
+    }
+    return { ...base, text: text(g.amount), needG: g.grams, stock: 'open', stockText: 'im Vorrat, Menge offen' };
+  }).sort((a, b) => a.key.localeCompare(b.key, 'de'));
   return { items, staples: [...staples.values()].sort((a, b) => a.localeCompare(b, 'de')) };
 }
 
@@ -669,10 +685,13 @@ function viewListe() {
   const { items, staples } = shoppingList();
   const slots = acceptedSlots();
   const bought = state.week.bought;
-  const open = items.filter((x) => !bought[x.key]);
-  const done = items.filter((x) => bought[x.key]);
+  const inStock = items.filter((x) => x.stock === 'full');
+  const open = items.filter((x) => !bought[x.key] && x.stock !== 'full');
+  const done = items.filter((x) => bought[x.key] && x.stock !== 'full');
+  const usedUp = trackerPantry().filter((x) => x.qty === 0);
+  const tag = (x) => (x.stock === 'part' ? ` <em class="have part">${esc(x.stockText)}</em>` : x.stock === 'open' ? ` <em class="have">${esc(x.stockText || 'im Vorrat')}</em>` : '');
   const row = (x) => `<label class="step list-item"><input type="checkbox" data-action="list-check" data-key="${esc(x.key)}" ${bought[x.key] ? 'checked' : ''}>
-    <span>${esc(x.text)}${x.have ? ' <em class="have">schon mal gekauft</em>' : ''}<small>${esc(x.recipes.join(', '))}</small></span></label>`;
+    <span>${x.stock === 'part' ? 'noch ' : ''}${esc(x.text)}${tag(x)}<small>${esc(x.recipes.join(', '))}</small></span></label>`;
   return `<main class="screen with-nav">
     <a class="back" href="#/woche">${ICONS.back}Wochenplan</a>
     <h1>Einkaufsliste</h1>
@@ -680,7 +699,10 @@ function viewListe() {
       ${listMacros(slots)}
       <p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>
       <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
-      ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>` : ''}
+      ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>
+        ${done.some((x) => x.food && x.needG) ? '<button class="btn secondary" data-action="list-to-vorrat">Gekauftes in den Vorrat legen</button><p class="small muted">Für Lose ohne Barcode. Gescannte Produkte zählt der Scanner schon mit.</p>' : ''}` : ''}
+      ${inStock.length ? `<h2>Schon im Vorrat</h2><div class="card small muted">${inStock.map((x) => `${esc(x.text)} <span class="have-ok">· ${esc(x.stockText || 'da')}</span>`).join('<br>')}</div>` : ''}
+      ${usedUp.length ? `<h2>Im Vorrat aufgebraucht</h2><p class="small muted">${esc(usedUp.map((x) => x.n).join(', '))}</p>` : ''}
       ${staples.length ? `<h2>Vorrat prüfen</h2><p class="small muted">${esc(staples.join(', '))}</p>` : ''}
       <button class="btn secondary" data-action="list-copy">Liste kopieren</button>`
       : `<div class="card small muted">Noch nichts übernommen. Tipp im Wochenplan bei den Gerichten auf „Übernehmen“, dann schreibe ich dir hier alles auf.</div>
@@ -898,7 +920,7 @@ function nav(active) {
 // Unterleiste der Rezepte-Seiten
 function subnav(active) {
   const item = (id, label) => `<a href="#/${id}" ${active === id ? 'aria-current="page"' : ''}>${label}</a>`;
-  return `<nav class="subnav" aria-label="Rezepte-Bereiche">${item('rezepte', 'Rezepte')}${item('woche', 'Woche')}${item('einkauf', 'Einkauf')}${item('stempel', 'Stempel')}</nav>`;
+  return `<nav class="subnav" aria-label="Rezepte-Bereiche">${item('rezepte', 'Rezepte')}${item('woche', 'Woche')}${item('einkauf', 'Vorrat')}${item('stempel', 'Stempel')}</nav>`;
 }
 
 function stepsBar(n) {
@@ -931,7 +953,7 @@ function recipeCard(recipe, { meal, mode, factor = 1 } = {}) {
 // Einstellungen des Trackers, wie dort gruppiert; „Ich“ verlinkt direkt auf den jeweiligen Bereich
 const TRACKER_SETTINGS = [['Ziele', ['Tagesziel', 'Gewichtsziel']], ['Über mich', ['Ernährung & Allergien', 'Schlaf & Körper']],
   ['Tracker', ['Wasser', 'Koffein', 'Alkohol', 'Supplements']], ['Planung', ['Timeline', 'Abend-Vorschläge']],
-  ['Daten', ['Backup', 'Lebensmittel teilen', 'Quellen & Lizenzen']]];
+  ['Daten', ['Lebensmittel teilen', 'Quellen & Lizenzen']]];
 function trackerSettingsSummary() {
   const d = trackerDiet();
   const allergens = d.allergens.map((c) => ALLERGEN_NAMES[c] || c).join(', ') || 'keine';
@@ -1047,7 +1069,7 @@ function snackBlock(eatenHere, eatenCard) {
   const shown = [];
   for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
   return `<section class="meal-block">
-    <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
+    <div class="meal-head"><h3><a href="#/snacks" class="head-link">Snacks ›</a></h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
     ${eatenHere.map(eatenCard).join('')}
     ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
     ${need && ideas.length > need ? '<div class="idea-actions"><span></span><button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button></div>' : ''}
@@ -1113,6 +1135,7 @@ function viewHeute() {
         <div class="small" style="color:var(--accent-text);font-weight:800">${hasKcalGoal() ? 'Zum Journal' : 'Kalorienziel im Tracker festlegen'}</div>
       </div>
     </a>
+    <a class="btn secondary snack-link" href="#/snacks">Snack: Was darf ich jetzt?</a>
     ${tips}
     <h2>Gingers Vorschläge für heute</h2>
     ${meals}
@@ -1269,7 +1292,7 @@ function viewRezept(id, meal, factorParam) {
     </div>
     <div style="display:flex;align-items:flex-end;gap:10px">
       ${ginger(64, { mood: allDone ? 'happy' : 'normal' })}
-      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${ui.justEntry ? ' Im Tracker-Journal steht es auch schon.' : ''}` : cheer}</div>
+      <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${ui.justEntry ? ' Im Tracker-Journal steht es auch schon.' : ''}${ui.justVorrat ? ' ' + esc(ui.justVorrat) : ''}` : cheer}</div>
       ${stampedNow ? '<div class="stamp-big">Gekocht!</div>' : ''}
     </div>
     <div class="bottom">
@@ -1556,6 +1579,7 @@ function viewIch() {
     </a>
     ${TRACKER_SETTINGS.map(([group, items]) => `<h2>${group}</h2>
     <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
+    ${backupCard()}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
       <div class="small muted">Ähnliche Rezepte schlage ich dir seltener vor.${learnedFoods().length ? ` Gelernt: weniger mit ${esc(learnedFoods().join(', '))}.` : ''}</div>
@@ -1567,6 +1591,23 @@ function viewIch() {
       : '<button class="btn secondary" data-action="ask-reset">Alles zurücksetzen</button>'}
       <a class="link-btn" href="#/quellen" style="text-align:center;display:flex;align-items:center;justify-content:center">Quellen und Lizenzen</a></div>
   </main>${nav('ich')}`;
+}
+
+// Backup für Rezeptbuch und Tracker zusammen (backup.js). Alles liegt nur auf diesem Gerät.
+function backupCard() {
+  const m = RBBackup.meta();
+  const dirty = RBBackup.dirty();
+  return `<h2 id="backup">Backup</h2>
+    <section class="card backup-card">
+      <p class="small">Alle deine Daten (Rezeptbuch, Tracker, Vorrat) sind nur auf diesem Handy gespeichert, im Speicher des Browsers. Es gibt keinen Server und kein Konto. Löschst du die App oder die Browserdaten, sind sie weg. Deshalb ab und zu exportieren und die Datei sicher ablegen (z. B. „In Dateien sichern“).</p>
+      <div class="small ${dirty ? '' : 'muted'}" style="${dirty ? 'color:var(--accent-text)' : ''}">${esc(RBBackup.lastText())}${dirty ? ' Seitdem hat sich etwas geändert.' : m.at ? ' Seitdem nichts geändert.' : ''}</div>
+      <div class="input-row">
+        <button class="btn small-btn" data-action="backup-export" style="flex:1">Exportieren</button>
+        <label class="btn secondary small-btn" style="flex:1">Importieren<input type="file" id="backup-file" accept="application/json,.json" hidden></label>
+      </div>
+      <label class="row fit-row"><input type="checkbox" data-action="backup-remind" ${m.remind ? 'checked' : ''}><span class="small">Beim Schließen fragen, ob ich exportiert habe</span></label>
+      <p class="small muted">Ehrlich gesagt: Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.</p>
+    </section>`;
 }
 
 // ---------- Kalorien-Tracker ----------
@@ -1623,26 +1664,28 @@ function trackerGoal(day = todayKey()) {
 function newEntryId() { return 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 // Trägt eine Portion (× factor) ins Tracker-Journal von heute ein. Gibt die Eintrags-ID zurück oder null.
-function addToTracker(r, meal, factor = 1) {
+function addToTracker(r, meal, factor = 1, extra = null) {
   const food = trackerFood(r);
   if (!food) return null;
   const t = readTracker();
   t.custom = Array.isArray(t.custom) ? t.custom : [];
   const i = t.custom.findIndex((x) => x.id === food.id);
   if (i >= 0) t.custom[i] = food; else t.custom.push(food);
-  return addEntry(t, food, Math.round(food.serving * factor), meal);
+  return addEntry(t, food, Math.round(food.serving * factor), meal, todayKey(), extra);
 }
-// Ein Produkt aus dem Einkauf (vorgemerkt im Tracker) als Portion eintragen
-function addProductToTracker(r, meal) {
-  const item = trackerPantry().find((x) => x.id === r.code);
+// Ein Produkt aus dem Vorrat (vorgemerkt im Tracker) eintragen, standardmäßig eine Packungsportion; zieht es vom Vorrat ab
+function addProductToTracker(code, meal, grams) {
+  const t = readTracker();
+  const item = (t.pantry || []).find((x) => x.id === code);
   if (!item) return null;
-  return addEntry(readTracker(), item, r.serving, meal);
+  const vu = V.take(t.pantry, (x) => x.id === code, grams).used;
+  return addEntry(t, item, grams, meal, todayKey(), vu.length ? { vu } : null);
 }
-function addEntry(t, food, grams, meal, day = todayKey()) {
+function addEntry(t, food, grams, meal, day = todayKey(), extra = null) {
   t.days = t.days && typeof t.days === 'object' ? t.days : {};
   const id = newEntryId();
   const { src, n, brand, liq, serving, k, p, c, f, fi, su, fs } = food;
-  const entry = { id, meal: TRACKER_MEAL[meal] || 'snack', grams, ref: food.id, src, n, brand, liq, serving, k, p, c, f, fi, su, fs };
+  const entry = { id, meal: TRACKER_MEAL[meal] || 'snack', grams, ref: food.id, src, n, brand, liq, serving, k, p, c, f, fi, su, fs, ...(extra || {}) };
   t.days[day] = [...(t.days[day] || []), entry];
   return writeTracker(t) ? id : null;
 }
@@ -1650,6 +1693,8 @@ function addEntry(t, food, grams, meal, day = todayKey()) {
 function removeFromTracker(entryId, day = todayKey()) {
   const t = readTracker();
   if (!t.days || !t.days[day]) return;
+  const gone = t.days[day].find((e) => e.id === entryId);
+  if (gone && gone.vu) V.giveBack(t.pantry, gone.vu); // Abgezogenes kommt zurück in den Vorrat
   t.days[day] = t.days[day].filter((e) => e.id !== entryId);
   writeTracker(t);
 }
@@ -1749,16 +1794,72 @@ function viewQuellen() {
   </main>${nav('ich')}`;
 }
 
-// ---------- Einkauf ----------
-// Gescannt und gesucht wird im Tracker („Einkauf erfassen“, dort heißt es Vormerken). Das Rezeptbuch nutzt die
-// vorgemerkten Lebensmittel für Gingers Vorschläge, die Einkaufsliste und als Snack-Vorschläge.
+// ---------- Vorratskammer ----------
+// Gescannt wird im Tracker („Einkauf scannen“, dort heißt es Vormerken); jedes Produkt zählt eine Packung in den Vorrat.
+// Hier im Rezeptbuch: Mengen ändern, lose Zutaten dazulegen, Kochen und Essen ziehen ab (vorrat.js).
+// Gespeichert ist alles im Tracker (ct.v1 → pantry), damit beide dieselbe Liste sehen.
+const V = globalThis.Vorrat;
 
-// Vorgemerkte Lebensmittel aus dem Tracker, neueste zuerst, mit der passenden Zutat aus nutrition.js
+// Vorgemerkte Lebensmittel aus dem Tracker, neueste zuerst
 function trackerPantry() {
   return (readTracker().pantry || []).filter((x) => x && x.id && x.n);
 }
+// Zutat aus nutrition.js zu einem Produktnamen, nur bei ganzem Wort („Milchschnitte“ ist keine Milch)
+function matchFood(name) {
+  const n = ' ' + String(name).toLowerCase().replace(/[^a-z0-9äöüß]+/g, ' ') + ' ';
+  let best = null;
+  let len = 0;
+  for (const f of FOODS) {
+    for (const k of [f.name, ...(f.aliases || [])].map((x) => x.toLowerCase())) {
+      if (k.length < 3 || k.length <= len || f.name === 'Gewürze') continue;
+      if ([k, k + 'n', k + 'e', k + 's', k + 'en'].some((w) => n.includes(` ${w} `))) { best = f; len = k.length; }
+    }
+  }
+  return best;
+}
+// Als welche Rezept-Zutat ein Vorrats-Eintrag zählt (fn: selbst gewählt, '' = keine)
+function vorratFood(x) {
+  if (x.fn !== undefined) return x.fn || null;
+  if (state.snacks && state.snacks[x.id]) return null; // Snacks (z. B. ein Schokoriegel) sind keine Kochzutat, außer selbst so eingestellt
+  return (matchFood(x.n) || {}).name || null;
+}
 function pantryList() {
-  return trackerPantry().map((x) => ({ ...x, food: (findFood(x.n) || {}).name || null }));
+  return trackerPantry().map((x) => ({ ...x, food: vorratFood(x) }));
+}
+// Wie viel von einer Zutat da ist: g = bekannte Gramm, open = es gibt sie auch ohne Mengenangabe
+function stockOf(foodName) {
+  let g = 0;
+  let open = false;
+  for (const x of trackerPantry()) {
+    if (vorratFood(x) !== foodName) continue;
+    const have = V.grams(x);
+    if (have == null) open = open || x.qty == null; else g += have;
+  }
+  return { g, open };
+}
+function changePantry(fn) {
+  const t = readTracker();
+  t.pantry = Array.isArray(t.pantry) ? t.pantry : [];
+  const out = fn(t.pantry, t);
+  writeTracker(t);
+  return out;
+}
+
+// Zieht die Zutaten (Textzeilen) vom Vorrat im Tracker-Objekt t ab. Gibt { used, text } zurück; text für die Meldung.
+function takeIngredients(t, lines) {
+  t.pantry = Array.isArray(t.pantry) ? t.pantry : [];
+  const used = [];
+  const names = [];
+  for (const line of lines) {
+    const p = parseIngredient(line);
+    if (p.amount === null) continue;
+    const food = findFood(p.name.replace(/[()]/g, ' '));
+    const g = gramsOfText(line);
+    if (!food || !g) continue;
+    const r = V.take(t.pantry, (x) => vorratFood(x) === food.name, g);
+    if (r.used.length) { used.push(...r.used); names.push(food.name); }
+  }
+  return { used, text: names.length ? `Aus dem Vorrat abgezogen: ${names.join(', ')}.` : '' };
 }
 
 // Diät und Allergene eines vorgemerkten Produkts, soweit der Tracker sie kennt (Open Food Facts bzw. BLS)
@@ -1781,7 +1882,7 @@ function productRecipe(x) {
   // Unbekannt = vegan: Du hast es selbst als Snack markiert
   const diet = info.d === 0 ? 'fleisch' : info.d === 1 ? 'vegetarisch' : 'vegan';
   const allergens = Object.keys(ALLERGEN_CODES).filter((a) => (info.a || []).some((c) => ALLERGEN_CODES[a].includes(c)));
-  const key = tasteKey((findFood(x.n) || {}).name);
+  const key = tasteKey(vorratFood(x));
   return {
     id: `p-${x.id}`, product: true, code: x.id,
     name: x.n, brand: x.brand,
@@ -1795,8 +1896,9 @@ function productRecipe(x) {
   };
 }
 
+// Aufgebrauchte Snacks (Menge 0) schlägt Ginger nicht mehr vor
 function productSnacks() {
-  return trackerPantry().filter((x) => state.snacks && state.snacks[x.id] && x.k).map(productRecipe);
+  return trackerPantry().filter((x) => state.snacks && state.snacks[x.id] && x.k && x.qty !== 0).map(productRecipe);
 }
 
 // Wie ein Lebensmittel in der Geschmacksliste heißt (kurze Namen wie „Ei“ würden sonst in „Reis“ gefunden)
@@ -1807,9 +1909,9 @@ function tasteKey(foodName) {
   return foodName.length >= 4 ? foodName : null;
 }
 
-// Lebensmittel aus dem Einkauf, als Schlüssel wie in der Geschmacksliste
+// Lebensmittel aus dem Vorrat (nicht aufgebraucht), als Schlüssel wie in der Geschmacksliste
 function pantryKeys() {
-  return [...new Set(pantryList().map((p) => tasteKey(p.food)).filter(Boolean))];
+  return [...new Set(pantryList().filter((p) => p.qty !== 0).map((p) => tasteKey(p.food)).filter(Boolean))];
 }
 
 function pantryScore(recipe) {
@@ -1817,31 +1919,189 @@ function pantryScore(recipe) {
   return pantryKeys().filter((k) => text.includes(k.toLowerCase())).length;
 }
 
-function viewEinkauf() {
-  const items = pantryList();
+// Eine lose Zutat (aus nutrition.js) in den Vorrat legen. unit: g, ml oder stk. Nährwerte pro 100 g aus dem BLS.
+function vorratEntry(food) {
+  const n = nutrientsFor(food, 100);
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return {
+    src: NOT_FROM_BLS.includes(food.name) ? 'custom' : 'bls', id: 'rb:' + food.name, n: food.name, brand: '', serving: food.piece || null,
+    liq: false, k: Math.round(n.kcal), p: r1(n.protein), c: r1(n.kh), f: r1(n.fett), fi: r1(n.ballast), su: r1(n.zucker), fs: r1(n.zugesetzt),
+    fn: food.name
+  };
+}
+function addToVorrat(food, amount, unit) {
+  const ug = unit === 'stk' ? food.piece || null : 1;
+  if (!ug || !(amount > 0)) return false;
+  changePantry((pantry) => {
+    let x = pantry.find((y) => y.id === 'rb:' + food.name);
+    if (!x) { x = Object.assign(vorratEntry(food), { added: Date.now(), count: 0, qty: 0, qu: unit, ug }); pantry.unshift(x); }
+    if (x.qty == null || !x.ug) Object.assign(x, { qty: 0, qu: unit, ug });
+    x.qty = Math.round((x.qty + (amount * ug) / x.ug) * 100) / 100;
+    if (unit === 'ml') x.liq = true;
+    x.count = (x.count || 0) + 1;
+  });
+  return true;
+}
+
+function vorratItem(p) {
+  const key = tasteKey(p.food);
   const taste = state.profile.taste;
-  const card = (p) => {
-    const key = tasteKey(p.food);
-    return `<div class="card pantry-item">
+  const editing = ui.vorratEdit === p.id;
+  const unitOpts = [['g', 'g'], ['ml', 'ml'], ...((p.food && (FOODS.find((f) => f.name === p.food) || {}).piece) || p.qu === 'stk' ? [['stk', 'Stück']] : []), ['pkg', 'Packungen']];
+  const edit = editing ? `<div class="vr-edit">
+      <div class="input-row">
+        <label class="vr-field"><span class="small muted">Menge</span><input id="vr-qty" type="text" inputmode="decimal" value="${p.qty != null ? String(p.qty).replace('.', ',') : ''}" placeholder="z. B. 2"></label>
+        <label class="vr-field"><span class="small muted">Einheit</span><select id="vr-qu">${unitOpts.map(([v, l]) => `<option value="${v}" ${(p.qu || 'pkg') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <label class="vr-field"><span class="small muted">Packungsgröße in g bzw. ml (nur bei Packungen)</span><input id="vr-pq" type="text" inputmode="decimal" value="${p.qu === 'pkg' && p.ug ? p.ug : p.pq || ''}" placeholder="steht auf der Packung"></label>
+      <label class="vr-field"><span class="small muted">Zählt bei Rezepten als</span><select id="vr-fn"><option value="">nichts davon</option>${FOODS.filter((f) => f.name !== 'Gewürze').map((f) => `<option ${p.food === f.name ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
+      <div class="input-row"><button class="btn small-btn" data-action="vr-save" data-id="${esc(p.id)}">Speichern</button><button class="btn secondary small-btn" data-action="vr-edit" data-id="">Abbrechen</button></div>
+      <button class="link-btn" data-action="vr-remove" data-id="${esc(p.id)}">Aus dem Vorrat entfernen</button>
+    </div>` : '';
+  const amount = p.qty == null
+    ? `<button class="chip" data-action="vr-edit" data-id="${esc(p.id)}">Menge eintragen</button>`
+    : `<div class="stepper" role="group" aria-label="Menge">
+        <button class="round" data-action="vr-step" data-id="${esc(p.id)}" data-d="-1" aria-label="Weniger" ${p.qty <= 0 ? 'disabled' : ''}>−</button>
+        <span class="vr-qty">${esc(V.label(p))}</span>
+        <button class="round" data-action="vr-step" data-id="${esc(p.id)}" data-d="1" aria-label="Mehr">+</button>
+      </div>`;
+  return `<div class="card vr-item${p.qty === 0 ? ' empty' : ''}">
+    <div class="pantry-item">
       <div class="info">
         <div class="title">${esc(p.n)}</div>
-        <div class="meta">${[p.brand, p.food && p.food !== p.n ? p.food : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="meta">${[p.brand, p.food && p.food !== p.n ? `zählt als ${p.food}` : '', p.k ? `${fmt(p.k)} kcal/100 g` : ''].filter(Boolean).map(esc).join(' · ')}</div>
       </div>
       <button class="chip snack-chip" data-action="pantry-snack" data-code="${esc(p.id)}" aria-pressed="${!!state.snacks[p.id]}" ${p.k ? '' : 'disabled title="Ohne Kalorienangabe kann ich es nicht vorschlagen"'}>Snack</button>
       ${key ? `<button class="round like" data-action="taste" data-food="${esc(key)}" data-value="like" aria-pressed="${taste[key] === 'like'}" aria-label="${esc(key)} mag ich sehr">${ICONS.heart}</button>` : ''}
-    </div>`;
-  };
+    </div>
+    <div class="vr-row">${amount}${p.qty != null && !editing ? `<button class="link-btn" data-action="vr-edit" data-id="${esc(p.id)}">Ändern</button>` : ''}</div>
+    ${edit}
+  </div>`;
+}
+
+function viewEinkauf() {
+  const items = pantryList();
+  const have = items.filter((p) => p.qty !== 0);
+  const empty = items.filter((p) => p.qty === 0);
   const ideas = allRecipes().filter((r) => !r.product && suitable(r)).map((r) => ({ r, n: pantryScore(r) })).filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || a.r.time - b.r.time).slice(0, 3);
   return `<main class="screen with-nav">
-    <div class="ginger-says">${ginger(70)}<div class="bubble">Scann deinen Einkauf im Tracker. Dann weiß ich, was du da hast, und schlage passende Rezepte vor.</div></div>
+    <div class="ginger-says">${ginger(70)}<div class="bubble">Deine Vorratskammer. Scann deinen Einkauf, dann zähle ich mit. Was du kochst oder isst, ziehe ich wieder ab.</div></div>
     <a class="btn" href="tracker/?zurueck=einkauf#einkauf">Einkauf scannen</a>
     <a class="btn secondary" href="#/liste">Einkaufsliste aus dem Wochenplan</a>
+    <section class="card vr-add">
+      <h3>Ohne Barcode dazulegen</h3>
+      <div class="small muted">Für Obst, Gemüse und Lose: z. B. 6 Stück Eier oder 500 g Kartoffeln.</div>
+      <input type="text" list="vr-foods" placeholder="Zutat, z. B. Kartoffeln" data-input="vrName" value="${esc(ui.vrName || '')}" aria-label="Zutat">
+      <datalist id="vr-foods">${FOODS.filter((f) => f.name !== 'Gewürze').map((f) => `<option value="${esc(f.name)}">`).join('')}</datalist>
+      <div class="input-row">
+        <input type="text" inputmode="decimal" placeholder="Menge" data-input="vrAmount" value="${esc(ui.vrAmount || '')}" aria-label="Menge" style="flex:1">
+        <select data-input="vrUnit" aria-label="Einheit" style="flex:1">${[['g', 'g'], ['ml', 'ml'], ['stk', 'Stück']].map(([v, l]) => `<option value="${v}" ${(ui.vrUnit || 'g') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <button class="btn small-btn" data-action="vr-add">Dazu</button>
+      </div>
+      ${ui.vrError ? `<div class="small" style="color:var(--accent-text)">${esc(ui.vrError)}</div>` : ''}
+    </section>
     ${ideas.length ? `<h2>Daraus kannst du kochen</h2>${ideas.map((x) => recipeCard(x.r)).join('')}` : ''}
-    <h2>Vorgemerkt ${items.length ? `<span class="small muted">${items.length} Lebensmittel</span>` : ''}</h2>
-    ${items.length ? items.map(card).join('') : '<div class="card small muted">Noch nichts vorgemerkt.</div>'}
-    ${items.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Löschen und bearbeiten kannst du im Tracker unter „Essen“.</p>' : ''}
+    <h2>Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}</h2>
+    ${have.length ? have.map(vorratItem).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
+    ${have.length ? '<p class="small muted">„Snack“: Ginger schlägt es dir als Snack vor. Herz: Das magst du besonders. Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Bei „Menge offen“ weiß ich nur, dass du es hast.</p>' : ''}
+    ${empty.length ? `<h2>Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}
   </main>${nav('einkauf')}`;
+}
+
+// ---------- Snack: Was darf ich jetzt? ----------
+// Rahmen = die Snack-Kalorien des Tages (wie im Plan: bei 2 Mahlzeiten 2 × 15 %, sonst 10 %), minus schon gegessene
+// Snacks, minus was die Hauptmahlzeiten bisher über ihrem Rahmen lagen (darunter = mehr Platz). Gesund oder nicht zählt nicht.
+function snackAllowance() {
+  const log = journal();
+  const mains = mainMeals().map((m) => m.id);
+  const total = mealBudget('snack') * (state.profile.mealCount === 2 ? SNACKS_PER_DAY : 1);
+  const eaten = log.filter((e) => !mains.includes(e.meal)).reduce((s, e) => s + e.kcal, 0);
+  let over = 0;
+  for (const m of mains) {
+    const k = log.filter((e) => e.meal === m).reduce((s, e) => s + e.kcal, 0);
+    if (k > 0) over += k - mealBudget(m);
+  }
+  return { total, eaten, over, left: Math.max(0, total - eaten - over) };
+}
+
+// Wie viel von einem Produkt passt in left kcal? Begrenzt durch das, was im Vorrat ist.
+function snackAmount(x, left) {
+  const stock = V.grams(x);
+  let g = left / (x.k / 100);
+  const capped = stock != null && stock < g;
+  if (capped) g = stock;
+  const sv = x.serving;
+  if (sv && g >= sv) {
+    const n = Math.floor(g / sv + 1e-6);
+    return { g: n * sv, step: sv, text: `${n} ${n === 1 ? 'Portion' : 'Portionen'} à ${fmt(sv)} g`, capped };
+  }
+  g = Math.floor(g / 5) * 5;
+  return { g, step: sv || 10, text: `${fmt(g)} g`, capped };
+}
+
+function viewSnacks() {
+  const a = snackAllowance();
+  const left = a.left;
+  const pantry = trackerPantry().filter((x) => x.k > 0 && x.qty !== 0);
+  const marked = pantry.filter((x) => state.snacks[x.id]);
+  const others = pantry.filter((x) => !state.snacks[x.id] && !String(x.id).startsWith('rb:'));
+  const productRow = (x) => {
+    const m = snackAmount(x, left);
+    const ok = m.g >= 5;
+    const pick = ui.snackPick === x.id;
+    const g = pick ? ui.snackG : m.g;
+    return `<div class="card snack-opt">
+      <div class="snack-top">
+        <div class="info"><div class="title">${esc(x.n)}</div>
+          <div class="meta">${ok ? `bis zu <b>${esc(m.text)}</b> · ca. ${fmt((m.g * x.k) / 100)} kcal` : `heute nicht mehr drin · ${x.serving ? `1 Portion (${fmt(x.serving)} g) hat ${fmt((x.serving * x.k) / 100)} kcal` : `100 g haben ${fmt(x.k)} kcal`}`}</div>
+          <div class="meta">${[x.brand, x.qty != null ? `im Vorrat: ${V.label(x)}` : '', m.capped && ok ? 'mehr hast du nicht da' : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        </div>
+        <button class="chip" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${ok ? m.g : x.serving || 25}" aria-expanded="${pick}">Essen</button>
+      </div>
+      ${pick ? `<div class="snack-eat">
+        <div class="stepper" role="group" aria-label="Menge">
+          <button class="round" data-action="snack-g" data-d="-${m.step}" aria-label="Weniger" ${g - m.step <= 0 ? 'disabled' : ''}>−</button>
+          <span><b>${fmt(g)} g</b> · ${fmt((g * x.k) / 100)} kcal</span>
+          <button class="round" data-action="snack-g" data-d="${m.step}" aria-label="Mehr">+</button>
+        </div>
+        ${g * x.k / 100 > left + 1 ? `<div class="small" style="color:var(--accent-text)">Das sind ${fmt((g * x.k) / 100 - left)} kcal über deinem Snack-Rahmen.</div>` : ''}
+        <button class="btn small-btn" data-action="snack-eat" data-id="${esc(x.id)}">Eintragen</button>
+      </div>` : ''}
+    </div>`;
+  };
+  // Vorgesehene Snacks: aus dem Wochenplan und Gingers Snack-Rezepte
+  const planned = plannedRecipe(todayKey(), 'snack');
+  let recipes = ideasFor('snack').map((x) => x.recipe).filter((r) => !r.product);
+  if (planned && !planned.product) recipes = [planned, ...recipes.filter((r) => r.id !== planned.id)];
+  const moreRecipes = recipes.length > 4;
+  recipes = recipes.slice(0, ui.snackMore ? 30 : 4);
+  const recipeRow = (r) => {
+    const f = Math.floor((left / r.kcal) * 10) / 10;
+    const fit = Math.min(FIT_MAX, Math.max(FIT_MIN, f));
+    const p = Math.min(f, 2);
+    const text = f >= 0.3 ? `bis zu ${fmtFactor(p)} ${p > 1 ? 'Portionen' : 'Portion'} · ca. ${fmt(r.kcal * p)} kcal` : `heute nicht mehr drin · 1 Portion hat ${fmt(r.kcal)} kcal`;
+    return `<a class="recipe-card" href="#/rezept/${r.id}/snack${f >= 0.3 && fit !== 1 ? '/' + fit : ''}">
+      <div class="thumb" style="background:${r.tint}">${gingerPeek(44)}</div>
+      <div class="info"><div class="title">${esc(r.name)}${planned && planned.id === r.id ? ' <span class="small muted">(im Plan)</span>' : ''}</div><div class="meta">${esc(text)}</div></div>
+    </a>`;
+  };
+  return `<main class="screen with-nav">
+    <a class="back" href="#/heute">${ICONS.back}Heute</a>
+    <h1>Snack: Was darf ich jetzt?</h1>
+    <div class="card snack-budget">
+      <div class="journal-kcal">${fmt(left)} <small>kcal frei für Snacks</small></div>
+      <div class="small muted">Snack-Rahmen heute ${fmt(a.total)} kcal${a.eaten ? ` · schon gesnackt ${fmt(a.eaten)} kcal` : ''}${Math.abs(a.over) >= 10 ? ` · Mahlzeiten bisher ${fmt(Math.abs(a.over))} kcal ${a.over > 0 ? 'über' : 'unter'} Plan` : ''}${hasKcalGoal() ? '' : ' · ohne Kalorienziel im Tracker rechne ich mit 2.000 kcal'}</div>
+    </div>
+    <p class="small muted">Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon heute noch in deinen Rahmen passt, egal wie gesund es ist.</p>
+    <h2>Aus deinem Vorrat</h2>
+    ${marked.length ? marked.map(productRow).join('') : '<div class="card small muted">Noch keine Snacks im Vorrat. Markier Produkte in der Vorratskammer mit „Snack“, dann tauchen sie hier auf.</div>'}
+    ${others.length ? `<button class="link-btn" data-action="snack-more-products" aria-expanded="${!!ui.snackOthers}">${ui.snackOthers ? 'Weitere Produkte ausblenden' : `Weitere ${others.length} Produkte aus dem Vorrat zeigen`}</button>
+      ${ui.snackOthers ? others.map(productRow).join('') : ''}` : ''}
+    <h2>Vorgesehen</h2>
+    ${recipes.length ? recipes.map(recipeRow).join('') : '<div class="card small muted">Gerade kein passendes Snack-Rezept.</div>'}
+    ${moreRecipes ? `<button class="link-btn" data-action="snack-more">${ui.snackMore ? 'Weniger Rezepte' : 'Mehr Snack-Rezepte'}</button>` : ''}
+  </main>${nav('heute')}`;
 }
 
 // ---------- Router ----------
@@ -1870,6 +2130,7 @@ function render() {
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
   else if (page === 'quellen') html = viewQuellen();
+  else if (page === 'snacks') html = viewSnacks();
   else html = viewHeute();
   const sub = { rezepte: 'rezepte', woche: 'woche', liste: 'woche', einkauf: 'einkauf', stempel: 'stempel' }[page];
   if (sub) html = html.replace('<main class="screen with-nav">', `<main class="screen with-nav">${subnav(sub)}`);
@@ -1898,6 +2159,10 @@ window.addEventListener('hashchange', (e) => {
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
   ui.justEntry = null;
+  ui.justVorrat = '';
+  ui.vorratEdit = null;
+  ui.vrError = '';
+  ui.snackPick = null;
   ui.confirmReset = false;
   ui.confirmDelete = false;
   ui.rejecting = null;
@@ -2003,7 +2268,7 @@ const actions = {
   },
   'list-copy'() {
     const { items, staples } = shoppingList();
-    const text = items.filter((x) => !state.week.bought[x.key]).map((x) => `- ${x.text}`).join('\n')
+    const text = items.filter((x) => !state.week.bought[x.key] && x.stock !== 'full').map((x) => `- ${x.text}`).join('\n')
       + (staples.length ? `\n\nVorrat prüfen: ${staples.join(', ')}` : '');
     const done = () => toast('Liste kopiert.');
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => toast('Kopieren hat nicht geklappt.'));
@@ -2043,7 +2308,11 @@ const actions = {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
     const meal = el.dataset.meal || currentMeal();
     const f = Number(el.dataset.factor) || 1;
-    const entryId = addToTracker(r, meal, f);
+    const t = readTracker();
+    const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f)); // gekochte Portionen aus dem Vorrat
+    const entryId = addToTracker(r, meal, f, vr.used.length ? { vu: vr.used } : null);
+    if (!entryId && vr.used.length) writeTracker(t);
+    ui.justVorrat = vr.text;
     if (entryId) state.cookedEntries[entryId] = r.id;
     ui.justEntry = entryId;
     const before = stampCount();
@@ -2056,7 +2325,7 @@ const actions = {
   'eat-product'(el) {
     const r = recipeById(el.dataset.recipe);
     if (!r) return;
-    const ok = addProductToTracker(r, el.dataset.meal || 'snack');
+    const ok = addProductToTracker(r.code, el.dataset.meal || 'snack', r.serving);
     go('#/heute');
     toast(ok ? `${r.name} ist im Tracker eingetragen.` : 'Das ging nicht, das Produkt ist im Tracker nicht mehr vorgemerkt.');
     return 'skip';
@@ -2080,11 +2349,98 @@ const actions = {
     if (ui.justStamped && (ui.justStamped === recipeId || ui.justStamped === el.dataset.recipe)) { ui.justStamped = null; ui.justEntry = null; }
   },
   'ask-reset'() { ui.confirmReset = true; },
+  // ---------- Vorratskammer ----------
+  'vr-add'() {
+    const food = findFood(ui.vrName || '');
+    const amount = Number(String(ui.vrAmount || '').replace(',', '.'));
+    const unit = ui.vrUnit || 'g';
+    if (!food || food.name === 'Gewürze') { ui.vrError = (ui.vrName || '').trim() ? `„${ui.vrName}“ kenne ich nicht. Produkte mit Barcode bitte scannen.` : 'Welche Zutat?'; return; }
+    if (!(amount > 0)) { ui.vrError = 'Wie viel? Bitte eine Menge eintragen.'; return; }
+    if (unit === 'stk' && !food.piece) { ui.vrError = `${food.name} zähle ich in g oder ml, nicht in Stück.`; return; }
+    addToVorrat(food, amount, unit);
+    ui.vrName = ''; ui.vrAmount = ''; ui.vrError = '';
+    toast(`${food.name} liegt im Vorrat.`);
+    return 'skip';
+  },
+  'vr-edit'(el) { ui.vorratEdit = el.dataset.id || null; },
+  'vr-step'(el) {
+    const d = Number(el.dataset.d);
+    changePantry((pantry) => {
+      const x = pantry.find((y) => y.id === el.dataset.id);
+      if (x && x.qty != null) x.qty = Math.max(0, Math.round((x.qty + d * V.step(x)) * 100) / 100);
+    });
+  },
+  'vr-save'(el) {
+    const val = (id) => (document.getElementById(id) || {}).value || '';
+    const qty = Number(val('vr-qty').replace(',', '.'));
+    const qu = val('vr-qu') || 'pkg';
+    const pq = Number(val('vr-pq').replace(',', '.')) || null;
+    const fn = val('vr-fn');
+    if (!(qty >= 0) || val('vr-qty').trim() === '') { toast('Bitte eine Menge eintragen.'); return 'skip'; }
+    changePantry((pantry) => {
+      const x = pantry.find((y) => y.id === el.dataset.id);
+      if (!x) return;
+      const piece = (FOODS.find((f) => f.name === (fn || vorratFood(x))) || {}).piece || (x.qu === 'stk' ? x.ug : null);
+      x.qty = Math.round(qty * 100) / 100;
+      x.qu = qu;
+      x.ug = qu === 'pkg' ? pq : qu === 'stk' ? piece || null : 1;
+      if (qu === 'pkg' && pq) x.pq = pq;
+      if (qu === 'ml') x.liq = true;
+      x.fn = fn;
+    });
+    ui.vorratEdit = null;
+  },
+  'vr-remove'(el) {
+    const id = el.dataset.id;
+    changePantry((pantry, t) => { t.pantry = pantry.filter((y) => y.id !== id); });
+    delete state.snacks[id];
+    ui.vorratEdit = null;
+  },
+  'list-to-vorrat'() {
+    // Abgehakte Zutaten der Einkaufsliste in den Vorrat legen
+    const { items } = shoppingList();
+    let n = 0;
+    for (const x of items) {
+      if (!state.week.bought[x.key] || !x.food || x.product || !x.needG) continue;
+      const unit = x.unit === 'stueck' && x.food.piece ? 'stk' : x.unit === 'ml' ? 'ml' : 'g';
+      const amount = unit === 'stk' ? Math.ceil(x.needG / x.food.piece) : Math.round(x.needG);
+      if (addToVorrat(x.food, amount, unit)) { delete state.week.bought[x.key]; n++; }
+    }
+    toast(n ? `${n} ${n === 1 ? 'Zutat liegt' : 'Zutaten liegen'} jetzt im Vorrat.` : 'Hak erst ab, was du gekauft hast.');
+    return 'skip';
+  },
+  // ---------- Snacks ----------
+  'snack-pick'(el) {
+    ui.snackPick = ui.snackPick === el.dataset.id ? null : el.dataset.id;
+    ui.snackG = Number(el.dataset.g) || 0;
+  },
+  'snack-g'(el) { ui.snackG = Math.max(0, ui.snackG + Number(el.dataset.d)); },
+  'snack-more'() { ui.snackMore = !ui.snackMore; },
+  'snack-more-products'() { ui.snackOthers = !ui.snackOthers; },
+  'snack-eat'(el) {
+    const x = trackerPantry().find((y) => y.id === el.dataset.id);
+    if (!x || !(ui.snackG > 0)) return;
+    const id = addProductToTracker(x.id, 'snack', Math.round(ui.snackG));
+    ui.snackPick = null;
+    toast(id ? `${fmt(ui.snackG)} g ${x.n} eingetragen und aus dem Vorrat genommen.` : 'Das ging nicht.');
+    return 'skip';
+  },
+  // ---------- Backup ----------
+  'backup-export'() {
+    save();
+    RBBackup.exportAll().then((ok) => { if (ok) toast('Backup exportiert. Leg die Datei an einem sicheren Ort ab.'); });
+    return 'skip';
+  },
+  'backup-remind'(el) { RBBackup.setMeta({ remind: el.checked }); },
   'tracker-one'(el) {
     const r = recipeById(el.dataset.recipe);
     if (!r) return;
-    const id = addToTracker(r, el.dataset.meal || currentMeal(), Number(el.dataset.factor) || 1);
-    toast(id ? 'Im Tracker eingetragen' : 'Dazu kenne ich noch keine Nährwerte.');
+    const f = Number(el.dataset.factor) || 1;
+    const t = readTracker();
+    const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f));
+    const id = addToTracker(r, el.dataset.meal || currentMeal(), f, vr.used.length ? { vu: vr.used } : null);
+    if (!id && vr.used.length) writeTracker(t);
+    toast(id ? `Im Tracker eingetragen. ${vr.text}`.trim() : 'Dazu kenne ich noch keine Nährwerte.');
   },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
   'remove-row'(el) {
@@ -2176,6 +2532,8 @@ app.addEventListener('change', (e) => {
     } else refreshAnalysis();
     return;
   }
+  if (el.dataset.input === 'vrUnit') { ui.vrUnit = el.value; return; }
+  if (el.id === 'backup-file') { importBackup(el); return; }
   if (el.dataset.action === 'step') {
     const id = el.dataset.recipe;
     const i = Number(el.dataset.step);
@@ -2200,7 +2558,7 @@ app.addEventListener('input', (e) => {
     return;
   }
   const key = e.target.dataset.input;
-  if (['draft', 'haveDraft'].includes(key)) ui[key] = e.target.value;
+  if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
 });
 
 app.addEventListener('keydown', (e) => {
@@ -2208,7 +2566,28 @@ app.addEventListener('keydown', (e) => {
   const key = e.target.dataset.input;
   if (key === 'draft') { actions['add-food'](); save(); render(); document.getElementById('eigenes')?.focus(); }
   if (key === 'haveDraft') { actions['have-add'](); render(); document.getElementById('have')?.focus(); }
+  if (key === 'vrName' || key === 'vrAmount') { actions['vr-add'](); save(); render(); }
 });
+
+function importBackup(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    input.value = '';
+    let data = null;
+    try { data = JSON.parse(rd.result); } catch (e) { /* unten */ }
+    const parts = RBBackup.check(data);
+    if (!parts) { toast('Das ist keine Backup-Datei.'); return; }
+    const what = parts.rezeptbuch && parts.tracker ? 'Rezeptbuch und Tracker' : parts.tracker ? 'Tracker' : 'Rezeptbuch';
+    if (!confirm(`Backup einlesen? Die Daten von ${what} auf diesem Handy werden durch die aus der Datei ersetzt.`)) return;
+    try { RBBackup.restore(parts); } catch (e) { toast('Einlesen hat nicht geklappt (Speicher voll?).'); return; }
+    RBBackup.markNav();
+    location.reload();
+  };
+  rd.readAsText(file);
+}
+window.addEventListener('rb-backup', () => render());
 
 // Nährwerte aus der BLS-Datei des Trackers laden (dauert es, läuft Ginger), dann die fertigen Rezepte aus den Zutaten berechnen (alle für 1 Portion)
 let waiting = false;
@@ -2235,6 +2614,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;
     reloading = true;
+    if (globalThis.RBBackup) RBBackup.markNav(); // Update-Neuladen ist kein Schließen
     location.reload();
   });
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {

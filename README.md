@@ -11,7 +11,9 @@ Das Rezeptbuch kümmert sich ums Kochen. Alles rund ums Mitzählen macht der ein
 - „Heute“ zeigt, was im Tracker-Journal steht (Kalorien und Einträge pro Mahlzeit) und daneben Gingers Vorschläge.
 - Nährwerte pro Rezept: Eiweiß, Kohlenhydrate, Zucker, freier Zucker, Fett und Ballaststoffe aus dem Bundeslebensmittelschlüssel (dieselbe Datei wie im Tracker), gemessen an den Tageszielen im Tracker.
 - Portionen: In jedem Rezept lässt sich die Portionenzahl ändern, die Zutatenmengen passen sich an.
-- Einkauf: Gescannt wird im Tracker („Einkauf scannen“ springt hin). Vorgemerkte Lebensmittel rutschen in den Vorschlägen nach oben, gelten auf der Einkaufsliste als vorhanden und lassen sich als Snack vorschlagen.
+- Vorratskammer (Rezepte → Vorrat): Gescannt wird im Tracker („Einkauf scannen“ springt hin), jedes Produkt zählt eine Packung; im Scan lässt sich die Anzahl mit − und + einstellen. Lose Zutaten ohne Barcode legt man mit Menge dazu. Mengen lassen sich ändern. „Fertig gekocht“ zieht die gekochten Zutaten ab, Gegessenes (im Rezeptbuch oder im Tracker-Journal) ebenfalls; Rückgängig/Löschen legt es zurück. Die Einkaufsliste rechnet den Vorrat ab.
+- Snack: Was darf ich jetzt? Zeigt für jeden Snack im Vorrat und die vorgesehenen Snack-Rezepte, wie viel davon heute noch in den Snack-Rahmen passt, und trägt es auf Wunsch ein.
+- Backup (unter „Ich“): Rezeptbuch und Tracker zusammen als Datei exportieren und wieder einlesen. Hat sich seit dem letzten Export etwas geändert, fragt die App beim Schließen nach (nur wo der Browser das erlaubt) und beim nächsten Öffnen.
 - Vorschläge ablehnen: „Mag ich nicht“ blendet ein Rezept aus oder merkt sich eine Zutat als No-go. Unter „Ich“ lassen sich abgelehnte Rezepte zurückholen.
 - Wochenplan: Ginger plant die nächsten 7 Tage in einer Tabelle (Tage × Mahlzeiten). Jedes Gericht wird auf den Kalorienrahmen seines Platzes umgerechnet (0,6× bis 1,6× Menge), sodass jeder Tag höchstens 5 % vom Kalorienziel abweicht. Gerichte übernehmen, tauschen, Portionen einstellen. Aus den übernommenen Gerichten entsteht eine Einkaufsliste zum Abhaken und Kopieren.
 - „Ich habe …“: Lebensmittel eingeben und passende Rezepte finden.
@@ -35,6 +37,7 @@ Dann `http://localhost:8000` öffnen. Auf dem Handy lässt sich die Seite über 
 
 - `index.html`, `styles.css`: Seite und Aussehen
 - `app.js`: Ablauf, Vorschläge, Stempelheft
+- `vorrat.js`, `backup.js`: Vorratskammer-Mengen und Backup, von Rezeptbuch und Tracker gemeinsam genutzt
 - `recipes.js`: Rezeptliste und Lebensmittel für die Geschmacksabfrage
 - `nutrition.js`: Zutaten, Einheiten und ihre BLS-Codes; die Werte kommen aus `tracker/data/bls.json`
 - `tracker/`: Kalorien-Tracker von ST0PTV (MIT-Lizenz, `tracker/LICENSE`), ins Rezeptbuch-Design gebracht. Speichert unter `ct.v1`; das Rezeptbuch liest dort Ziele, Ernährung, Journal und Einkauf und trägt Gekochtes ein

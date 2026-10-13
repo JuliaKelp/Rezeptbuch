@@ -695,3 +695,8 @@ body:not(.in-settings) { padding-top: 0; }
 .scan-fab { position: fixed; right: max(16px, calc(50% - 224px)); bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 11; width: 56px; height: 56px; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: 0 6px 18px rgba(80, 40, 10, 0.25); cursor: pointer; }
 body.in-settings .subbar, body.in-settings .rbnav, body.in-settings .scan-fab { display: none; }
 #view { padding-bottom: 90px; }
+/* Vorratskammer: Anzahl im Einkauf-Scan */
+.si-count { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+.si-count b { min-width: 2.2em; text-align: center; }
+.si-count .chip { min-width: 36px; font-size: 1rem; font-weight: 900; }
+.si-count .chip:disabled { opacity: 0.35; }

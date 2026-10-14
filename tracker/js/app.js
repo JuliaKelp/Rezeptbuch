@@ -2393,6 +2393,8 @@ const rbReturn = rbBack && /^[a-z0-9/]+$/.test(rbBack) ? '../#/' + rbBack : null
 if (rbJump || rbBack) history.replaceState(null, '', location.pathname);
 if (rbJump === 'ziel') goTab('settings', 'Tagesziel');
 else if (rbJump === 'ernaehrung') goTab('settings', 'Ernährung & Allergien');
+else if (rbJump === 'analyse') goTab('history'); // „Ganze Analyse“ auf der Startseite
+else if (rbJump === 'timeline') goTab('timeline');
 else if (rbJump.startsWith('set:')) goTab('settings', decodeURIComponent(rbJump.slice(4))); // aus „Ich“ im Rezeptbuch
 else render();
 $('#scanFab').onclick = () => openPantry('scan', { eat: true });

@@ -743,3 +743,13 @@ label.toggle input:focus-visible + .tg-track { outline: 2px solid var(--accent);
 /* Reiter „Vorrat“ im Essens-Scanner */
 .pv-head { display: flex; justify-content: space-between; margin: 10px 2px 4px; font-weight: 700; }
 .pv-add { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; color: var(--accent); font-size: 1.2rem; font-weight: 800; background: var(--panel); }
+
+/* Wasser und Koffein nebeneinander; aufgeklappt nimmt eine Karte die ganze Breite */
+.tk-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; margin-bottom: 8px; }
+.tk-pair > .card { margin: 0; min-width: 0; padding: 12px; }
+.tk-pair > .card:has(.tk-det:not([hidden])) { grid-column: 1 / -1; padding: 14px; }
+.tk-pair > .card:not(:has(.tk-det:not([hidden]))) .cchart { display: none; }
+.tk-pair > .card:not(:has(.tk-det:not([hidden]))) .caf-head { flex-direction: column; gap: 6px; }
+.tk-pair > .card:not(:has(.tk-det:not([hidden]))) .caf-big { font-size: 1.9rem; }
+.tk-pair > .card:not(:has(.tk-det:not([hidden]))) .caf-pill { font-size: 0.72rem; }
+.tk-pair > .card:not(:has(.tk-det:not([hidden]))) .tk-sum { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 0.76rem; }

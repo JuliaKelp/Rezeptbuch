@@ -51,7 +51,7 @@ let scanMeal = 'breakfast';
 let eatBusy = false;    // gerade wird ein Barcode nachgeschlagen
 let eatBefore = null;   // Journal-Einträge von heute beim Öffnen; was dazukommt, steht als Liste im Scanner
 function eatOpen(food) {
-  const tab = addTab === 'search' ? 'search' : 'scan'; // danach im gleichen Reiter weiter
+  const tab = ['search', 'pantry'].includes(addTab) ? addTab : 'scan'; // danach im gleichen Reiter weiter
   pantryMode = false; addMeal = scanMeal;
   openAmount(food, { direct: true, after: () => openPantry(tab) });
 }
@@ -326,7 +326,7 @@ function renderFood() {
   };
   $('#fdQ').oninput = (ev) => { foodQuery = ev.target.value; draw(); };
   document.querySelectorAll('#fdF [data-f]').forEach((b) => b.onclick = () => { foodFilter = b.dataset.f; document.querySelectorAll('#fdF [data-f]').forEach((x) => x.classList.toggle('on', x === b)); draw(); });
-  $('#fdScan').onclick = () => openPantry('scan', { eat: false });
+  $('#fdScan').onclick = () => openPantry('search', { eat: false });
   $('#fdSearch').onclick = () => openPantry('search');
   draw();
 }

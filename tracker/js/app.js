@@ -2423,10 +2423,10 @@ else if (rbJump === 'analyse') goTab('history'); // „Ganze Analyse“ auf der 
 else if (rbJump === 'timeline') goTab('timeline');
 else if (rbJump.startsWith('set:')) goTab('settings', decodeURIComponent(rbJump.slice(4))); // aus „Ich“ im Rezeptbuch
 else render();
-$('#scanFab').onclick = () => openPantry('scan', { eat: true });
+$('#scanFab').onclick = () => openPantry('search', { eat: true });
 loadBls();
 // #scan = Scan-Knopf (Schalter „Zum Essen“ an), #einkauf = „Einkauf scannen“ in der Vorratskammer (Schalter aus)
-if (rbJump === 'einkauf' || rbJump === 'scan') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('scan', { eat: rbJump === 'scan' }); }
+if (rbJump === 'einkauf' || rbJump === 'scan') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('search', { eat: rbJump === 'scan' }); }
 // Koffein-Pegel altert mit der Zeit: Tagebuch (heute) jede Minute und beim Zurückkehren in die App auffrischen
 function refreshCaffeine() {
   if (tab !== 'diary' || sheetMode || document.visibilityState !== 'visible' || !(state.caffeine.enabled || state.alcohol.enabled || (state.supp.enabled && state.supp.remind)) || currentDate !== isoDate(new Date())) return;

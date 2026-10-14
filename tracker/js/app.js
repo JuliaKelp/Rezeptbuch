@@ -978,13 +978,13 @@ function closeSheet() {
 
 function openAdd(meal) {
   if (addTab === 'scan') addTab = 'search'; // Barcode gibt es nur noch im einen Scanner
-  if (pantryMode) { openPantry(['mine', 'custom'].includes(addTab) ? 'search' : addTab); return; }
+  if (pantryMode) { openPantry(['mine', 'custom', 'dish'].includes(addTab) ? 'search' : addTab); return; }
   addMeal = meal; sheetMode = 'add';
   const label = MEALS.find((m) => m.id === meal).label;
   openSheet(`
     <div class="sheet-head"><h1 class="sh-t">${label}</h1><button class="btn ghost" id="closeSheet">Schließen</button></div>
-    <div class="seg" id="addSeg">
-      <button data-t="search">Suche</button><button data-t="mine">Meine</button>
+    <div class="seg ${rbIndex() ? 'five' : ''}" id="addSeg">
+      <button data-t="search">Suche</button>${rbIndex() ? '<button data-t="dish">Gerichte</button>' : ''}<button data-t="mine">Meine</button>
       <button data-t="scan">Scannen</button><button data-t="custom">Neu</button>
     </div>
     <div id="addBody"></div>`);
@@ -1007,6 +1007,8 @@ function renderAddTab() {
     if (!addQuery) setTimeout(() => q.focus(), 50);
   } else if (addTab === 'mine') {
     renderMine();
+  } else if (addTab === 'dish' && rbIndex()) {
+    renderDishTab();
   } else if (addTab === 'pantry') {
     renderPantryTab();
   } else if (addTab === 'scan') {
@@ -1014,6 +1016,44 @@ function renderAddTab() {
   } else {
     renderNew();
   }
+}
+
+// Reiter „Gerichte“: Rezepte aus dem Rezeptbuch. Antippen öffnet dort die Rezeptseite mit dieser Mahlzeit;
+// „Fertig gekocht“ trägt es ein, zieht die Zutaten vom Vorrat ab und gibt einen Stempel.
+const RB_MEAL = { breakfast: 'fruehstueck', lunch: 'mittag', dinner: 'abend', snack: 'snack' };
+function rbIndex() {
+  try { const x = JSON.parse(localStorage.getItem('rezeptbuch-index') || 'null'); return x && Array.isArray(x.list) ? x : null; } catch (e) { return null; }
+}
+let dishQuery = '';
+function renderDishTab() {
+  const body = $('#addBody');
+  body.innerHTML = `<input id="dq" type="search" placeholder="Rezept suchen" autocomplete="off" value="${esc(dishQuery)}">
+    ${currentDate !== isoDate(new Date()) ? '<p class="small muted">Gekochtes trägt das Rezeptbuch immer für heute ein.</p>' : ''}<div id="dishList"></div>`;
+  const q = $('#dq');
+  q.oninput = () => { dishQuery = q.value; drawDishTab(); };
+  drawDishTab();
+}
+function drawDishTab() {
+  const ix = rbIndex(); if (!ix) return;
+  const meal = RB_MEAL[addMeal] || 'snack';
+  const planned = ix.day === isoDate(new Date()) && ix.plan ? ix.plan[meal] : null;
+  const terms = norm(dishQuery).split(/\s+/).filter(Boolean);
+  const isPlan = (r) => !!planned && r.id === planned.id;
+  const rank = (r) => (isPlan(r) ? 0 : r.fav ? 1 : r.own ? 2 : 3);
+  const items = ix.list
+    .filter((r) => (terms.length ? terms.every((t) => norm(r.n).includes(t)) : isPlan(r) || r.fav || r.m.includes(meal)))
+    .sort((a, b) => rank(a) - rank(b) || a.n.localeCompare(b.n, 'de'));
+  const label = (r) => (r.fav && !isPlan(r) ? '<span class="star">♥</span>' : '') + esc(r.n) + (isPlan(r) ? '<span class="tag">heute geplant</span>' : r.own ? '<span class="tag">Eigenes</span>' : '');
+  $('#dishList').innerHTML = `<div class="small muted pv-head"><span>${terms.length ? `${items.length} gefunden` : `Passt zu ${esc(MEALS.find((m) => m.id === addMeal).label)}`}</span><span>Antippen = Rezept öffnen</span></div>`
+    + (items.length ? `<ul class="list">${items.map((r, i) => `<li data-i="${i}"><div>${label(r)}<div class="meta">ca. ${fmt(r.k)} kcal pro Portion</div></div><div class="meta">›</div></li>`).join('')}</ul>`
+      : '<div class="empty">Kein Rezept gefunden.</div>');
+  const ul = $('#dishList ul');
+  if (ul) bindList(ul, items, (r) => {
+    const f = isPlan(r) && planned.f && planned.f !== 1 ? '/' + planned.f : '';
+    try { sessionStorage.setItem('rb-from-tracker', JSON.stringify({ id: r.id, back: 'tracker/?zurueck=heute' })); } catch (e) { /* egal */ }
+    if (globalThis.RBBackup) RBBackup.markNav();
+    location.assign('../#/rezept/' + encodeURIComponent(r.id) + '/' + meal + f);
+  });
 }
 
 // Reiter „Vorrat“ im Essens-Scanner: was in der Vorratskammer ist (mit Menge), Antippen trägt es als gegessen ein

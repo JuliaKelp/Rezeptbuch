@@ -741,3 +741,6 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .shop-hint b { font-weight: 800; }
 .shop-acts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
 .shop-hint .shop-acts .link-btn { padding: 4px 0; margin: 0; min-height: 0; text-align: left; display: inline; width: auto; }
+.cook-meal { display: flex; flex-direction: column; gap: 6px; }
+.cook-meal .chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.cook-meal .chip { padding-left: 2px; padding-right: 2px; justify-content: center; text-align: center; font-size: 13px; }

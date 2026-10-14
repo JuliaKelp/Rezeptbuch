@@ -283,7 +283,7 @@ p { margin: 0; }
 .ing-row .input { min-width: 0; }
 .ing-row .round { flex: 0 0 44px; }
 textarea.input { resize: vertical; font: inherit; }
-.field > .input { flex: none; }
+.field > .input, .card > .input { flex: none; }
 
 /* Quellen und Lizenzen */
 .source-group { display: flex; flex-direction: column; gap: 10px; }

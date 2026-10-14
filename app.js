@@ -1249,6 +1249,36 @@ function eatenRow(name, t) {
   </a>`;
 }
 
+// Supplements aus dem Tracker (Einstellungen → Supplements), Regeln wie dort: täglich, jeden 2. Tag oder an Wochentagen.
+// Farbe und Kürzel aus dem Supplement-Katalog des Trackers (tracker/js/supp_catalog.js, als normales Skript geladen).
+const SUPP_COLOR = { creatine: '#C2551F', b12: '#C24F93', omega3: '#C98A10', iron: '#C8462B' };
+function suppDueOn(day) {
+  const s = readTracker().supp;
+  if (!s || s.enabled === false || !Array.isArray(s.items)) return [];
+  const dow = ((dateOf(day).getDay() + 6) % 7) + 1; // 1 = Montag … 7 = Sonntag
+  const diff = (a) => Math.round((dateOf(day) - dateOf(a)) / 864e5);
+  return s.items.filter((x) => {
+    if (!x || !x.id || x.on === false || (x.from && day < x.from)) return false;
+    if (x.mode === 'every2') { const d = diff(x.anchor || x.from || day); return d >= 0 && d % 2 === 0; }
+    if (x.mode === 'days') return (x.days || [1, 2, 3, 4, 5, 6, 7]).includes(dow);
+    return true;
+  });
+}
+function suppPills(day) {
+  const items = suppDueOn(day);
+  if (!items.length) return '';
+  const log = ((readTracker().supp || {}).log || {})[day] || [];
+  const cat = typeof SUPP_CAT_MAP !== 'undefined' ? SUPP_CAT_MAP : {};
+  const done = items.filter((x) => log.includes(x.id)).length;
+  const pills = items.map((x) => {
+    const c = (cat[x.kind] || {}).c || SUPP_COLOR[x.kind] || x.color || '#7A5CC4';
+    const k = (cat[x.kind] || {}).k || String(x.name || '?').replace(/^Vitamin\s+/i, '').replace(/[^A-Za-zÄÖÜäöüß0-9]/g, '').slice(0, 2) || '?';
+    const on = log.includes(x.id);
+    return `<button type="button" class="sp-chip" data-action="supp-take" data-id="${esc(x.id)}" data-day="${day}" aria-pressed="${on}"><i style="${on ? '' : `background:${c}`}">${on ? '✓' : esc(k)}</i>${esc(x.name || 'Supplement')}</button>`;
+  }).join('');
+  return `<div class="sp-head"><span>Supplements</span><small>${done} von ${items.length} genommen</small></div><div class="sp-row">${pills}</div>`;
+}
+
 // Ein Feld für den Tag: Kalorien im Kreis (geteilt nach Eiweiß, KH, Fett), daneben die Makros, darunter abgesetzt die
 // ausgewählten Mineralstoffe in zwei Spalten. Farben: farbenblindtaugliche Palette nach Okabe & Ito (2008);
 // jeder Balken hat zusätzlich seinen Namen, weil sich bei vielen Mineralstoffen Farben wiederholen.
@@ -1319,6 +1349,7 @@ function dayCard(day = todayKey()) {
       ${micros ? `<button type="button" class="dp-toggle" data-action="micros-open" aria-expanded="${!!state.profile.microsOpen}">
         <span>Mineralstoffe und Vitamine</span>${state.profile.microsOpen ? '' : `<span class="dp-peek">${ids.map((id) => `<i class="dp-dot" style="background:${P[id]}"></i>${Math.round((d.sum[id] / dgeRef(id)) * 100)} %`).join(' ')}</span>`}<span class="dp-chev" aria-hidden="true">▾</span></button>
       ${state.profile.microsOpen ? `<a class="dp-micro" href="tracker/">${micros}</a>` : ''}` : ''}
+      ${suppPills(day)}
       ${note ? `<div class="small muted">${note}</div>` : ''}
     </section>`;
 }
@@ -3408,6 +3439,16 @@ const actions = {
     cur.setDate(cur.getDate() + d);
     const k = keyOf(cur);
     ui.homeDay = k < todayKey() ? k : null;
+  },
+  'supp-take'(el) { // Supplement abhaken, wie in der Leiste im Tracker-Journal
+    const t = readTracker();
+    if (!t.supp) return 'skip';
+    const log = (t.supp.log = t.supp.log || {});
+    const d = el.dataset.day;
+    const l = (log[d] || []).filter((x) => x !== el.dataset.id);
+    if (el.getAttribute('aria-pressed') !== 'true') l.push(el.dataset.id);
+    if (l.length) log[d] = l; else delete log[d];
+    writeTracker(t);
   },
   'micros-open'() { state.profile.microsOpen = !state.profile.microsOpen; },
   'day-mode'(el) {

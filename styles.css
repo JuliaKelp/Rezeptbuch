@@ -714,3 +714,13 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .ana-days span { flex: 1; text-align: center; min-width: 0; overflow: visible; white-space: nowrap; }
 .ana-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 13px; font-weight: 700; color: var(--muted); }
 .ana-more { display: block; margin-top: 12px; text-align: center; font-weight: 800; font-size: 14px; color: var(--accent-text); text-decoration: none; }
+
+/* Supplements im Tagesfeld: kleine Pillen in einer Reihe, Antippen hakt ab */
+.sp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; border-top: 1px solid var(--track); margin-top: 10px; padding-top: 10px; font-size: 14px; font-weight: 800; }
+.sp-head small { font-size: 12px; font-weight: 700; color: var(--muted); }
+.sp-row { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 8px -2px 2px; padding: 0 2px; }
+.sp-row::-webkit-scrollbar { display: none; }
+.sp-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 160px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--card); padding: 3px 10px 3px 3px; font-size: 12px; font-weight: 800; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-chip i { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #FFFFFF; font-style: normal; font-size: 8px; font-weight: 900; }
+.sp-chip[aria-pressed="true"] { background: var(--green-soft); border-color: transparent; color: var(--green); }
+.sp-chip[aria-pressed="true"] i { background: var(--green); font-size: 11px; }

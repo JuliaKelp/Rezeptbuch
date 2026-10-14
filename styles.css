@@ -656,3 +656,13 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 a.dp-micro { text-decoration: none; color: inherit; }
 .top-row > div:first-child { flex: 1; min-width: 0; }
 .list-group { margin: 14px 0 6px; font-size: 15px; color: var(--muted); }
+.dp-h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 360px) {
+  .dp-body { grid-template-columns: 92px 1fr; gap: 10px; }
+  .dp-ring, .dp-kc, .dp-ring svg { width: 92px; }
+  .dp-ring svg, .dp-kc { height: 92px; }
+  .dp-kc b { font-size: 18px; }
+  .dp-list .dp-h { font-size: 13px; }
+  .dp-micro { gap: 9px 10px; }
+  .dp-v { font-size: 11px; }
+}

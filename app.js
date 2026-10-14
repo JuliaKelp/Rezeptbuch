@@ -1294,9 +1294,17 @@ function dayCard(day = todayKey()) {
   }).join('');
   // Balken als Farbverlauf auf der Spur selbst: auf dem iPhone blieben die inneren Balken leer
   const bar = (id, pct) => { const w = Math.round(Math.min(100, Math.max(0, pct || 0)) * 10) / 10; return `<div class="dp-bar" style="background:linear-gradient(to right, ${P[id]} ${w}%, #EFE4D8 ${w}%)"></div>`; };
+  // Ohne Makroziel im Tracker: Richtwerte der DGE (Fett 30 % der Energie, Kohlenhydrate mehr als 50 %, Stand 2000;
+  // Protein 0,8 g/kg, ab 65 Jahren 1,0 g/kg, Stand 2017), mit * gekennzeichnet
+  const weight = Number((readTracker().profile || {}).weight) || null;
+  const dgeMacro = { fett: Math.round((goal * 0.3) / 9), kh: Math.round((goal * 0.5) / 4), protein: weight ? Math.round(weight * (profileAge() >= 65 ? 1 : 0.8)) : null };
+  let usedDge = false;
   const macros = [['protein', 'Eiweiß'], ['kh', 'Kohlenhydrate'], ['fett', 'Fett']].map(([id, name]) => {
-    const g = t[id];
-    const text = `${fmt(e[id])}${g ? `<small> / ${fmt(g)}</small>` : ''} g`; // immer gegessen / Ziel, auch bei „Übrig“
+    const own = t[id];
+    const g = own || dgeMacro[id];
+    const star = !own && g ? '*' : '';
+    if (star) usedDge = true;
+    const text = `${fmt(e[id])}${g ? `<small> / ${fmt(g)}${star}</small>` : ''} g`; // immer gegessen / Ziel, auch bei „Übrig“
     return `<div class="dp-row"><div class="dp-h"><span><i class="dp-dot" style="background:${P[id]}"></i>${name}</span><b>${text}</b></div>${bar(id, g ? (e[id] / g) * 100 : 0)}</div>`;
   }).join('');
   const ids = hasMicros() ? (state.profile.homeMicros || []).filter((id) => DGE[id]) : [];
@@ -1312,6 +1320,7 @@ function dayCard(day = todayKey()) {
   }).join('');
   const missing = d ? Math.max(...ids.map((id) => d.miss[id])) : 0;
   const note = [hasKcalGoal(day) ? '' : 'Kein Ziel im Tracker, ich rechne mit 2.000 kcal.',
+    usedDge ? '* Richtwert der DGE, eigene Makroziele stellst du im Tracker ein.' : '',
     missing && state.profile.microsOpen ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Mineralstoff-Werte (z. B. Barcode) ${missing === 1 ? 'fehlt' : 'fehlen'}.` : '',
     state.profile.microsOpen && ids.some((id) => def.includes(id)) ? '★ = Mangel' : ''].filter(Boolean).join(' ');
   return `<section class="card journal-card day-panel">

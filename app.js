@@ -1062,9 +1062,9 @@ function viewStart1(edit) {
     <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Wie heißt du, und wie alt bist du? Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
     <section class="card" style="display:flex;flex-direction:column;gap:8px">
       <label for="pname"><h3>Wie soll ich dich nennen?</h3></label>
-      <input id="pname" type="text" data-input="profileName" value="${esc(state.profile.name || '')}" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
+      <input id="pname" class="input" type="text" data-input="profileName" value="${esc(state.profile.name || '')}" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
       <label for="page"><h3>Wie alt bist du?</h3></label>
-      <input id="page" type="number" inputmode="numeric" min="15" max="120" data-input="profileAge" value="${esc(state.profile.age || '')}" placeholder="Alter in Jahren">
+      <input id="page" class="input" type="number" inputmode="numeric" min="15" max="120" data-input="profileAge" value="${esc(state.profile.age || '')}" placeholder="Alter in Jahren">
       ${(readTracker().profile || {}).sex === 'm' ? '' : `<h3>Hast du deine Regel?</h3>
       <div class="chips" role="group" aria-label="Regelblutung">${CYCLE.map(([k, label]) => `<button class="chip" data-action="cycle" data-k="${k}" aria-pressed="${state.profile.cycle === k}">${label}</button>`).join('')}</div>`}
       <div class="small muted">Danach richten sich deine Tageswerte für Eisen, Magnesium, Calcium und Co. (DGE). Bleibt nur auf diesem Handy.</div>
@@ -1543,7 +1543,7 @@ function viewRezept(id, meal, factorParam) {
     <div class="bottom">
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-entry="${esc(ui.justEntry || '')}" data-recipe="${r.id}">Doch nicht gekocht? Rückgängig</button>`
-        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}" ${allDone ? '' : 'disabled'}>Fertig gekocht</button>`}
+        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Fertig gekocht</button>`}
       ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
@@ -1813,21 +1813,14 @@ function viewIch() {
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Hier kannst du alles ändern, was ich über dich weiß.</div></div>
     <h2>Rezeptbuch</h2>
-    <a class="card" href="#/edit/1" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Name und Alter</h3>
-      <div class="small muted">${esc((state.profile.name || '').trim() || 'noch kein Name')} · ${state.profile.age ? `${esc(state.profile.age)} Jahre` : 'Alter fehlt'}${state.profile.cycle ? ` · Regel: ${esc(CYCLE.find(([k]) => k === state.profile.cycle)[1])}` : ''}</div>
-    </a>
-    <a class="card" href="#/edit/2" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Geschmack</h3>
-      <div class="small muted">Mag ich: ${esc(likes.join(', ') || 'noch nichts')}</div>
-      <div class="small muted">Mag ich nicht: ${esc(nos.join(', ') || 'nichts')}</div>
-    </a>
-    <a class="card" href="#/edit/3" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:4px">
-      <h3>Zeit und Portionen</h3>
-      <div class="small muted">${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}</div>
-    </a>
-    ${TRACKER_SETTINGS.filter(([group]) => group !== 'Tracker').map(([group, items]) => `<h2>${group}</h2>
-    <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
+    <section class="card set-list">
+      ${[['#/edit/1', 'Name und Alter', `${esc((p.name || '').trim() || 'noch kein Name')} · ${p.age ? `${esc(p.age)} Jahre` : 'Alter fehlt'}${p.cycle ? ` · Regel: ${esc(CYCLE.find(([k]) => k === p.cycle)[1])}` : ''}`],
+        ['#/edit/2', 'Geschmack', `Mag ich: ${esc(likes.join(', ') || 'noch nichts')} · Mag ich nicht: ${esc(nos.join(', ') || 'nichts')}`],
+        ['#/edit/3', 'Zeit und Portionen', `${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}`]]
+        .map(([href, title, sub]) => `<a href="${href}"><span>${title}<span class="small muted">${sub}</span></span><span aria-hidden="true">›</span></a>`).join('')}
+    </section>
+    <h2>Tracker-Einstellungen</h2>
+    <section class="card set-list">${TRACKER_SETTINGS.filter(([group]) => group !== 'Tracker').flatMap(([, items]) => items).map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>
     ${trackerCardsCard()}
     ${deficitCard()}
     ${backupCard()}
@@ -3031,7 +3024,7 @@ const actions = {
     if (!(amount > 0)) { ui.vrError = 'Wie viel? Bitte eine Menge eintragen.'; return; }
     if (unit === 'stk' && !food.piece) { ui.vrError = `${food.name} zähle ich in g oder ml, nicht in Stück.`; return; }
     addToVorrat(food, amount, unit);
-    ui.vrName = ''; ui.vrAmount = ''; ui.vrError = '';
+    ui.vrName = ''; ui.vrAmount = ''; ui.vrError = ''; ui.vrUnitSet = false;
     toast(`${food.name} liegt im Vorrat.`);
     return 'skip';
   },
@@ -3314,7 +3307,7 @@ app.addEventListener('change', (e) => {
     } else refreshAnalysis();
     return;
   }
-  if (el.dataset.input === 'vrUnit') { ui.vrUnit = el.value; return; }
+  if (el.dataset.input === 'vrUnit') { ui.vrUnit = el.value; ui.vrUnitSet = true; return; }
   if (el.id === 'backup-file') { importBackup(el); return; }
   if (el.dataset.action === 'step') {
     const id = el.dataset.recipe;
@@ -3341,6 +3334,12 @@ app.addEventListener('input', (e) => {
   }
   const key = e.target.dataset.input;
   if (['draft', 'haveDraft', 'vrName', 'vrAmount'].includes(key)) ui[key] = e.target.value;
+  // Was man stückweise kauft (Eier, Tomaten, Bananen), steht gleich auf „Stück“, solange niemand die Einheit selbst gewählt hat
+  if (key === 'vrName' && !ui.vrUnitSet) {
+    const f = findFood(t.value);
+    const sel = app.querySelector('[data-input="vrUnit"]');
+    if (f && sel) { ui.vrUnit = f.piece ? 'stk' : 'g'; sel.value = ui.vrUnit; }
+  }
   if (key === 'profileName') { state.profile.name = t.value.slice(0, 30); save(); }
   if (key === 'profileAge') { const a = parseInt(t.value, 10); state.profile.age = a >= 15 && a <= 120 ? a : null; save(); }
   if (key === 'recipeQuery' || key === 'vrQuery') {

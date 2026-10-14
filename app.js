@@ -1213,35 +1213,65 @@ function eatenRow(name, t) {
   </a>`;
 }
 
-// Oben auf „Heute“: was noch frei ist, mit Makro-Balken wie im Tracker
+// Ein Feld für den Tag: Kalorien im Kreis (geteilt nach Eiweiß, KH, Fett), daneben die Makros, darunter abgesetzt die
+// ausgewählten Mineralstoffe in zwei Spalten. Farben: farbenblindtaugliche Palette nach Okabe & Ito (2008);
+// jeder Balken hat zusätzlich seinen Namen, weil sich bei vielen Mineralstoffen Farben wiederholen.
+const DAY_COLORS = { protein: '#0072B2', kh: '#E69F00', fett: '#CC79A7', fe: '#D55E00', mg: '#009E73', b12: '#56B4E9', zn: '#0072B2', ca: '#E69F00', fol: '#009E73', vd: '#E69F00', jod: '#CC79A7' };
 function dayCard(day = todayKey()) {
+  const P = DAY_COLORS;
   const left = dayLeft(day);
   const t = nutrientTargets(day);
   const e = left.eaten;
   const goal = kcalGoal(day);
   const showLeft = readTracker().heroMode !== 'eaten'; // gleiche Einstellung wie früher im Tracker-Journal
-  // Gefüllt wird nach dem Anteil von Eiweiß, KH und Fett an den gegessenen kcal, die Länge ist gegessen / Ziel
-  const parts = [['protein', 4, 'var(--mp)'], ['kh', 4, 'var(--mc)'], ['fett', 9, 'var(--mf)']];
-  const macroKcal = parts.reduce((x, [id, k]) => x + e[id] * k, 0) || 1;
-  const full = Math.min(100, (e.kcal / goal) * 100);
-  const seg = parts.map(([id, k, c]) => `<i style="width:${((e[id] * k) / macroKcal) * full}%;background:${c}"></i>`).join('');
-  const leg = (id, name, cls) => {
-    if (!showLeft || !t[id]) return `<span class="${cls}"><b>${fmt(e[id])}</b>${t[id] ? ` / ${fmt(t[id])}` : ''} g ${name}</span>`;
-    const r = t[id] - e[id];
-    return `<span class="${cls}">${r < 0 ? `<b>+${fmt(-r)}</b> g ${name} drüber` : `<b>${fmt(r)}</b> g ${name} übrig`}</span>`;
-  };
   const over = left.kcal < 0;
-  const big = showLeft ? `${fmt(Math.abs(left.kcal))} <small>${over ? 'kcal über dem Ziel' : 'kcal übrig'}</small>` : `${fmt(e.kcal)} <small>kcal gegessen</small>`;
-  const sub = showLeft ? `${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen` : `${over ? `${fmt(-left.kcal)} kcal über dem Ziel` : `${fmt(left.kcal)} kcal übrig`} · Ziel ${fmt(goal)}`;
-  return `<section class="card journal-card">
+  // Kreis: Länge = gegessen / Ziel, die Farben zeigen den Anteil von Eiweiß, KH und Fett an den gegessenen kcal
+  const R = 46; const L = 2 * Math.PI * R;
+  const full = Math.min(1, e.kcal / goal);
+  const parts = [['protein', e.protein * 4], ['kh', e.kh * 4], ['fett', e.fett * 9]];
+  const tot = parts.reduce((x, p) => x + p[1], 0) || 1;
+  let off = 0;
+  const segs = parts.map(([id, k]) => {
+    const len = (k / tot) * full * L;
+    const c = len > 0.5 ? `<circle cx="56" cy="56" r="${R}" fill="none" stroke="${P[id]}" stroke-width="11" stroke-dasharray="${Math.max(0.5, len - 1.5).toFixed(1)} ${L.toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}"/>` : '';
+    off += len;
+    return c;
+  }).join('');
+  const bar = (id, pct) => `<div class="dp-bar"><i style="width:${Math.min(100, Math.max(0, pct))}%;background:${P[id]}"></i></div>`;
+  const macros = [['protein', 'Eiweiß'], ['kh', 'Kohlenhydrate'], ['fett', 'Fett']].map(([id, name]) => {
+    const g = t[id];
+    const r = g ? g - e[id] : null;
+    const text = showLeft && g ? (r < 0 ? `+${fmt(-r)} g drüber` : `${fmt(r)} g`) : `${fmt(e[id])}${g ? `<small> / ${fmt(g)}</small>` : ''} g`;
+    return `<div class="dp-row"><div class="dp-h"><span><i class="dp-dot" style="background:${P[id]}"></i>${name}</span><b>${text}</b></div>${bar(id, g ? (e[id] / g) * 100 : 0)}</div>`;
+  }).join('');
+  const ids = hasMicros() ? (state.profile.homeMicros || []).filter((id) => DGE[id]) : [];
+  const d = ids.length ? dayMicros(day) : null;
+  const def = deficits();
+  const num = (x) => (x >= 100 ? fmt(x) : g1(x));
+  const micros = ids.map((id) => {
+    const m = MICROS.find((x) => x.id === id);
+    const ref = dgeRef(id);
+    const sum = d.sum[id];
+    const text = showLeft ? `${num(Math.max(0, ref - sum))} ${m.unit} übrig` : `${num(sum)}<small> / ${fmt(ref)}</small> ${m.unit}`;
+    return `<div class="dp-row"><div class="dp-h"><span><i class="dp-dot" style="background:${P[id]}"></i>${m.name}${def.includes(id) ? ' ★' : ''}</span></div><div class="dp-v">${bar(id, (sum / ref) * 100)}<b>${text}</b></div></div>`;
+  }).join('');
+  const missing = d ? Math.max(...ids.map((id) => d.miss[id])) : 0;
+  const note = [hasKcalGoal(day) ? '' : 'Kein Ziel im Tracker, ich rechne mit 2.000 kcal.',
+    missing ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Mineralstoff-Werte (z. B. Barcode) ${missing === 1 ? 'fehlt' : 'fehlen'}.` : '',
+    ids.some((id) => def.includes(id)) ? '★ = Mangel' : ''].filter(Boolean).join(' ');
+  return `<section class="card journal-card day-panel">
       <div class="peek">${gingerPeek(72)}</div>
       <div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>
-      <a class="day-link" href="tracker/">
-        <div class="day-top"><div><div class="journal-kcal">${big}</div>
-          <div class="small muted">${sub}${hasKcalGoal(day) ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
-        <div class="comp-bar" aria-hidden="true">${seg}</div>
-        <div class="comp-legend">${leg('protein', 'Eiweiß', 'm-p')}${leg('kh', 'KH', 'm-c')}${leg('fett', 'Fett', 'm-f')}</div>
+      <a class="dp-body" href="tracker/">
+        <div class="dp-ring" role="img" aria-label="${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen">
+          <svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="${R}" fill="none" stroke="#EFE4D8" stroke-width="11"/><g transform="rotate(-90 56 56)">${segs}</g></svg>
+          <div class="dp-kc"><b class="${showLeft && over ? 'over' : ''}">${fmt(showLeft ? Math.abs(left.kcal) : e.kcal)}</b><small>${showLeft ? (over ? 'kcal drüber' : 'kcal übrig') : 'kcal gegessen'}</small></div>
+          <div class="dp-sub small muted">${showLeft ? `${fmt(e.kcal)} von ${fmt(goal)}` : `Ziel ${fmt(goal)}`}</div>
+        </div>
+        <div class="dp-list">${macros}</div>
+        ${micros ? `<div class="dp-micro">${micros}</div>` : ''}
       </a>
+      ${note ? `<div class="small muted">${note}</div>` : ''}
     </section>`;
 }
 
@@ -1271,24 +1301,6 @@ function dayMicros(day = todayKey()) {
   }
   return { sum, miss, count: entries.length };
 }
-function microDayCard(day = todayKey()) {
-  const ids = (state.profile.homeMicros || []).filter((id) => DGE[id]);
-  if (!ids.length || !hasMicros()) return '';
-  const d = dayMicros(day);
-  const def = deficits();
-  const rows = ids.map((id) => {
-    const m = MICROS.find((x) => x.id === id);
-    const ref = dgeRef(id);
-    const pct = Math.round((d.sum[id] / ref) * 100);
-    return `<div class="macro"><span>${m.name}${def.includes(id) ? ' ★' : ''}</span><div class="bar small-bar"><div style="width:${Math.min(100, pct)}%"></div></div><b>${d.sum[id] >= 100 ? fmt(d.sum[id]) : g1(d.sum[id])}<small> / ${fmt(ref)} ${m.unit}</small></b></div>`;
-  }).join('');
-  const missing = Math.max(...ids.map((id) => d.miss[id]));
-  return `<section class="card micro-day">
-      ${rows}
-      <div class="small muted">${!d.count ? 'Noch nichts eingetragen.' : missing ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Werte (z. B. Barcode-Produkte) ${missing === 1 ? 'fehlt' : 'fehlen'} hier.` : 'Tageswerte der DGE, Gehalt aus dem Bundeslebensmittelschlüssel.'}${def.length && ids.some((id) => def.includes(id)) ? ' ★ = Mangel' : ''}</div>
-    </section>`;
-}
-
 // Begrüßung nach Tageszeit, mit Namen, wenn er unter „Ich“ steht (nur lokal gespeichert)
 function greeting() {
   const h = new Date().getHours();
@@ -1314,7 +1326,6 @@ function viewHeuteRueckblick(day) {
     <div class="top-row"><div>${homeDayNav(day)}<h1>Rückblick</h1></div>
       <button class="link-btn" data-action="home-day" data-d="0">Zu heute ›</button></div>
     ${dayCard(day)}
-    ${microDayCard(day)}
     <h2>Gegessen</h2>
     ${eaten.length ? eaten.map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id, day))}</section>`).join('') : '<div class="card small muted">An diesem Tag ist nichts eingetragen.</div>'}
   </main>${nav('heute')}`;
@@ -1368,7 +1379,6 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
-    ${microDayCard()}
     ${infoHead('h2', 'Deine Mahlzeiten', 'heute')}
     ${meals}
     ${[...new Set(extras.map((e) => e.meal))].map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id))}</section>`).join('')}

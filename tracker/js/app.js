@@ -519,8 +519,9 @@ function renderDiary() {
         <button class="add-btn" data-add="${m.id}" aria-label="${m.label} hinzufügen">+</button>
       </div>
       ${open && list.length ? `<div class="entries">${list.map((e) => `<div class="entry" data-entry="${e.id}">
-        <div class="name">${esc(e.n)}<div class="small muted">${e.quick ? 'Schnelleintrag' : `${r1(e.grams)} ${unitOf(e)}`}</div></div>
+        <div class="name">${esc(e.n)}<div class="small muted">${e.parts ? `Mahlzeit aus ${e.parts.length} Teilen` : e.quick ? 'Schnelleintrag' : `${r1(e.grams)} ${unitOf(e)}`}</div></div>
         <div class="kcal">${de(entryTotals(e).k)} kcal${e.t ? `<div class="small etime" title="abweichende Uhrzeit"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> ${esc(e.t)}</div>` : ''}</div></div>`).join('')}</div>` : ''}
+      ${open && list.filter(canMerge).length >= 2 ? `<button class="btn ghost copy" data-merge="${m.id}">Zu einer Mahlzeit zusammenführen</button>` : ''}
       ${!list.length && prevMeal.length ? `<button class="btn ghost copy" data-copy="${m.id}">↺ Wie am Vortag (${de(prevMeal.reduce((a, e) => a + entryTotals(e).k, 0))} kcal)</button>` : ''}
     </div>`;
   }
@@ -546,6 +547,7 @@ function renderDiary() {
   });
   v.querySelectorAll('[data-mtime]').forEach((b) => b.onclick = () => tlTimeSheet(currentDate, b.dataset.mtime, () => { const y = window.scrollY; renderDiary(); window.scrollTo(0, y); }));
   v.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => { openMeals.add(b.dataset.add); openAdd(b.dataset.add); });
+  v.querySelectorAll('[data-merge]').forEach((b) => b.onclick = () => openMerge(b.dataset.merge));
   v.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => { const n = copyEntries(prev, b.dataset.copy); openMeals.add(b.dataset.copy); toast(`${n} übernommen`); renderDiary(); });
   const cd = $('#copyDay'); if (cd) cd.onclick = () => { const n = copyEntries(prev, null); toast(`${n} Einträge übernommen`); renderDiary(); };
   v.querySelectorAll('[data-entry]').forEach((el) => el.onclick = () => {
@@ -554,7 +556,7 @@ function renderDiary() {
     const ae = e.alcId && ((state.alcohol.log[currentDate] || []).find((x) => x.id === e.alcId));
     if (ae) { openAlcohol(currentDate, ae); return; }
     const ce = e.cafId && ((state.caffeine.log[currentDate] || []).find((x) => x.id === e.cafId));
-    if (ce) openCaffeine(currentDate, ce); else if (e.quick) openQuick(e.meal, e); else openAmount(e, { edit: true });
+    if (ce) openCaffeine(currentDate, ce); else if (e.parts) openMergedEntry(e); else if (e.quick) openQuick(e.meal, e); else openAmount(e, { edit: true });
   });
 }
 
@@ -1389,6 +1391,114 @@ function openQuick(meal, entry, prefill) {
   if (qd) qd.onclick = () => { state.days[currentDate] = (state.days[currentDate] || []).filter((x) => x.id !== entry.id); save(); toast('Gelöscht'); closeSheet(); };
 }
 
+/* ---------- Mehrere Einträge zu einer Mahlzeit zusammenführen ----------
+   Aus den gewählten Einträgen wird ein Eintrag mit eigenem Namen: Menge = Summe der Mengen, Nährwerte pro 100 g so
+   gerechnet, dass die Summe gleich bleibt. Die Teile bleiben in „parts“ gespeichert, so lässt sich alles wieder aufteilen;
+   was aus dem Vorrat abgezogen wurde (vu), wandert mit. Alkohol-/Koffein-Einträge hängen an ihren Zählern und bleiben einzeln. */
+const canMerge = (e) => !e.alcId && !e.cafId;
+function mergeEntries(meal, ids, name) {
+  const day = state.days[currentDate] || [];
+  const parts = day.filter((e) => ids.includes(e.id));
+  if (parts.length < 2) return null;
+  const tot = sumEntries(parts);
+  const grams = parts.reduce((a, e) => a + (e.quick ? 0 : e.grams || 0), 0) || 100; // Schnelleinträge haben keine echte Menge
+  const entry = { id: uid(), meal, grams, n: name, src: 'meal', liq: false, parts: parts.map((e) => Object.assign({}, e)) };
+  NUTRIENTS.forEach((n) => { entry[n] = (tot[n] * 100) / grams; });
+  const vu = parts.flatMap((e) => e.vu || []); if (vu.length) entry.vu = vu;
+  const at = day.indexOf(parts[0]);
+  state.days[currentDate] = day.filter((e) => !ids.includes(e.id));
+  state.days[currentDate].splice(Math.min(at, state.days[currentDate].length), 0, entry);
+  save();
+  return entry;
+}
+function openMerge(meal) {
+  sheetMode = 'merge';
+  const list = (state.days[currentDate] || []).filter((e) => e.meal === meal && canMerge(e));
+  const label = MEALS.find((m) => m.id === meal).label;
+  openSheet(`
+    ${sheetHead('back', 'Zu einer Mahlzeit zusammenführen', false)}
+    <p class="small muted">${esc(label)}: Wähle, was zusammengehört. Danach steht es als ein Eintrag im Journal; aufteilen geht jederzeit wieder.</p>
+    <label for="mgName">Name der Mahlzeit</label><input id="mgName" type="text" autocomplete="off" placeholder="z. B. Müsli mit Joghurt">
+    <div class="mg-list">${list.map((e) => `<label class="switch"><input type="checkbox" value="${e.id}" checked> <span>${esc(e.n)} <span class="small muted">${e.quick ? '' : `${r1(e.grams)} ${unitOf(e)} · `}${fmt(entryTotals(e).k)} kcal</span></span></label>`).join('')}</div>
+    <p class="small muted" id="mgSum"></p>
+    <button class="btn block" id="mgSave">Zusammenführen</button>`);
+  const picked = () => [...document.querySelectorAll('.mg-list input:checked')].map((x) => x.value);
+  const upd = () => {
+    const ids = picked(); const t = sumEntries(list.filter((e) => ids.includes(e.id)));
+    $('#mgSum').textContent = `${ids.length} ausgewählt · ${fmt(t.k)} kcal · E ${r1(t.p)} g · KH ${r1(t.c)} g · F ${r1(t.f)} g`;
+    $('#mgSave').disabled = ids.length < 2;
+  };
+  document.querySelectorAll('.mg-list input').forEach((x) => { x.onchange = upd; });
+  upd();
+  $('#back').onclick = closeSheet;
+  $('#mgSave').onclick = () => {
+    const ids = picked();
+    const name = $('#mgName').value.trim() || list.filter((e) => ids.includes(e.id)).map((e) => e.n).slice(0, 3).join(', ');
+    if (mergeEntries(meal, ids, name)) { openMeals.add(meal); toast('Zu einer Mahlzeit zusammengeführt'); closeSheet(); }
+  };
+}
+function openMergedEntry(e) {
+  sheetMode = 'merged';
+  const t = entryTotals(e);
+  openSheet(`
+    ${sheetHead('back', esc(e.n), false)}
+    <p class="small muted">${fmt(t.k)} kcal · E ${r1(t.p)} g · KH ${r1(t.c)} g · F ${r1(t.f)} g</p>
+    <label for="mgName">Name</label><input id="mgName" type="text" value="${esc(e.n)}">
+    <label for="mgMeal">Mahlzeit</label>
+    <select id="mgMeal">${MEALS.map((m) => `<option value="${m.id}" ${m.id === e.meal ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
+    <h2 style="margin-top:14px">Enthält</h2>
+    <ul class="list">${e.parts.map((x) => `<li><div>${esc(x.n)}<div class="meta">${x.quick ? 'Schnelleintrag' : `${r1(x.grams)} ${unitOf(x)}`}</div></div><div class="meta">${fmt(entryTotals(x).k)} kcal</div></li>`).join('')}</ul>
+    <div style="height:14px"></div>
+    <button class="btn block" id="mgSave">Speichern</button>
+    <div style="height:10px"></div>
+    <button class="btn secondary block" id="mgSplit">Wieder aufteilen</button>
+    <div style="height:10px"></div>
+    <button class="btn danger block" id="mgDel">Ganze Mahlzeit löschen</button>`);
+  const day = () => state.days[currentDate] || [];
+  $('#back').onclick = closeSheet;
+  $('#mgSave').onclick = () => {
+    const x = day().find((y) => y.id === e.id); if (!x) { closeSheet(); return; }
+    x.n = $('#mgName').value.trim() || x.n; x.meal = $('#mgMeal').value;
+    x.parts.forEach((p) => { p.meal = x.meal; });
+    save(); toast('Gespeichert'); closeSheet();
+  };
+  $('#mgSplit').onclick = () => {
+    const list = day(); const i = list.findIndex((y) => y.id === e.id); if (i < 0) { closeSheet(); return; }
+    const parts = list[i].parts.map((p) => Object.assign({}, p, { meal: list[i].meal }));
+    list.splice(i, 1, ...parts); save(); toast('Aufgeteilt'); closeSheet();
+  };
+  $('#mgDel').onclick = () => {
+    if (!confirm(`„${e.n}“ mit allen Teilen löschen?`)) return;
+    const gone = day().find((y) => y.id === e.id);
+    if (gone && gone.vu) Vorrat.giveBack(state.pantry, gone.vu); // zurück in den Vorrat
+    state.days[currentDate] = day().filter((y) => y.id !== e.id);
+    save(); toast('Gelöscht'); closeSheet();
+  };
+}
+
+/* ---------- Spürbare Bestätigung ----------
+   Android: Vibration. iPhone: Safari kennt keine Vibration; ab iOS 18 gibt das Umschalten eines Schalters
+   (<input type="checkbox" switch>) ein kurzes Klicken des Handys, das wird hier unsichtbar ausgelöst. Ältere iPhones: nichts. */
+let hapticLabel = null;
+function haptic() {
+  if (navigator.vibrate && navigator.vibrate(60)) return;
+  try {
+    if (!hapticLabel) {
+      hapticLabel = document.createElement('label');
+      hapticLabel.setAttribute('aria-hidden', 'true');
+      hapticLabel.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
+      const inp = document.createElement('input'); inp.type = 'checkbox'; inp.setAttribute('switch', ''); inp.tabIndex = -1;
+      hapticLabel.appendChild(inp); document.body.appendChild(hapticLabel);
+    }
+    hapticLabel.click();
+  } catch (e) { /* kein Klicken möglich */ }
+}
+// Sichtbar: Rahmen leuchtet kurz grün
+function scanFlash() {
+  const f = document.querySelector('.scanner .frame'); if (!f) return;
+  f.classList.remove('hit'); void f.offsetWidth; f.classList.add('hit');
+}
+
 /* ---------- Barcode ---------- */
 function renderScan() {
   if (scanEat) renderEatScan(); else renderPantryScan(); // der eine Scanner (food.js)
@@ -1437,7 +1547,7 @@ function startScanner(onCode) {
         const again = code === seenCode && now - seenAt < 3000;
         seenCode = code; seenAt = now;
         if (again) return;
-        if (navigator.vibrate) navigator.vibrate(60);
+        haptic(); scanFlash();
         onCode(code);
       }
     });

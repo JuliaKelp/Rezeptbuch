@@ -732,3 +732,10 @@ label.toggle input:focus-visible + .tg-track { outline: 2px solid var(--accent);
 .rb-mrow .chip { min-height: 34px; padding: 6px 10px; }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .ocr-tab td em { display: block; font-size: 0.72rem; color: var(--muted); font-style: normal; }
+
+/* Scan-Treffer: Rahmen leuchtet kurz grün */
+.scanner .frame.hit { animation: scanHit .5s ease-out; }
+@keyframes scanHit { 0% { border-color: #3E8E5E; box-shadow: 0 0 0 4px rgba(62, 142, 94, .45); } 100% { border-color: var(--accent); box-shadow: none; } }
+/* Mahlzeit zusammenführen */
+.mg-list { display: grid; gap: 2px; margin: 10px 0; }
+.mg-list label.switch { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }

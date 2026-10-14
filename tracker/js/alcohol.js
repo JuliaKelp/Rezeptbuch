@@ -12,7 +12,7 @@
    Grobe Schätzung – nicht geeignet, um die Fahrtüchtigkeit zu beurteilen. */
 'use strict';
 
-const ALC_DEFAULTS = () => ({ enabled: true, beta: 0.15, log: {} });
+const ALC_DEFAULTS = () => ({ enabled: false, beta: 0.15, log: {} });
 const ALC_CATS = [['beer', 'Bier'], ['wine', 'Wein'], ['spirit', 'Schnaps'], ['cocktail', 'Cocktail'], ['custom', 'Eigene']];
 // vol: Vol-% (aus BLS-Alkoholgehalt g/100 g umgerechnet, Spirituosen Nennwert); k100: kcal/100 ml (BLS 4.0)
 const ALC_DRINKS = [

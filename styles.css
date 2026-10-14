@@ -655,3 +655,5 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .dp-chev { flex: none; transition: transform .15s; }
 .dp-toggle[aria-expanded="true"] .dp-chev { transform: rotate(180deg); margin-left: auto; }
 a.dp-micro { text-decoration: none; color: inherit; }
+.top-row > div:first-child { flex: 1; min-width: 0; }
+.list-group { margin: 14px 0 6px; font-size: 15px; color: var(--muted); }

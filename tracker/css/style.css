@@ -489,7 +489,7 @@ label.sw input:checked::after { transform: translateX(18px); }
 .info-src { font-size: 0.72rem; }
 
 /* Blocksatz für Fließtext */
-p, .info-body, .info-src, .sp-hint, .caf-note, .refs li { text-align: justify; -webkit-hyphens: auto; hyphens: auto; }
+p, .info-body, .info-src, .sp-hint, .caf-note, .refs li { text-align: left; -webkit-hyphens: auto; hyphens: auto; }
 .linkbtn { background: none; border: 0; padding: 6px 0; margin-top: 4px; color: var(--accent); font: inherit; font-size: 0.78rem; cursor: pointer; }
 .slcalc { margin-top: 4px; padding: 10px 12px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
 .slcalc label { margin-top: 0; }
@@ -557,7 +557,7 @@ p, .info-body, .info-src, .sp-hint, .caf-note, .refs li { text-align: justify; -
 .hero .sf-row { margin-top: 12px; }
 .info-i.warn { background: rgba(200, 70, 43, 0.16); color: var(--warn); font: 700 16px/1 'Nunito', sans-serif; }
 .hm-h > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.info-pts > div { text-align: justify; hyphens: auto; }
+.info-pts > div { text-align: left; hyphens: auto; }
 
 /* Tracker-Kartenfuß (C4): Plus auf der Trennlinie, Details klappbar */
 .tk-div { display: flex; align-items: center; gap: 12px; margin: 14px 0 10px; }
@@ -614,7 +614,7 @@ h2.ct { font-size: 0.8rem; font-weight: 400; color: var(--muted); margin: 0; let
 .sug-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); font: inherit; font-size: 0.82rem; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
 .sug-menu button:active { background: rgba(59, 42, 32, 0.06); }
 .sug-menu button.warn { color: var(--warn); margin: 0; }
-.sug-rcp { font-size: 0.74rem; margin-top: 6px; line-height: 1.45; text-align: justify; hyphens: auto; }
+.sug-rcp { font-size: 0.74rem; margin-top: 6px; line-height: 1.45; text-align: left; hyphens: auto; }
 .sug-rcp .muted { margin-top: 4px; }
 .sug-after { margin: 8px 0 10px; } .warn-t { color: var(--warn); } .ok-t { color: var(--good); }
 .sug-btns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; }

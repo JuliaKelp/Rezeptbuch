@@ -615,3 +615,26 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .journal-card .seg-pill button { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 800; color: var(--muted); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
 .journal-card .seg-pill button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(59, 42, 32, 0.15); }
 .day-link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }
+/* Mineralstoffe und Vitamine auf Heute: jede Farbe steht für einen Stoff (Eisen rostrot wie die Eisen-Kapsel im Tracker) */
+:root { --mi-fe: #C8462B; --mi-mg: #3E8E5E; --mi-b12: #C24F93; --mi-zn: #4F72B0; --mi-ca: #5E8FA3; --mi-fol: #6E9A2E; --mi-vd: #D29A12; --mi-jod: #7A5CC4; }
+.mi-bar { height: 10px; border-radius: 6px; background: color-mix(in srgb, var(--mc) 16%, #F3E9DF); overflow: hidden; }
+.mi-bar i { display: block; height: 100%; border-radius: 6px; background: var(--mc); }
+.mi-row { display: grid; grid-template-columns: 7.2em 1fr auto; align-items: center; gap: 10px; font-size: 14px; }
+.mi-row > span { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+.mi-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--mc); flex: none; }
+.mi-row b { font-weight: 900; color: color-mix(in srgb, var(--mc) 80%, #000); white-space: nowrap; }
+.mi-row b small, .mi-tile b small { font-weight: 700; color: var(--muted); }
+.mi-rings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mi-ring { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }
+.mi-ring svg { width: 64px; height: 64px; }
+.mi-ring .tr { fill: none; stroke: color-mix(in srgb, var(--mc) 16%, #F3E9DF); stroke-width: 7; }
+.mi-ring .fg { fill: none; stroke: var(--mc); stroke-width: 7; stroke-linecap: round; }
+.mi-ring b { position: absolute; top: 22px; left: 0; right: 0; font-size: 13px; font-weight: 900; color: color-mix(in srgb, var(--mc) 80%, #000); }
+.mi-ring span { font-size: 13px; font-weight: 800; }
+.mi-ring small { font-size: 11px; color: var(--muted); font-weight: 700; }
+.mi-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mi-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--mc) 11%, #FFFFFF); border: 1px solid color-mix(in srgb, var(--mc) 30%, #FFFFFF); }
+.mi-tile > span { font-size: 13px; font-weight: 800; color: color-mix(in srgb, var(--mc) 80%, #000); }
+.mi-tile b { font-size: 20px; font-weight: 900; }
+.mi-tile > small { font-size: 11px; color: var(--muted); font-weight: 700; }
+.mi-tile .mi-bar { background: color-mix(in srgb, var(--mc) 18%, #FFFFFF); height: 8px; }

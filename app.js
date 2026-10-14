@@ -1276,12 +1276,20 @@ function microDayCard() {
   if (!ids.length || !hasMicros()) return '';
   const d = dayMicros();
   const def = deficits();
-  const rows = ids.map((id) => {
+  const style = state.profile.microStyle || 'bar';
+  const items = ids.map((id) => {
     const m = MICROS.find((x) => x.id === id);
     const ref = dgeRef(id);
     const pct = Math.round((d.sum[id] / ref) * 100);
-    return `<div class="macro"><span>${m.name}${def.includes(id) ? ' ★' : ''}</span><div class="bar small-bar"><div style="width:${Math.min(100, pct)}%"></div></div><b>${d.sum[id] >= 100 ? fmt(d.sum[id]) : g1(d.sum[id])}<small> / ${fmt(ref)} ${m.unit}</small></b></div>`;
-  }).join('');
+    const val = d.sum[id] >= 100 ? fmt(d.sum[id]) : g1(d.sum[id]);
+    return { id, m, ref, pct, val, star: def.includes(id) ? ' ★' : '' };
+  });
+  const R = 22; const L = 2 * Math.PI * R;
+  const rows = style === 'ring'
+    ? `<div class="mi-rings">${items.map((x) => `<div class="mi-ring" style="--mc:var(--mi-${x.id})"><svg viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="${R}" class="tr"/>${x.pct > 0 ? `<circle cx="28" cy="28" r="${R}" class="fg" stroke-dasharray="${(Math.min(100, x.pct) / 100 * L).toFixed(1)} ${L.toFixed(1)}" transform="rotate(-90 28 28)"/>` : ''}</svg><b>${x.pct} %</b><span>${x.m.name.replace('Vitamin ', 'Vit. ')}${x.star}</span><small>${x.val} / ${fmt(x.ref)} ${x.m.unit}</small></div>`).join('')}</div>`
+    : style === 'tile'
+      ? `<div class="mi-tiles">${items.map((x) => `<div class="mi-tile" style="--mc:var(--mi-${x.id})"><span>${x.m.name}${x.star}</span><b>${x.val} <small>${x.m.unit}</small></b><div class="mi-bar"><i style="width:${Math.min(100, x.pct)}%"></i></div><small>${x.pct} % von ${fmt(x.ref)} ${x.m.unit}</small></div>`).join('')}</div>`
+      : items.map((x) => `<div class="mi-row" style="--mc:var(--mi-${x.id})"><span><i class="mi-dot"></i>${x.m.name}${x.star}</span><div class="mi-bar"><i style="width:${Math.min(100, x.pct)}%"></i></div><b>${x.val}<small> / ${fmt(x.ref)} ${x.m.unit}</small></b></div>`).join('');
   const missing = Math.max(...ids.map((id) => d.miss[id]));
   return `<section class="card micro-day">
       ${rows}

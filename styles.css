@@ -633,7 +633,6 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .dp-h small { color: var(--muted); font-weight: 700; }
 .dp-bar { height: 7px; border-radius: 4px; background: #EFE4D8; overflow: hidden; }
 .dp-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c); }
-.dp-micro { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; }
 .dp-list { gap: 12px; align-self: center; }
 .dp-list .dp-h { font-size: 14px; }
 .dp-list .dp-bar { height: 9px; }
@@ -649,3 +648,10 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .vr-mode .vr-n { color: var(--faint); font-weight: 700; }
 .vr-mode [aria-pressed="true"] .vr-n { color: inherit; opacity: .8; }
 .micro-plan { color: #2D6A42; background: var(--green-soft); border-radius: 12px; padding: 8px 12px; }
+.dp-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; padding: 10px 0 0; font: inherit; font-size: 13px; font-weight: 800; color: var(--ink); cursor: pointer; text-align: left; }
+.dp-toggle > span:first-child { flex: none; }
+.dp-peek { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: 12px; font-weight: 700; color: var(--muted); }
+.dp-peek .dp-dot { margin: 0 3px 0 6px; }
+.dp-chev { flex: none; transition: transform .15s; }
+.dp-toggle[aria-expanded="true"] .dp-chev { transform: rotate(180deg); margin-left: auto; }
+a.dp-micro { text-decoration: none; color: inherit; }

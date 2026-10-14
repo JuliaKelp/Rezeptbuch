@@ -1295,8 +1295,8 @@ function dayCard(day = todayKey()) {
   }).join('');
   const missing = d ? Math.max(...ids.map((id) => d.miss[id])) : 0;
   const note = [hasKcalGoal(day) ? '' : 'Kein Ziel im Tracker, ich rechne mit 2.000 kcal.',
-    missing ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Mineralstoff-Werte (z. B. Barcode) ${missing === 1 ? 'fehlt' : 'fehlen'}.` : '',
-    ids.some((id) => def.includes(id)) ? '★ = Mangel' : ''].filter(Boolean).join(' ');
+    missing && state.profile.microsOpen ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Mineralstoff-Werte (z. B. Barcode) ${missing === 1 ? 'fehlt' : 'fehlen'}.` : '',
+    state.profile.microsOpen && ids.some((id) => def.includes(id)) ? '★ = Mangel' : ''].filter(Boolean).join(' ');
   return `<section class="card journal-card day-panel">
       <div class="peek">${gingerPeek(72)}</div>
       <div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>
@@ -1307,8 +1307,10 @@ function dayCard(day = todayKey()) {
           <div class="dp-sub small muted">${showLeft ? `${fmt(e.kcal)} von ${fmt(goal)}` : `Ziel ${fmt(goal)}`}</div>
         </div>
         <div class="dp-list">${macros}</div>
-        ${micros ? `<div class="dp-micro">${micros}</div>` : ''}
       </a>
+      ${micros ? `<button type="button" class="dp-toggle" data-action="micros-open" aria-expanded="${!!state.profile.microsOpen}">
+        <span>Mineralstoffe und Vitamine</span>${state.profile.microsOpen ? '' : `<span class="dp-peek">${ids.map((id) => `<i class="dp-dot" style="background:${P[id]}"></i>${Math.round((d.sum[id] / dgeRef(id)) * 100)} %`).join(' ')}</span>`}<span class="dp-chev" aria-hidden="true">▾</span></button>
+      ${state.profile.microsOpen ? `<a class="dp-micro" href="tracker/">${micros}</a>` : ''}` : ''}
       ${note ? `<div class="small muted">${note}</div>` : ''}
     </section>`;
 }
@@ -3256,6 +3258,7 @@ const actions = {
     const k = keyOf(cur);
     ui.homeDay = k < todayKey() ? k : null;
   },
+  'micros-open'() { state.profile.microsOpen = !state.profile.microsOpen; },
   'day-mode'(el) {
     const t = readTracker();
     t.heroMode = el.dataset.m;

@@ -1433,12 +1433,35 @@ function viewHeute() {
     ${dayCard()}
     <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
       <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
+    ${mangelShopHint()}
     ${prep}
     ${planCard(pd === todayKey() ? plan : planOtherDay(pd), pd)}
     <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
     ${analysisCard(plan)}
     ${tips}
   </main>${nav('heute')}`;
+}
+
+// Hinweis auf Home: Für einen Mangel ist nichts im Vorrat, das viel davon enthält („viel“ wie im Reiter „Mangel“,
+// Schwelle der EU-Angabe „hoher Gehalt“). Nur, wenn die Vorratskammer benutzt wird. Dazu ein passendes Rezept,
+// dessen fehlende Zutaten mit einem Tipp auf die Einkaufsliste kommen.
+function mangelShopHint() {
+  const mine = deficits();
+  if (!mine.length || !pantryList().length) return '';
+  const have = pantryList().filter((p) => p.qty !== 0);
+  const missing = mine.filter((id) => !have.some((p) => richLevel(p, id) === 2));
+  if (!missing.length) return '';
+  const names = missing.map((id) => MICROS.find((m) => m.id === id).name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} und ${names[names.length - 1]}` : names[0];
+  const best = allRecipes().filter((r) => !r.product && suitable(r))
+    .map((r) => ({ r, q: microRatio(recipeNutrients(r), missing[0]) || 0 }))
+    .filter((x) => x.q >= 1.5).sort((a, b) => b.q - a.q)[0];
+  const onList = best && state.listExtra && state.listExtra[best.r.id];
+  return `<section class="hint shop-hint"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h18l-2 10H5z"/><path d="M8 9l4-5 4 5"/></svg><div>
+      <b>Einkaufen: viel ${esc(list)}</b>
+      <span>Im Vorrat ist gerade nichts mit viel ${esc(list)}.${best ? ` Zum Beispiel für ${esc(best.r.name)}.` : ''}</span>
+      <span class="shop-acts">${best ? `<button class="link-btn" data-action="cook-list" data-recipe="${best.r.id}" data-f="1">${onList ? 'Auf der Liste ✓' : 'Zutaten auf die Einkaufsliste'}</button>` : ''}<button class="link-btn" data-action="open-mangel">Was hat viel ${esc(names[0])}? ›</button></span>
+    </div></section>`;
 }
 
 // „Geplant für heute“: pro Mahlzeit das geplante Gericht (Wochenplan, sonst ein Vorschlag) mit „Ändern“;
@@ -3474,6 +3497,7 @@ const actions = {
     const k = keyOf(cur);
     ui.homeDay = k < todayKey() ? k : null;
   },
+  'open-mangel'() { ui.vrMangel = true; location.hash = '#/einkauf'; return 'skip'; },
   'plan-day'(el) { ui.planDay = el.dataset.d; },
   'supp-take'(el) { // Supplement abhaken, wie in der Leiste im Tracker-Journal
     const t = readTracker();

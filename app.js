@@ -489,6 +489,23 @@ function microTags(r) {
   return deficits().filter((id) => (microRatio(n, id) || 0) >= 1.5).map((id) => MICROS.find((m) => m.id === id).name);
 }
 
+// Mineralstoffe/Vitamine eines Vorrats-Eintrags je 100 g, nur aus dem BLS (lose Zutaten und BLS-Einträge).
+// Gescannte Packungen haben keine verlässlichen Werte und zählen hier nicht.
+function pantryMicros(p) { return p.mi || blsMicros(p.id) || null; }
+// Wie viel von einem Stoff steckt in 100 g (Getränke 100 ml)? Schwellen wie bei den EU-Angaben (VO 1924/2006)
+// „Quelle von“ (15 %) und „hoher Gehalt“ (30 %), bei Getränken die Hälfte, gemessen am DGE-Tageswert.
+// 2 = viel, 1 = etwas, 0 = wenig, null = unbekannt
+function richLevel(p, id) {
+  const mi = pantryMicros(p);
+  if (!mi || mi[id] == null) return null;
+  const pct = mi[id] / dgeRef(id);
+  const k = p.liq ? 0.5 : 1;
+  return pct >= 0.3 * k ? 2 : pct >= 0.15 * k ? 1 : 0;
+}
+// Für Snacks aus dem Vorrat: je Mangel 2 Punkte für viel, 1 für etwas
+function pantryMicroScore(p) { return deficits().reduce((s, id) => s + (richLevel(p, id) || 0), 0); }
+function pantryMicroTags(p) { return deficits().filter((id) => richLevel(p, id) === 2).map((id) => MICROS.find((m) => m.id === id).name); }
+
 function weekCandidates(meal, day, used) {
   const budget = mealBudget(meal);
   const seed = state.week.seed;
@@ -743,11 +760,32 @@ function viewWoche() {
         <button class="btn secondary small-btn" data-action="${okCount === shown.length ? 'week-none' : 'week-all'}">${okCount === shown.length ? 'Keins übernehmen' : 'Alle übernehmen'}</button>
         <button class="btn secondary small-btn" data-action="week-new">Rest neu mischen</button>
       </div>
+      ${weekMicros(w, days)}
       <label class="row fit-row"><input type="checkbox" data-action="week-fit" ${w.fit === false ? '' : 'checked'}><span class="small">Mengen an mein Kalorienziel anpassen</span></label>
       <div class="plan-portions"><span class="small muted">Portionen pro Gericht, wenn du nichts änderst</span>${portionStepper('week-portions', weekPortions(), '')}</div>
       <a class="btn" href="#/liste">Einkaufsliste${okCount ? ` (${okCount} Gerichte)` : ''}</a>
     </div>
   </main>${nav('woche')}`;
+}
+
+// Dein Mangel im Plan: was die geplanten Gerichte pro Tag im Schnitt davon liefern (BLS, Mengenfaktor eingerechnet)
+function weekMicros(w, days) {
+  const ids = deficits();
+  if (!ids.length) return '';
+  let n = emptyNutrients();
+  let planned = 0;
+  for (const d of days) {
+    const keys = w.meals.map((m) => `${d}|${m}`).filter((k) => w.slots[k]);
+    if (!keys.length) continue;
+    planned++;
+    for (const k of keys) n = addNutrients(n, recipeNutrients(recipeById(w.slots[k].id)), slotFactor(k));
+  }
+  if (!planned) return '';
+  const parts = ids.map((id) => {
+    const m = MICROS.find((x) => x.id === id);
+    return `${m.name} ${g1(n[id] / planned)} von ${fmt(dgeRef(id))} ${m.unit}${n['miss_' + id] > 0 ? ' (unvollständig)' : ''}`;
+  });
+  return `<div class="small micro-plan"><b>Dein Mangel zählt beim Planen mit:</b> Gerichte mit viel davon kommen öfter dran. Pro Tag im Schnitt aus dem Plan: ${esc(parts.join(' · '))}.</div>`;
 }
 
 // Was die übernommenen Gerichte pro Tag im Schnitt liefern (eine Portion je Gericht, mit Mengenfaktor)
@@ -2158,6 +2196,9 @@ function productRecipe(x) {
   const n = { ...emptyNutrients(), kcal: (x.k || 0) * f, protein: (x.p || 0) * f, kh: (x.c || 0) * f, zucker: (x.su || 0) * f, fett: (x.f || 0) * f, ballast: (x.fi || 0) * f };
   // Ohne Angabe zählt der ganze Zucker als frei (Obergrenze)
   n.zugesetzt = x.fs != null ? x.fs * f : n.zucker;
+  // Mineralstoffe nur aus dem BLS; gescannte Packungen gelten als unbekannt (nie als 0)
+  const mi = pantryMicros(x) || {};
+  for (const m of MICROS) { if (mi[m.id] != null) n[m.id] = mi[m.id] * f; else n['miss_' + m.id] = 1; }
   const info = pantryInfo(x);
   // Unbekannt = vegan: Du hast es selbst als Snack markiert
   const diet = info.d === 0 ? 'fleisch' : info.d === 1 ? 'vegetarisch' : 'vegan';
@@ -2443,6 +2484,30 @@ function vorratItem(p) {
   </div>`;
 }
 
+// Reiter „Mangel“: was im Vorrat viel (oder etwas) von dem enthält, was dir fehlt. Werte nur aus dem BLS.
+function mangelCount(have) { return have.filter((p) => deficits().some((id) => richLevel(p, id) === 2)).length; }
+function vorratMangel(have) {
+  const mine = deficits();
+  const pick = `<div class="card small">
+    <div class="muted">Was fehlt dir? Das gilt auch für Vorschläge, Wochenplan und Snacks.</div>
+    <div class="chips" style="margin-top:8px">${MICROS.map((m) => `<button class="chip" data-action="deficit" data-id="${m.id}" aria-pressed="${mine.includes(m.id)}">${m.name}</button>`).join('')}</div>
+  </div>`;
+  if (!hasMicros()) return '<div class="card small muted">Die Mineralstoff-Werte sind noch nicht geladen. Öffne die App einmal mit Internet.</div>';
+  if (!mine.length) return `${pick}<div class="card small muted">Tipp oben an, wovon du zu wenig hast, z. B. Eisen oder Vitamin B12. Dann zeige ich dir hier, was davon viel enthält.</div>`;
+  const pct = (p, id) => (pantryMicros(p)[id] / dgeRef(id)) * 100;
+  const sections = mine.map((id) => {
+    const m = MICROS.find((x) => x.id === id);
+    const lots = have.filter((p) => richLevel(p, id) === 2).sort((a, b) => pct(b, id) - pct(a, id));
+    const some = have.filter((p) => richLevel(p, id) === 1).sort((a, b) => pct(b, id) - pct(a, id));
+    return `<h3 class="vr-group">Viel ${esc(m.name)} <span class="small muted">${lots.length}</span></h3>
+      ${lots.length ? lots.map(vorratItem).join('') : `<div class="card small muted">Gerade nichts im Vorrat mit viel ${esc(m.name)}.</div>`}
+      ${some.length ? `<h3 class="vr-group" style="font-size:15px">Etwas ${esc(m.name)} <span class="small muted">${some.length}</span></h3>${some.map(vorratItem).join('')}` : ''}`;
+  }).join('');
+  const unknown = have.filter((p) => mine.some((id) => richLevel(p, id) == null)).length;
+  return `${pick}${sections}
+    <p class="small muted">„Viel“ heißt: 100 g (Getränke 100 ml) liefern mindestens 30 % (Getränke 15 %) deines DGE-Tageswerts, „etwas“ mindestens 15 % (Getränke 7,5 %). Die Schwellen sind wie bei den EU-Angaben „hoher Gehalt“ und „Quelle von“. Werte aus dem Bundeslebensmittelschlüssel.${unknown ? ` Zu ${unknown} ${unknown === 1 ? 'Eintrag' : 'Einträgen'} (meist gescannte Packungen) kenne ich keine verlässlichen Werte, die fehlen hier.` : ''}</p>`;
+}
+
 function viewEinkauf() {
   const items = pantryList();
   const have = items.filter((p) => p.qty !== 0);
@@ -2471,7 +2536,8 @@ function viewEinkauf() {
     </section>` : '<button class="link-btn" data-action="vr-add-toggle">+ Ohne Barcode dazulegen (Obst, Gemüse, Loses)</button>'}
     ${infoHead('h2', `Im Vorrat ${have.length ? `<span class="small muted">${have.length} Lebensmittel</span>` : ''}`, 'vorrat')}
     ${items.length ? `<div class="search-field"><label class="sr-only" for="vq">Im Vorrat suchen</label><input id="vq" type="search" data-input="vrQuery" placeholder="Im Vorrat suchen, z. B. Salami" value="${esc(ui.vrQuery || '')}" autocomplete="off"></div>` : ''}
-    ${q ? `<div class="small muted">${found.length ? `${found.length} Treffer für „${esc(ui.vrQuery.trim())}“` : `Nichts im Vorrat passt zu „${esc(ui.vrQuery.trim())}“.`}</div>${found.map(vorratItem).join('')}` : `
+    ${q ? '' : `<div class="chips vr-mode" role="tablist" aria-label="Ansicht"><button class="chip" role="tab" data-action="vr-mode" data-m="" aria-selected="${!ui.vrMangel}" aria-pressed="${!ui.vrMangel}">Alles</button><button class="chip" role="tab" data-action="vr-mode" data-m="mangel" aria-selected="${!!ui.vrMangel}" aria-pressed="${!!ui.vrMangel}">Mangel${deficits().length ? ` <span class="vr-n">${mangelCount(have)}</span>` : ''}</button></div>`}
+    ${!q && ui.vrMangel ? vorratMangel(have) : q ? `<div class="small muted">${found.length ? `${found.length} Treffer für „${esc(ui.vrQuery.trim())}“` : `Nichts im Vorrat passt zu „${esc(ui.vrQuery.trim())}“.`}</div>${found.map(vorratItem).join('')}` : `
     ${have.length ? `<nav class="vr-tabs" aria-label="Kategorien">${groups.map(([g, label, list]) => `<button class="chip" data-action="vr-jump" data-g="${g}">${label} <span class="vr-n">${list.length}</span></button>`).join('')}${empty.length ? '<button class="chip" data-action="vr-jump" data-g="leer">Aufgebraucht</button>' : ''}</nav>` : ''}
     ${have.length ? groups.map(([g, label, list]) => `<h3 class="vr-group" id="vr-g-${g}">${label} <span class="small muted">${list.length}</span></h3>${list.map(vorratItem).join('')}`).join('') : '<div class="card small muted">Noch nichts im Vorrat.</div>'}
     ${empty.length ? `<h2 id="vr-g-leer" class="vr-group">Aufgebraucht</h2>${empty.map(vorratItem).join('')}` : ''}`}
@@ -2712,8 +2778,13 @@ function viewSnacks() {
   const a = snackAllowance();
   const left = a.left;
   const pantry = trackerPantry().filter((x) => x.k > 0 && x.qty !== 0);
-  const marked = pantry.filter((x) => state.snacks[x.id]);
-  const others = pantry.filter((x) => !state.snacks[x.id] && !String(x.id).startsWith('rb:'));
+  // Was viel von deinem Mangel enthält, kommt zuerst (sort ist stabil, sonst bleibt die Reihenfolge)
+  const byMicro = (list) => (deficits().length ? list.map((x) => [x, pantryMicroScore(x)]).sort((a, b) => b[1] - a[1]).map((y) => y[0]) : list);
+  // Oben: was viel von deinem Mangel enthält und eine übliche Snack-Portion hat (keine Nudeln, kein Mehl), auch lose Zutaten
+  const rich = deficits().length ? pantry.filter((x) => pantryMicroTags(x).length && snackPortion(x)).sort((a, b) => pantryMicroScore(b) - pantryMicroScore(a)).slice(0, 5) : [];
+  const richIds = new Set(rich.map((x) => x.id));
+  const marked = byMicro(pantry.filter((x) => state.snacks[x.id] && !richIds.has(x.id)));
+  const others = byMicro(pantry.filter((x) => !state.snacks[x.id] && !String(x.id).startsWith('rb:') && !richIds.has(x.id)));
   const productRow = (x) => {
     const m = snackAmount(x, left);
     const ok = m.g >= 5;
@@ -2722,6 +2793,7 @@ function viewSnacks() {
     return `<div class="card snack-opt">
       <div class="snack-top">
         <div class="info"><div class="title">${esc(x.n)}</div>
+          ${pantryMicroTags(x).map((t) => `<span class="badge micro-tag">viel ${esc(t)}</span>`).join(' ')}
           <div class="meta">${m.none ? `100 g haben ${fmt(x.k)} kcal · keine Portionsangabe, wähl die Menge selbst` : ok ? `<b>${esc(m.text)}</b> · ca. ${fmt((m.g * x.k) / 100)} kcal` : `heute nicht mehr drin · 1 Portion (${fmt(m.por.g)} g) hat ${fmt((m.por.g * x.k) / 100)} kcal`}</div>
           <div class="meta">${[x.brand, x.qty != null ? `im Vorrat: ${V.label(x)}` : '', ok && m.why === 'stock' ? 'mehr hast du nicht da' : '', ok && m.why === 'room' ? 'mehr passt heute nicht' : ''].filter(Boolean).map(esc).join(' · ')}</div>
           ${m.fill >= 5 && m.fill > m.g + 2 ? `<div class="meta snack-fill">Restliche ${fmt(left)} kcal ausnutzen: <b>${fmt(m.fill)} g</b> · ca. ${fmt((m.fill * x.k) / 100)} kcal${m.fillWhy === 'pack' ? ' (1 Packung, mehr nicht)' : m.fillWhy === 'stock' ? ' (alles, was da ist)' : ''} <button class="link-btn" data-action="snack-pick" data-id="${esc(x.id)}" data-g="${m.fill}">So viel</button></div>` : ''}
@@ -2765,8 +2837,9 @@ function viewSnacks() {
       <div class="journal-kcal">${fmt(left)} <small>kcal frei für Snacks</small></div>
       <div class="small muted">Snack-Rahmen heute ${fmt(a.total)} kcal${a.eaten ? ` · schon gesnackt ${fmt(a.eaten)} kcal` : ''}${Math.abs(a.over) >= 10 ? ` · Mahlzeiten bisher ${fmt(Math.abs(a.over))} kcal ${a.over > 0 ? 'über' : 'unter'} Plan` : ''}${hasKcalGoal() ? '' : ' · ohne Kalorienziel im Tracker rechne ich mit 2.000 kcal'}</div>
     </div>
+    ${rich.length ? `<h2>Gut bei deinem Mangel</h2>${rich.map(productRow).join('')}` : ''}
     ${infoHead('h2', 'Aus deinem Vorrat', 'snack')}
-    ${marked.length ? marked.map(productRow).join('') : `<div class="card small muted">${others.length ? 'Noch nichts als Snack markiert. Unten kannst du trotzdem alles aus dem Vorrat ansehen, oder du markierst in der Vorratskammer, was als Snack gilt.' : 'Im Vorrat ist gerade nichts, was als Snack passt.'}</div>`}
+    ${marked.length ? marked.map(productRow).join('') : rich.some((x) => state.snacks[x.id]) ? '' : `<div class="card small muted">${others.length ? 'Noch nichts als Snack markiert. Unten kannst du trotzdem alles aus dem Vorrat ansehen, oder du markierst in der Vorratskammer, was als Snack gilt.' : 'Im Vorrat ist gerade nichts, was als Snack passt.'}</div>`}
     ${others.length ? `<button class="link-btn" data-action="snack-more-products" aria-expanded="${!!ui.snackOthers}">${ui.snackOthers ? 'Andere Produkte ausblenden' : `${marked.length ? 'Weitere' : 'Alle'} ${others.length} Produkte aus dem Vorrat zeigen`}</button>
       ${ui.snackOthers ? others.map(productRow).join('') : ''}` : ''}
     <h2>Vorgesehen</h2>
@@ -3038,6 +3111,7 @@ const actions = {
   'vr-nutri'() { ui.vrNutri = !ui.vrNutri; },
   'vr-add-toggle'() { ui.vrAddOpen = !ui.vrAddOpen; ui.vrError = ''; },
   'vr-edit'(el) { ui.vorratEdit = el.dataset.id || null; },
+  'vr-mode'(el) { ui.vrMangel = el.dataset.m === 'mangel'; },
   'vr-jump'(el) {
     const h = document.getElementById(`vr-g-${el.dataset.g}`);
     if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' });

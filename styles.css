@@ -644,3 +644,8 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .dp-v { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; font-size: 12px; }
 .dp-v b { font-weight: 900; white-space: nowrap; }
 .dp-v small { color: var(--muted); font-weight: 700; }
+/* Vorrat: Reiter Alles/Mangel, Mangel im Wochenplan */
+.vr-mode { margin-top: 4px; }
+.vr-mode .vr-n { color: var(--faint); font-weight: 700; }
+.vr-mode [aria-pressed="true"] .vr-n { color: inherit; opacity: .8; }
+.micro-plan { color: #2D6A42; background: var(--green-soft); border-radius: 12px; padding: 8px 12px; }

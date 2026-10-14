@@ -103,6 +103,24 @@ let state = load();
 
 function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* Speicher voll oder gesperrt */ }
+  writeRecipeIndex();
+}
+
+// Kurze Rezeptliste für den Tracker („Gerichte“ beim Eintragen einer Mahlzeit): Name, kcal pro Portion, Mahlzeiten,
+// Favorit und was heute geplant ist. Eingetragen wird auf der Rezeptseite hier (Fertig gekocht), der Tracker verlinkt nur.
+const INDEX_KEY = 'rezeptbuch-index';
+function writeRecipeIndex() {
+  try {
+    if (!state.onboarded) return;
+    const day = todayKey();
+    const plan = {};
+    for (const m of [...MEALS, SNACK]) {
+      const r = plannedRecipe(day, m.id) || (m.id === 'snack' ? null : weekProposal(day, m.id));
+      if (r) plan[m.id] = { id: r.id, f: slotFactor(`${day}|${m.id}`) };
+    }
+    const list = [...state.ownRecipes, ...RECIPES.filter(suitable)].map((r) => ({ id: r.id, n: r.name, k: Math.round(r.kcal || 0), m: r.meals || [], fav: isFav(r) || undefined, own: r.own || undefined }));
+    localStorage.setItem(INDEX_KEY, JSON.stringify({ day, plan, list }));
+  } catch (e) { /* Index ist nur eine Abkürzung */ }
 }
 
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
@@ -1727,7 +1745,7 @@ function viewFavoriten() {
 function viewProdukt(r, meal) {
   const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute', '#/kochen'].includes(ui.prevPage) ? ui.prevPage : '#/heute';
   return `<main class="screen">
-    <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
+    <a class="back" href="${backTo}">${ICONS.back}Zurück</a>
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
@@ -1758,13 +1776,19 @@ function viewRezept(id, meal, factorParam) {
   const allDone = doneCount === r.steps.length;
   const cheer = allDone ? 'Alles erledigt! Hol dir deinen Stempel.' : doneCount === 0 ? 'Los geht’s, ich schau zu!' : 'Super, weiter so!';
   const stampedNow = ui.justStamped === r.id;
+  // Mahlzeit, unter der „Fertig gekocht“ einträgt: gewählt, sonst aus dem Link (Plan, Tracker), sonst nach Uhrzeit
+  const cookMeal = (ui.rezMeal && ui.rezMeal[r.id]) || (MEAL_ORDER.includes(meal) ? meal : (r.meals || []).length === 1 && r.meals[0] === 'snack' ? 'snack' : currentMeal());
   let note = '';
   if (r.prep) note = `<div class="hint">${ICONS.paw}<span>Am Vorabend vorbereiten, dann ist es morgens sofort fertig.</span></div>`;
   else if (r.mealprep) note = `<div class="hint">${ICONS.paw}<span>${r.own && r.portions >= 2 ? `Vorkoch-Tipp: Das Rezept reicht für ${r.portions} Portionen. Den Rest kannst du am nächsten Tag essen.` : 'Vorkoch-Tipp: Koch die doppelte Menge und nimm eine Portion am nächsten Tag mit.'}</span></div>`;
   const backHref = ['#/woche', '#/liste', '#/einkauf', '#/rezepte', '#/heute', '#/kochen'].includes(ui.prevPage) ? ui.prevPage : meal ? '#/heute' : '#/rezepte';
+  // Aus dem Tracker („Gerichte“) geöffnet: Zurück führt dorthin
+  let fromTracker = null;
+  try { fromTracker = JSON.parse(sessionStorage.getItem('rb-from-tracker') || 'null'); } catch (e) { /* egal */ }
+  const backTo = fromTracker && fromTracker.id === r.id ? fromTracker.back : backHref;
 
   return `<main class="screen">
-    <a class="back" href="${backHref}">${ICONS.back}Zurück</a>
+    <a class="back" href="${backTo}">${ICONS.back}Zurück</a>
     <div class="hero" style="background:${r.tint}">${gingerPeek(110)}</div>
     <div>
       <h1>${esc(r.name)}</h1>
@@ -1800,11 +1824,12 @@ function viewRezept(id, meal, factorParam) {
       <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${ui.justEntry ? ' Im Tracker-Journal steht es auch schon.' : ''}${ui.justVorrat ? ' ' + esc(ui.justVorrat) : ''}` : cheer}</div>
       ${stampedNow ? '<div class="stamp-big">Gekocht!</div>' : ''}
     </div>
+    ${stampedNow ? '' : `<div class="cook-meal"><span class="small muted">Eintragen als</span><nav class="chips" aria-label="Mahlzeit">${['fruehstueck', 'mittag', 'abend', 'snack'].map((id) => `<button class="chip" data-action="rezept-meal" data-recipe="${r.id}" data-meal="${id}" aria-pressed="${cookMeal === id}">${id === 'snack' ? 'Snack' : mealName(id).replace('essen', '')}</button>`).join('')}</nav></div>`}
     <div class="bottom">
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-entry="${esc(ui.justEntry || '')}" data-recipe="${r.id}">Doch nicht gekocht? Rückgängig</button>`
-        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Fertig gekocht</button>`}
-      ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${meal || ''}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
+        : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${cookMeal}" data-factor="${f}">Fertig gekocht</button>`}
+      ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${cookMeal}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -3134,6 +3159,7 @@ window.addEventListener('hashchange', (e) => {
   // Woher kam man? Damit „Zurück“ auf der Rezeptseite dorthin führt
   const old = (e.oldURL || '').split('#')[1] || '';
   if (!old.startsWith('/rezept/')) ui.prevPage = old ? '#' + old : '';
+  if (!location.hash.startsWith('#/rezept/')) try { sessionStorage.removeItem('rb-from-tracker'); } catch (err) { /* egal */ }
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
   ui.justEntry = null;
@@ -3283,6 +3309,7 @@ const actions = {
   info(el) { ui.info[el.dataset.key] = !ui.info[el.dataset.key]; },
   'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (Number(el.dataset.step) || (m === 'snack' ? SNACKS_PER_DAY : 1)); },
   'ana-tab'(el) { state.profile.anaTab = el.dataset.t; },
+  'rezept-meal'(el) { ui.rezMeal = Object.assign({}, ui.rezMeal, { [el.dataset.recipe]: el.dataset.meal }); },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   cooked(el) {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);
@@ -3770,6 +3797,7 @@ if (trackerPantry().some((x) => String(x.id).startsWith('rb:') && x.p == null)) 
   });
 }
 if (trackerPantry().some((x) => x.qty == null)) changePantry((pantry, t) => V.fillDefaults(pantry, t.offCache)); // alte Einträge: 1 Packung
+writeRecipeIndex();
 render();
 if (!nutritionOk) toast('Die Nährwerte ließen sich nicht laden. Öffne die App einmal mit Internet.');
 // Zurück aus dem Tracker (Seite aus dem Zwischenspeicher des Browsers): neu zeichnen

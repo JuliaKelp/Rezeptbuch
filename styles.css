@@ -724,3 +724,12 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .sp-chip i { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #FFFFFF; font-style: normal; font-size: 8px; font-weight: 900; }
 .sp-chip[aria-pressed="true"] { background: var(--green-soft); border-color: transparent; color: var(--green); }
 .sp-chip[aria-pressed="true"] i { background: var(--green); font-size: 11px; }
+
+/* Geplant: Wochentage Montag bis Sonntag zum Antippen oder Wischen */
+.pd-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 4px 0 6px; }
+.pd-chip { display: flex; flex-direction: column; align-items: center; gap: 1px; border: 0; border-radius: 12px; background: none; padding: 5px 0; color: var(--muted); font-size: 11px; font-weight: 700; }
+.pd-chip b { font-size: 15px; font-weight: 800; color: var(--ink); }
+.pd-chip.today b { color: var(--accent-text); }
+.pd-chip[aria-pressed="true"] { background: var(--accent); color: #FFFFFF; }
+.pd-chip[aria-pressed="true"] b { color: #FFFFFF; }
+.plan-card { touch-action: pan-y; }

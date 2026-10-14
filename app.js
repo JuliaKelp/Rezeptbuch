@@ -1415,11 +1415,13 @@ function viewHeute() {
   ui.homeDay = null;
   const log = journal();
 
-  const tips = prepTips().slice(0, 1).map((tip) => tip.recipe
+  // Vorbereitungs-Erinnerung (z. B. abends das Frühstück vorbereiten) steht direkt über dem Plan
+  const prep = prepTips().slice(0, 1).map((tip) => tip.recipe
     ? `<a class="hint tip-line" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span>${esc(tip.text)}</span></a>`
-    : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('')
-    + (state.profile.age ? '' : '<a class="hint tip-line" href="#/edit/1"><span>Wie alt bist du? Dann passe ich deine Tageswerte für Eisen, Magnesium und Co. an. ›</span></a>');
+    : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('');
+  const tips = state.profile.age ? '' : '<a class="hint tip-line" href="#/edit/1"><span>Wie alt bist du? Dann passe ich deine Tageswerte für Eisen, Magnesium und Co. an. ›</span></a>';
   const plan = planToday(log);
+  const pd = planWeekDays().includes(ui.planDay) ? ui.planDay : todayKey();
   return `<main class="screen with-nav">
     <div class="top-row">
       <div>${homeDayNav(todayKey())}<h1>${esc(greeting())}</h1></div>
@@ -1431,7 +1433,8 @@ function viewHeute() {
     ${dayCard()}
     <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
       <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
-    ${planCard(plan)}
+    ${prep}
+    ${planCard(pd === todayKey() ? plan : planOtherDay(pd), pd)}
     <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
     ${analysisCard(plan)}
     ${tips}
@@ -1471,7 +1474,32 @@ function planToday(log) {
   rows.sort((x, y) => MEAL_ORDER.indexOf(x.meal) - MEAL_ORDER.indexOf(y.meal));
   return { rows };
 }
-function planCard(plan) {
+// Montag bis Sonntag der laufenden Woche, zum Durchwischen von „Geplant“
+function planWeekDays() {
+  const t = todayKey();
+  const back = (dateOf(t).getDay() + 6) % 7;
+  return [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(t, i - back));
+}
+// Anderer Tag der Woche: Gegessenes aus dem Tracker, sonst das Gericht aus dem Wochenplan (ohne „Ändern“, das geht im Wochenplan)
+function planOtherDay(day) {
+  const log = journal(day);
+  const meals = dayMeals().some((m) => m.id === 'snack') ? dayMeals() : [...dayMeals(), SNACK];
+  const rows = [];
+  for (const m of meals) {
+    const eatenHere = log.filter((e) => e.meal === m.id);
+    const name = m.id === 'snack' ? 'Snack' : m.name;
+    if (eatenHere.length) { rows.push({ meal: m.id, name, eaten: true, title: eatenHere.map((e) => e.name).join(', '), kcal: mealTotals(m.id, day).kcal }); continue; }
+    if (day < todayKey()) continue;
+    const r = plannedRecipe(day, m.id) || weekProposal(day, m.id);
+    if (r) rows.push({ meal: m.id, name, idea: { recipe: r, planned: true, factor: slotFactor(`${day}|${m.id}`) }, day });
+  }
+  for (const id of [...new Set(log.map((e) => e.meal))].filter((id) => !meals.some((m) => m.id === id))) {
+    rows.push({ meal: id, name: mealName(id), eaten: true, title: log.filter((e) => e.meal === id).map((e) => e.name).join(', '), kcal: mealTotals(id, day).kcal });
+  }
+  rows.sort((x, y) => MEAL_ORDER.indexOf(x.meal) - MEAL_ORDER.indexOf(y.meal));
+  return { rows };
+}
+function planCard(plan, day = todayKey()) {
   const row = (r) => {
     if (r.eaten) {
       return `<a class="plan-row" href="tracker/"><span class="plan-t"><small>${esc(r.name)} · ${fmt(r.kcal)} kcal gegessen</small><b>${esc(r.title)}</b></span><span class="plan-ok" aria-label="Gegessen">${ICONS.check}</span></a>`;
@@ -1481,13 +1509,19 @@ function planCard(plan) {
     const f = x.factor || 1;
     const kcal = Math.round((x.recipe.kcal * f) / 10) * 10;
     const href = `#/rezept/${x.recipe.id}/${r.meal}${f !== 1 ? '/' + f : ''}`;
-    const from = x.planned && plannedRecipe(todayKey(), r.meal) ? ' · Wochenplan' : '';
+    const from = x.planned && plannedRecipe(r.day || todayKey(), r.meal) ? ' · Wochenplan' : '';
     return `<div class="plan-row"><a class="plan-t" href="${href}"><small>${esc(r.name)} · ca. ${fmt(kcal)} kcal${from}</small><b>${esc(x.recipe.name)}</b></a>
       ${r.more ? `<button class="plan-btn" data-action="next-idea" data-meal="${r.meal}" data-step="${r.step}">Ändern</button>` : ''}</div>`;
   };
-  return `<section class="card plan-card">
-    <div class="plan-h"><h2>Geplant für heute</h2><a class="small muted" href="#/woche">Wochenplan ›</a></div>
-    ${plan.rows.map(row).join('')}
+  const today = todayKey();
+  const wd = (d) => dateOf(d).toLocaleDateString('de-DE', { weekday: 'long' });
+  const title = day === today ? 'Geplant für heute' : day < today ? `Gegessen am ${wd(day)}` : `Geplant für ${wd(day)}`;
+  const chips = planWeekDays().map((d) => `<button type="button" class="pd-chip${d === today ? ' today' : ''}" data-action="plan-day" data-d="${d}" aria-pressed="${d === day}">
+      <span>${dateOf(d).toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '')}</span><b>${dateOf(d).getDate()}</b></button>`).join('');
+  return `<section class="card plan-card" data-swipe="plan-day">
+    <div class="plan-h"><h2>${title}</h2><a class="small muted" href="#/woche">Wochenplan ›</a></div>
+    <div class="pd-row" role="group" aria-label="Tag der Woche">${chips}</div>
+    ${plan.rows.length ? plan.rows.map(row).join('') : `<div class="plan-row"><span class="small muted">${day < today ? 'An diesem Tag ist nichts eingetragen.' : 'Für diesen Tag ist noch nichts geplant.'}</span></div>`}
   </section>`;
 }
 
@@ -3440,6 +3474,7 @@ const actions = {
     const k = keyOf(cur);
     ui.homeDay = k < todayKey() ? k : null;
   },
+  'plan-day'(el) { ui.planDay = el.dataset.d; },
   'supp-take'(el) { // Supplement abhaken, wie in der Leiste im Tracker-Journal
     const t = readTracker();
     if (!t.supp) return 'skip';
@@ -3547,6 +3582,25 @@ function currentMeal() {
   const h = new Date().getHours();
   return h < 11 ? 'fruehstueck' : h < 16 ? 'mittag' : 'abend';
 }
+
+// Wischen auf „Geplant“: nach links der nächste Tag, nach rechts der vorige (Montag bis Sonntag)
+let swipeStart = null;
+app.addEventListener('touchstart', (e) => {
+  const card = e.target.closest('[data-swipe="plan-day"]');
+  swipeStart = card && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+app.addEventListener('touchend', (e) => {
+  if (!swipeStart) return;
+  const dx = e.changedTouches[0].clientX - swipeStart.x;
+  const dy = e.changedTouches[0].clientY - swipeStart.y;
+  swipeStart = null;
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  const days = planWeekDays();
+  const i = days.indexOf(days.includes(ui.planDay) ? ui.planDay : todayKey()) + (dx < 0 ? 1 : -1);
+  if (i < 0 || i >= days.length) return;
+  ui.planDay = days[i];
+  render();
+}, { passive: true });
 
 app.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

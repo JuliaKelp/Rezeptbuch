@@ -1005,11 +1005,37 @@ function renderAddTab() {
     if (!addQuery) setTimeout(() => q.focus(), 50);
   } else if (addTab === 'mine') {
     renderMine();
+  } else if (addTab === 'pantry') {
+    renderPantryTab();
   } else if (addTab === 'scan') {
     renderScan();
   } else {
     renderNew();
   }
+}
+
+// Reiter „Vorrat“ im Essens-Scanner: was in der Vorratskammer ist (mit Menge), Antippen trägt es als gegessen ein
+// und zieht es dort ab (siehe Eintragen). Aufgebrauchtes (Menge 0) steht nicht drin.
+let pantryQuery = '';
+function renderPantryTab() {
+  const body = $('#addBody');
+  body.innerHTML = `<input id="pq" type="search" placeholder="Im Vorrat suchen" autocomplete="off" value="${esc(pantryQuery)}"><div id="pantryList"></div>`;
+  const q = $('#pq');
+  q.oninput = () => { pantryQuery = q.value; drawPantryTab(); };
+  drawPantryTab();
+}
+function drawPantryTab() {
+  const terms = norm(pantryQuery).split(/\s+/).filter(Boolean);
+  const have = (state.pantry || []).filter((x) => x && x.id && x.n && x.qty !== 0);
+  const items = have.filter((f) => !terms.length || terms.every((t) => norm(f.n + ' ' + (f.brand || '')).includes(t)))
+    .sort((a, b) => a.n.localeCompare(b.n, 'de')).map(liveFood);
+  const qty = (f) => { const p = have.find((x) => x.id === f.id); return p && p.qty != null && globalThis.Vorrat ? Vorrat.label(p) : 'Menge offen'; };
+  $('#pantryList').innerHTML = !have.length
+    ? '<div class="empty">Im Vorrat ist noch nichts. Schalte oben „Zum Essen hinzufügen“ aus und scanne deinen Einkauf, dann steht er hier.</div>'
+    : `<div class="small muted pv-head"><span>${have.length} ${have.length === 1 ? 'Sache' : 'Sachen'} im Vorrat</span><span>Antippen = essen</span></div>`
+      + (items.length ? `<ul class="list">${items.map((f, i) => `<li data-i="${i}"><div>${esc(f.n)}<div class="meta">Im Vorrat: ${esc(qty(f))}</div></div><div class="pv-add" aria-hidden="true">+</div></li>`).join('')}</ul>` : '<div class="empty">Nichts im Vorrat passt dazu.</div>');
+  const ul = $('#pantryList ul');
+  if (ul) bindList(ul, items, (f) => openAmount(f));
 }
 
 function foodLi(f, i) {

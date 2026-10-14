@@ -739,3 +739,7 @@ label.toggle input:focus-visible + .tg-track { outline: 2px solid var(--accent);
 /* Mahlzeit zusammenführen */
 .mg-list { display: grid; gap: 2px; margin: 10px 0; }
 .mg-list label.switch { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
+
+/* Reiter „Vorrat“ im Essens-Scanner */
+.pv-head { display: flex; justify-content: space-between; margin: 10px 2px 4px; font-weight: 700; }
+.pv-add { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; color: var(--accent); font-size: 1.2rem; font-weight: 800; background: var(--panel); }

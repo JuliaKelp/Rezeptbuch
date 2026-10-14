@@ -666,3 +666,51 @@ a.dp-micro { text-decoration: none; color: inherit; }
   .dp-micro { gap: 9px 10px; }
   .dp-v { font-size: 11px; }
 }
+
+/* Startseite: Tracker-Knopf, Geplant für heute, Analyse */
+.trk-btn { display: flex; align-items: center; gap: 8px; height: 48px; margin: 14px 0 4px; padding: 0 18px; border-radius: 999px; background: var(--accent); color: #FFFFFF; font-weight: 800; font-size: 16px; text-decoration: none; }
+.trk-btn > span:first-child { font-size: 20px; line-height: 1; }
+.trk-dots { display: flex; gap: 6px; margin-left: auto; }
+.trk-dots i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.4); }
+.trk-dots i.on { background: #FFFFFF; }
+.plan-card { padding-top: 6px; padding-bottom: 6px; }
+.plan-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 0 4px; }
+.plan-h h2 { margin: 0; font-size: 18px; }
+.plan-h a { text-decoration: none; }
+.plan-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--track); color: inherit; text-decoration: none; }
+.plan-h + .plan-row { border-top: 0; }
+.plan-t { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.plan-t small { display: block; color: var(--muted); font-size: 12px; font-weight: 700; }
+.plan-t b { display: block; font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan-btn { flex: none; border: 1.5px solid var(--line); background: var(--card); border-radius: 999px; padding: 7px 14px; font-weight: 800; font-size: 13px; color: var(--accent-text); }
+.plan-ok { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--green-soft); color: var(--green); display: grid; place-items: center; }
+.plan-ok svg { width: 16px; height: 16px; }
+.ana-card h2 { margin: 2px 0 10px; font-size: 18px; }
+.ana-seg { display: flex; background: var(--track); border-radius: 999px; padding: 3px; margin-bottom: 14px; }
+.ana-seg button { flex: 1; border: 0; background: none; border-radius: 999px; padding: 7px 0; font-weight: 800; font-size: 13px; color: var(--muted); }
+.ana-seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(80, 40, 10, 0.12); }
+.tl { position: relative; padding-left: 22px; }
+.tl::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--track); }
+.tl-ev { position: relative; display: flex; gap: 10px; padding: 5px 0; font-size: 14px; font-weight: 700; }
+.tl-ev::before { content: ""; position: absolute; left: -21px; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.tl-ev time { flex: none; width: 42px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-ev span { min-width: 0; }
+.tl-ev small { color: var(--muted); font-weight: 600; }
+.tl-ev.now::before { background: var(--card); border: 2px solid var(--accent); width: 8px; height: 8px; }
+.tl-ev.now span { color: var(--accent-text); }
+.tl-ev.plan::before { background: var(--card); border: 2px dashed var(--faint); width: 8px; height: 8px; }
+.tl-ev.plan { color: var(--faint); }
+.tl-gap { margin-left: 52px; padding: 1px 0 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.tl-gap.now { color: var(--accent-text); }
+.ana-bars { position: relative; display: flex; align-items: flex-end; gap: 6px; height: 110px; }
+.ana-bars.thin { gap: 2px; }
+.ana-bars i { flex: 1; min-height: 2px; border-radius: 5px 5px 2px 2px; background: var(--accent); opacity: 0.85; }
+.ana-bars.thin i { border-radius: 2px 2px 1px 1px; }
+.ana-bars i.over { background: var(--accent-text); opacity: 1; }
+.ana-bars i.today { opacity: 0.5; }
+.ana-goal { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--faint); }
+.ana-days { display: flex; gap: 6px; margin-top: 4px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.ana-days.thin { gap: 2px; }
+.ana-days span { flex: 1; text-align: center; min-width: 0; overflow: visible; white-space: nowrap; }
+.ana-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.ana-more { display: block; margin-top: 12px; text-align: center; font-weight: 800; font-size: 14px; color: var(--accent-text); text-decoration: none; }

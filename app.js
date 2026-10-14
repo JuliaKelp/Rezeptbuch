@@ -1055,7 +1055,6 @@ function nav(active) {
   return `<nav class="nav" aria-label="Hauptmenü"><div class="nav-inner">
     ${item('heute', 'Heute', 'home')}
     ${item('rezepte', 'Rezepte', 'book')}
-    <a href="tracker/">${ICONS.tracker}Tracker</a>
     ${item('ich', 'Ich', 'me')}
   </div></nav>
   <a class="scan-fab" href="tracker/?zurueck=${back}#scan" aria-label="Scannen">${ICONS.cart}</a>`;
@@ -1215,23 +1214,6 @@ function viewStart3(edit) {
 }
 
 // ---------- Heute ----------
-
-// Zwei kleine Snacks, wenn man nur 2 Mahlzeiten am Tag isst
-function snackBlock(eatenHere) {
-  const need = Math.max(0, SNACKS_PER_DAY - eatenHere.length);
-  const planned = plannedRecipe(todayKey(), 'snack');
-  let ideas = ideasFor('snack');
-  if (planned) ideas = [{ recipe: planned, mode: 'fits', planned: true, factor: slotFactor(`${todayKey()}|snack`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
-  const start = ideas.length ? (state.pick.snack || 0) % ideas.length : 0;
-  const shown = [];
-  for (let i = 0; i < Math.min(need, ideas.length); i++) shown.push(ideas[(start + i) % ideas.length]);
-  return `<section class="meal-block">
-    <div class="meal-head"><h3>Snacks</h3><span class="small muted">${eatenHere.length ? `${eatenHere.length} von ${SNACKS_PER_DAY} gegessen` : `je ca. ${fmt(Math.round(mealBudget('snack') / 10) * 10)} kcal`}</span></div>
-    ${eatenHere.length ? eatenRow('Gegessen', mealTotals('snack')) : ''}
-    ${shown.map((x) => recipeCard(x.recipe, { meal: 'snack', factor: x.factor || 1 })).join('')}
-    <div class="idea-actions"><a class="link-btn" href="#/snacks">Was darf ich jetzt?</a>${need && ideas.length > need ? '<button class="link-btn" data-action="next-idea" data-meal="snack">Andere Snacks</button>' : ''}</div>
-  </section>`;
-}
 
 // Unter einem Vorschlag: alles im Vorrat oder was fehlt (mit Knopf für die Einkaufsliste)
 function pantryStatus(r, f = 1) {
@@ -1406,37 +1388,7 @@ function viewHeute() {
     ? `<a class="hint tip-line" href="#/rezept/${tip.recipe.id}">${ICONS.clock}<span>${esc(tip.text)}</span></a>`
     : `<div class="hint tip-line">${ICONS.clock}<span>${esc(tip.text)}</span></div>`).join('')
     + (state.profile.age ? '' : '<a class="hint tip-line" href="#/edit/1"><span>Wie alt bist du? Dann passe ich deine Tageswerte für Eisen, Magnesium und Co. an. ›</span></a>');
-  const indexed = log;
-  const extras = indexed.filter((e) => !dayMeals().some((m) => m.id === e.meal));
-  const shownToday = new Set();
-  const meals = dayMeals().map((m) => {
-    const eatenHere = indexed.filter((e) => e.meal === m.id);
-    if (m.id === 'snack') return snackBlock(eatenHere);
-    if (eatenHere.length) return `<section class="meal-block">${eatenRow(m.name, mealTotals(m.id))}</section>`;
-    // Dasselbe Gericht nicht mittags und abends vorschlagen
-    let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
-    // Heute zeigt zuerst dasselbe Gericht wie der Wochenplan, auch wenn es dort noch nicht übernommen ist
-    const planned = plannedRecipe(todayKey(), m.id) || weekProposal(todayKey(), m.id);
-    if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true, factor: slotFactor(`${todayKey()}|${m.id}`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
-    if (!ideas.length) {
-      return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
-        <div class="card small muted">Ginger findet gerade kein passendes Rezept. Vielleicht sind zu viele Zutaten auf „mag ich nicht“?</div></section>`;
-    }
-    const i = (state.pick[m.id] || 0) % ideas.length;
-    const idea = ideas[i];
-    shownToday.add(idea.recipe.id);
-    return `<section class="meal-block">
-      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? (plannedRecipe(todayKey(), m.id) ? 'Aus deinem Wochenplan' : 'Vorschlag aus dem Wochenplan') : `${state.profile.times[m.id]} Min Zeit`}</span></div>
-      ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
-      ${pantryStatus(idea.recipe, idea.factor || 1)}
-      ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
-        ${ideas.length > 1 ? `<button class="link-btn" data-action="next-idea" data-meal="${m.id}">Andere Idee</button>` : ''}
-        ${listButton(idea.recipe, idea.factor || 1)}
-        <button class="link-btn muted-link" data-action="ask-reject" data-recipe="${idea.recipe.id}">Mag ich nicht</button>
-      </div>`}
-    </section>`;
-  }).join('');
-
+  const plan = planToday(log);
   return `<main class="screen with-nav">
     <div class="top-row">
       <div>${homeDayNav(todayKey())}<h1>${esc(greeting())}</h1></div>
@@ -1446,12 +1398,151 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
-    ${infoHead('h2', 'Deine Mahlzeiten', 'heute')}
-    ${meals}
-    ${[...new Set(extras.map((e) => e.meal))].map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id))}</section>`).join('')}
+    <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
+      <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
+    ${planCard(plan)}
     <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
+    ${analysisCard(plan)}
     ${tips}
   </main>${nav('heute')}`;
+}
+
+// „Geplant für heute“: pro Mahlzeit das geplante Gericht (Wochenplan, sonst ein Vorschlag) mit „Ändern“;
+// schon Gegessenes steht mit Haken und den eingetragenen kcal da. Ein Snack steht immer mit drin.
+function planToday(log) {
+  const meals = dayMeals().some((m) => m.id === 'snack') ? dayMeals() : [...dayMeals(), SNACK];
+  const shown = new Set();
+  const rows = [];
+  for (const m of meals) {
+    const eatenHere = log.filter((e) => e.meal === m.id);
+    const name = m.id === 'snack' ? 'Snack' : m.name;
+    if (eatenHere.length) {
+      rows.push({ meal: m.id, name, eaten: true, title: eatenHere.map((e) => e.name).join(', '), kcal: mealTotals(m.id).kcal });
+      if (m.id !== 'snack' || state.profile.mealCount !== 2 || eatenHere.length >= SNACKS_PER_DAY) continue;
+    }
+    let ideas = ideasFor(m.id).filter((x) => !shown.has(x.recipe.id));
+    const planned = plannedRecipe(todayKey(), m.id) || (m.id === 'snack' ? null : weekProposal(todayKey(), m.id));
+    if (planned) ideas = [{ recipe: planned, mode: m.id === 'snack' ? 'fits' : timeMode(planned, m.id) || 'fits', planned: true, factor: slotFactor(`${todayKey()}|${m.id}`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
+    // Bei zwei Mahlzeiten am Tag gibt es zwei Snacks
+    const count = m.id === 'snack' && state.profile.mealCount === 2 ? SNACKS_PER_DAY - eatenHere.length : eatenHere.length ? 0 : 1;
+    if (!ideas.length) { if (count) rows.push({ meal: m.id, name, none: true }); continue; }
+    const start = (state.pick[m.id] || 0) % ideas.length;
+    for (let i = 0; i < Math.min(count, ideas.length); i++) {
+      const idea = ideas[(start + i) % ideas.length];
+      shown.add(idea.recipe.id);
+      rows.push({ meal: m.id, name, idea, step: count, more: ideas.length > count });
+    }
+  }
+  // Gegessenes zu Mahlzeiten, die sonst nicht im Plan stehen
+  for (const id of [...new Set(log.map((e) => e.meal))].filter((id) => !meals.some((m) => m.id === id))) {
+    rows.push({ meal: id, name: mealName(id), eaten: true, title: log.filter((e) => e.meal === id).map((e) => e.name).join(', '), kcal: mealTotals(id).kcal });
+  }
+  rows.sort((x, y) => MEAL_ORDER.indexOf(x.meal) - MEAL_ORDER.indexOf(y.meal));
+  return { rows };
+}
+function planCard(plan) {
+  const row = (r) => {
+    if (r.eaten) {
+      return `<a class="plan-row" href="tracker/"><span class="plan-t"><small>${esc(r.name)} · ${fmt(r.kcal)} kcal gegessen</small><b>${esc(r.title)}</b></span><span class="plan-ok" aria-label="Gegessen">${ICONS.check}</span></a>`;
+    }
+    if (r.none) return `<div class="plan-row"><span class="plan-t"><small>${esc(r.name)}</small><span class="small muted">Kein passendes Rezept gefunden.</span></span></div>`;
+    const x = r.idea;
+    const f = x.factor || 1;
+    const kcal = Math.round((x.recipe.kcal * f) / 10) * 10;
+    const href = `#/rezept/${x.recipe.id}/${r.meal}${f !== 1 ? '/' + f : ''}`;
+    const from = x.planned && plannedRecipe(todayKey(), r.meal) ? ' · Wochenplan' : '';
+    return `<div class="plan-row"><a class="plan-t" href="${href}"><small>${esc(r.name)} · ca. ${fmt(kcal)} kcal${from}</small><b>${esc(x.recipe.name)}</b></a>
+      ${r.more ? `<button class="plan-btn" data-action="next-idea" data-meal="${r.meal}" data-step="${r.step}">Ändern</button>` : ''}</div>`;
+  };
+  return `<section class="card plan-card">
+    <div class="plan-h"><h2>Geplant für heute</h2><a class="small muted" href="#/woche">Wochenplan ›</a></div>
+    ${plan.rows.map(row).join('')}
+  </section>`;
+}
+
+// ---------- Analyse auf der Startseite ----------
+// Uhrzeit eines Tracker-Eintrags wie in der Tracker-Timeline: eigene Uhrzeit → für die Mahlzeit gesetzte Uhrzeit →
+// Snacks: Zeitpunkt des Eintragens → frühester Eintrag der Mahlzeit an dem Tag → Standardzeit der Mahlzeit
+const TL_DEFAULT_TIMES = { breakfast: '08:00', lunch: '12:30', snack: '16:00', dinner: '19:00' };
+const hourOf = (hm) => { const [a, b] = String(hm).split(':').map(Number); return a + (b || 0) / 60; };
+const hm = (h) => { const m = Math.round(h * 60); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
+function entryCreated(day, e) {
+  const ms = parseInt(String(e.id || '').slice(0, -5), 36);
+  if (!ms || isNaN(ms)) return null;
+  const d = new Date(ms);
+  return keyOf(d) === day ? d.getHours() + d.getMinutes() / 60 : null;
+}
+function entryHour(day, e, t) {
+  if (e.t) return hourOf(e.t);
+  if (e.cafId) { const c = (((t.caffeine || {}).log || {})[day] || []).find((x) => x.id === e.cafId); if (c) return c.min / 60; }
+  const set = (((t.timeline || {}).times || {})[day] || {})[e.meal];
+  if (set) return hourOf(set);
+  if (e.meal === 'snack') { const c = entryCreated(day, e); if (c != null) return c; }
+  const hs = ((t.days || {})[day] || []).filter((x) => x.meal === e.meal && !x.t && !x.cafId).map((x) => entryCreated(day, x)).filter((h) => h != null);
+  return hs.length ? Math.min(...hs) : hourOf(TL_DEFAULT_TIMES[e.meal] || '12:00');
+}
+// Essens-Zeitpunkte eines Tages; Einträge derselben Mahlzeit innerhalb von 20 Minuten zählen als ein Essen
+function mealEvents(day) {
+  const t = readTracker();
+  const list = ((t.days || {})[day] || []).map((e) => ({ e, h: entryHour(day, e, t), k: ((e.k || 0) * (e.grams || 0)) / 100 }))
+    .filter((x) => x.k > 0).sort((a, b) => a.h - b.h);
+  const ev = [];
+  for (const x of list) {
+    const g = ev.find((v) => v.meal === x.e.meal && Math.abs(v.h - x.h) <= 1 / 3);
+    if (g) { g.kcal += x.k; g.names.push(x.e.n || 'Eintrag'); } else ev.push({ meal: x.e.meal, h: x.h, kcal: x.k, names: [x.e.n || 'Eintrag'] });
+  }
+  return ev.sort((a, b) => a.h - b.h);
+}
+const gapText = (h) => { const m = Math.round(h * 60); return m < 60 ? `${m} Min` : `${Math.floor(m / 60)} Std${m % 60 ? ` ${m % 60} Min` : ''}`; };
+function timelineHtml(plan) {
+  const ev = mealEvents(todayKey());
+  const now = new Date(); const nowH = now.getHours() + now.getMinutes() / 60;
+  const TO_TRACKER = { fruehstueck: 'breakfast', mittag: 'lunch', abend: 'dinner', snack: 'snack' };
+  const times = ((readTracker().timeline || {}).times || {})[todayKey()] || {};
+  // Was heute noch geplant ist, mit der Uhrzeit der Mahlzeit
+  const later = plan.rows.filter((r) => r.idea).map((r) => ({ h: hourOf(times[TO_TRACKER[r.meal]] || TL_DEFAULT_TIMES[TO_TRACKER[r.meal]]), name: r.idea.recipe.name }))
+    .filter((x) => x.h > nowH).sort((a, b) => a.h - b.h);
+  if (!ev.length && !later.length) return '<p class="small muted">Heute ist noch nichts eingetragen.</p>';
+  let html = ''; let prev = null;
+  for (const x of ev) {
+    if (prev != null) html += `<div class="tl-gap">${gapText(x.h - prev)} Pause</div>`;
+    html += `<div class="tl-ev"><time>${hm(x.h)}</time><span>${esc(x.names.join(', '))}<small> · ${fmt(x.kcal)} kcal</small></span></div>`;
+    prev = x.h;
+  }
+  if (prev != null && nowH > prev) html += `<div class="tl-gap now">seit ${gapText(nowH - prev)} nichts gegessen</div><div class="tl-ev now"><time>${hm(nowH)}</time><span>jetzt</span></div>`;
+  for (const x of later) html += `<div class="tl-ev plan"><time>${hm(x.h)}</time><span>geplant: ${esc(x.name)}</span></div>`;
+  return `<div class="tl">${html}</div>`;
+}
+// Kalorien pro Tag als Balken; die gestrichelte Linie ist das Tagesziel. Ø nur über Tage mit Einträgen, ohne heute.
+function kcalBars(n) {
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) days.push(keyOf(new Date(Date.now() - i * 864e5)));
+  const vals = days.map((d) => ({ d, k: journal(d).reduce((s, e) => s + e.kcal, 0), goal: kcalGoal(d) }));
+  const max = Math.max(...vals.map((v) => Math.max(v.k, v.goal))) || 1;
+  const past = vals.filter((v) => v.d !== todayKey() && v.k > 0);
+  const avg = past.length ? past.reduce((s, v) => s + v.k, 0) / past.length : 0;
+  const label = (d, i) => (n <= 7 ? dateOf(d).toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '') : (i % 5 === 0 || i === n - 1 ? dateOf(d).getDate() : ''));
+  const goalPct = (kcalGoal() / max) * 100;
+  return `<div class="ana-bars ${n > 7 ? 'thin' : ''}" role="img" aria-label="Kalorien der letzten ${n} Tage, Durchschnitt ${fmt(avg)} kcal">
+      <div class="ana-goal" style="bottom:${goalPct.toFixed(1)}%"></div>
+      ${vals.map((v) => `<i class="${v.k > v.goal ? 'over' : ''}${v.d === todayKey() ? ' today' : ''}" style="height:${((v.k / max) * 100).toFixed(1)}%"></i>`).join('')}
+    </div>
+    <div class="ana-days ${n > 7 ? 'thin' : ''}">${vals.map((v, i) => `<span>${label(v.d, i)}</span>`).join('')}</div>
+    <div class="ana-stats"><span>Ø ${past.length ? fmt(avg) : '–'} kcal</span><span>Ziel ${fmt(kcalGoal())} kcal</span><span>${past.length} von ${n - 1} Tagen eingetragen</span></div>`;
+}
+function analysisCard(plan) {
+  const tab = ['timeline', 'week', 'month'].includes(state.profile.anaTab) ? state.profile.anaTab : 'timeline';
+  const tabs = [['timeline', 'Timeline'], ['week', '7 Tage'], ['month', '30 Tage']];
+  const body = tab === 'timeline' ? timelineHtml(plan) : kcalBars(tab === 'week' ? 7 : 30);
+  const more = tab === 'timeline'
+    ? '<a class="ana-more" href="tracker/?zurueck=heute#timeline">Verdauung und Plan-Vorschlag ›</a>'
+    : '<a class="ana-more" href="tracker/?zurueck=heute#analyse">Ganze Analyse ›</a>';
+  return `<section class="card ana-card">
+    <h2>Analyse</h2>
+    <div class="ana-seg" role="group" aria-label="Ansicht">${tabs.map(([id, name]) => `<button type="button" data-action="ana-tab" data-t="${id}" aria-pressed="${tab === id}">${name}</button>`).join('')}</div>
+    ${body}
+    ${more}
+  </section>`;
 }
 
 // ---------- Rezepte ----------
@@ -3088,7 +3179,8 @@ const actions = {
   'have-chip'(el) { if (!ui.have.includes(el.dataset.food)) ui.have.push(el.dataset.food); },
   'have-remove'(el) { ui.have = ui.have.filter((x) => x !== el.dataset.food); },
   info(el) { ui.info[el.dataset.key] = !ui.info[el.dataset.key]; },
-  'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (m === 'snack' ? SNACKS_PER_DAY : 1); },
+  'next-idea'(el) { const m = el.dataset.meal; state.pick[m] = (state.pick[m] || 0) + (Number(el.dataset.step) || (m === 'snack' ? SNACKS_PER_DAY : 1)); },
+  'ana-tab'(el) { state.profile.anaTab = el.dataset.t; },
   filter(el) { ui.recipeFilter = el.dataset.id; },
   cooked(el) {
     const r = allRecipes().find((x) => x.id === el.dataset.recipe);

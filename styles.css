@@ -610,7 +610,6 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .micro-row > span:first-child { display: flex; flex-direction: column; }
 .micro-row .chips { flex-wrap: nowrap; gap: 6px; }
 .micro-row .chip { padding: 6px 10px; }
-.micro-day { display: flex; flex-direction: column; gap: 8px; }
 .journal-card .seg-pill { display: inline-flex; align-self: flex-start; background: var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
 .journal-card .seg-pill button { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 800; color: var(--muted); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
 .journal-card .seg-pill button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(59, 42, 32, 0.15); }
@@ -618,3 +617,30 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .day-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; white-space: nowrap; }
 .day-nav .icon-btn { width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 18px; font-weight: 800; line-height: 1; cursor: pointer; }
 .day-nav .icon-btn:disabled { opacity: .35; cursor: default; }
+/* Ein Feld: Kalorienkreis links, Balkenliste rechts */
+.day-panel { gap: 10px; }
+.dp-body { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: start; text-decoration: none; color: inherit; }
+.dp-ring { position: relative; width: 112px; text-align: center; }
+.dp-ring svg { width: 112px; height: 112px; display: block; }
+.dp-kc { position: absolute; top: 0; left: 0; width: 112px; height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; }
+.dp-kc b { font-size: 22px; font-weight: 900; }
+.dp-kc b.over { color: #B4441F; }
+.dp-kc small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.dp-sub { margin-top: 4px; font-size: 12px; }
+.dp-list { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.dp-h { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 700; }
+.dp-h b { font-weight: 900; white-space: nowrap; }
+.dp-h small { color: var(--muted); font-weight: 700; }
+.dp-bar { height: 7px; border-radius: 4px; background: #EFE4D8; overflow: hidden; }
+.dp-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c); }
+.dp-micro { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; }
+.dp-list { gap: 12px; align-self: center; }
+.dp-list .dp-h { font-size: 14px; }
+.dp-list .dp-bar { height: 9px; }
+.dp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.dp-micro { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; }
+.dp-micro .dp-row { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dp-micro .dp-h { font-size: 13px; white-space: nowrap; }
+.dp-v { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; font-size: 12px; }
+.dp-v b { font-weight: 900; white-space: nowrap; }
+.dp-v small { color: var(--muted); font-weight: 700; }

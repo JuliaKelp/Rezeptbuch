@@ -1292,7 +1292,8 @@ function dayCard(day = todayKey()) {
     off += len;
     return c;
   }).join('');
-  const bar = (id, pct) => `<div class="dp-bar"><i style="width:${Math.min(100, Math.max(0, pct))}%;background:${P[id]}"></i></div>`;
+  // Balken als Farbverlauf auf der Spur selbst: auf dem iPhone blieben die inneren Balken leer
+  const bar = (id, pct) => { const w = Math.round(Math.min(100, Math.max(0, pct || 0)) * 10) / 10; return `<div class="dp-bar" style="background:linear-gradient(to right, ${P[id]} ${w}%, #EFE4D8 ${w}%)"></div>`; };
   const macros = [['protein', 'Eiweiß'], ['kh', 'Kohlenhydrate'], ['fett', 'Fett']].map(([id, name]) => {
     const g = t[id];
     const r = g ? g - e[id] : null;

@@ -632,7 +632,6 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .dp-h b { font-weight: 900; white-space: nowrap; }
 .dp-h small { color: var(--muted); font-weight: 700; }
 .dp-bar { height: 7px; border-radius: 4px; background: #EFE4D8; overflow: hidden; }
-.dp-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c); }
 .dp-list { gap: 12px; align-self: center; }
 .dp-list .dp-h { font-size: 14px; }
 .dp-list .dp-bar { height: 9px; }

@@ -711,8 +711,18 @@ function shoppingList() {
 function planPicker(r) {
   ensureWeek();
   const meals = [...MEALS, SNACK].filter((m) => r.meals.includes(m.id));
+  const n = (ui.prepN || {})[r.id] || 1;
+  const pm = (ui.prepMeal || {})[r.id] && meals.some((m) => m.id === ui.prepMeal[r.id]) ? ui.prepMeal[r.id] : (meals.find((m) => m.id === 'abend') || meals[0] || {}).id;
   return `<div class="card plan-picker">
-    <div class="small" style="font-weight:800">Wann willst du es essen?</div>
+    <div class="small" style="font-weight:800">Wie oft willst du es essen?</div>
+    <div class="prep-row"><div class="stepper" role="group" aria-label="Wie oft">
+        <button class="round" data-action="prep-n" data-recipe="${r.id}" data-n="${n - 1}" aria-label="Einmal weniger" ${n <= 1 ? 'disabled' : ''}>−</button>
+        <span><b>${n}×</b></span>
+        <button class="round" data-action="prep-n" data-recipe="${r.id}" data-n="${n + 1}" aria-label="Einmal mehr" ${n >= 7 ? 'disabled' : ''}>+</button></div>
+      ${meals.length > 1 ? `<div class="chips">${meals.map((m) => `<button class="chip" data-action="prep-meal" data-recipe="${r.id}" data-meal="${m.id}" aria-pressed="${pm === m.id}">${m.id === 'snack' ? 'Snack' : m.name.replace('essen', '')}</button>`).join('')}</div>` : ''}</div>
+    <button class="btn small-btn" data-action="plan-multi" data-recipe="${r.id}" data-meal="${pm}" data-n="${n}">${n}× einplanen, ab heute</button>
+    ${n > 1 ? `<div class="small muted">Meal Prep: Koch einmal ${n} Portionen. Beim ersten „Fertig gekocht“ ziehe ich alle Zutaten vom Vorrat ab, an den nächsten Tagen nur noch den Eintrag.</div>` : ''}
+    <div class="small" style="font-weight:800;margin-top:6px">Oder einzelne Tage wählen</div>
     ${meals.map((m) => `<div class="small muted">${m.name}</div>
       <div class="chips">${weekDays().map((d) => {
         const s = state.week.slots[`${d}|${m.id}`];
@@ -1023,7 +1033,7 @@ function recipeNutrients(r) {
 }
 
 // Tabelle mit Nährwerten und dem Anteil an den Tageszielen aus dem Tracker
-function nutrientTable(n, { title = 'Nährwerte pro Portion' } = {}) {
+function nutrientTable(n, { title = 'Nährwerte pro Portion', fold = false } = {}) {
   const t = nutrientTargets();
   const row = (id, name) => {
     const v = n[id] || 0;
@@ -1037,7 +1047,8 @@ function nutrientTable(n, { title = 'Nährwerte pro Portion' } = {}) {
         <span class="small muted nut-goal">${limit ? 'max. ' : 'von '}${goal} g</span>` : '<span></span><span class="small muted nut-goal">kein Richtwert</span>'}
     </div>`;
   };
-  return `<section class="card nut-card"><h2 style="margin-bottom:8px">${title}</h2>
+  const open = fold ? `<details class="card nut-card nut-fold"><summary><h2>${title}</h2><span class="small muted">ca. ${fmt(n.kcal)} kcal</span></summary>` : `<section class="card nut-card"><h2 style="margin-bottom:8px">${title}</h2>`;
+  return `${open}
     <div class="nut-row"><span>Kalorien</span><b>${fmt(n.kcal)} kcal</b>${t.kcal ? `<div class="bar small-bar"><div style="width:${Math.min(100, (n.kcal / t.kcal) * 100)}%"></div></div><span class="small muted nut-goal">von ${fmt(t.kcal)}</span>` : '<span></span><span class="small muted nut-goal">kein Ziel</span>'}</div>
     ${NUTRIENTS.map((x) => row(x.id, x.name)).join('')}
     ${hasMicros() ? `<h3 style="margin:12px 0 4px">Mineralstoffe und Vitamine</h3>${MICROS.map((m) => {
@@ -1049,7 +1060,7 @@ function nutrientTable(n, { title = 'Nährwerte pro Portion' } = {}) {
         ${miss ? '<span></span><span></span>' : `<div class="bar small-bar"><div style="width:${Math.min(100, (v / ref) * 100)}%"></div></div><span class="small muted nut-goal">${Math.round((v / ref) * 100)} % von ${fmt(ref)}</span>`}</div>`;
     }).join('')}` : ''}
     <p class="small muted" style="margin-top:6px">Aus dem Bundeslebensmittelschlüssel. Die Balken zeigen den Anteil an deinen Tageszielen im Tracker${hasMicros() ? ', bei Mineralstoffen und Vitaminen am Tageswert der DGE (Quellen unter „Ich“)' : ''}.${hasMicros() ? ' „Unvollständig“: Für mindestens eine Zutat nennt die Quelle keinen Wert, dann rechne ich nichts.' : ''}</p>
-  </section>`;
+  ${fold ? '</details>' : '</section>'}`;
 }
 
 // Zutaten für eine gewünschte Portionenzahl
@@ -1067,7 +1078,8 @@ function scaledIngredients(r, n) {
 }
 
 function portionsOf(r) {
-  return ui.portions[r.id] || state.profile.portions || 1;
+  const base = state.profile.portions || 1;
+  return ui.portions[r.id] || (state.prepPlan && state.prepPlan[r.id] ? state.prepPlan[r.id] * base : base);
 }
 
 // Nachfrage nach einem „Mag ich nicht“: nur dieses Rezept oder eine Zutat darin?
@@ -1837,10 +1849,6 @@ function viewRezept(id, meal, factorParam) {
         </div></div>
       <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => { const n = nutrientsOfText(x); const mic = deficits().filter((id) => !n['miss_' + id]).map((id) => { const m = MICROS.find((y) => y.id === id); return `<span class="micro-line">${m.name} ${g1(n[id])} ${m.unit}</span>`; }).join(' '); return n.kcal >= 1 ? `<li><details class="ing-d"><summary>${esc(x)}</summary><span class="ing-n">${fmt(n.kcal)} kcal ${macroMini(n)}</span>${mic ? `<span class="ing-n">${mic}</span>` : ''}</details></li>` : `<li><span>${esc(x)}</span></li>`; }).join('')}</ul>
     </section>
-    ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f))}
-    <section class="card note-card"><label for="rnote"><h2>Meine Notiz</h2></label>
-      <textarea id="rnote" class="input" data-note="${r.id}" placeholder="z. B. mit mehr Knoblauch, beim nächsten Mal doppelt kochen">${esc((state.notes || {})[r.id] || '')}</textarea>
-      <span class="small muted">Wird automatisch gespeichert, nur auf diesem Handy.</span></section>
     <h2>So geht’s</h2>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
@@ -1849,6 +1857,10 @@ function viewRezept(id, meal, factorParam) {
     <div style="display:flex;flex-direction:column;gap:8px">
       ${r.steps.map((s, i) => `<label class="step"><input type="checkbox" data-action="step" data-recipe="${r.id}" data-step="${i}" ${done.has(i) ? 'checked' : ''}><span>${esc(s)}</span></label>`).join('')}
     </div>
+    ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f), { fold: true })}
+    <section class="card note-card"><label for="rnote"><h2>Meine Notiz</h2></label>
+      <textarea id="rnote" class="input" data-note="${r.id}" placeholder="z. B. mit mehr Knoblauch, beim nächsten Mal doppelt kochen">${esc((state.notes || {})[r.id] || '')}</textarea>
+      <span class="small muted">Wird automatisch gespeichert, nur auf diesem Handy.</span></section>
     <div style="display:flex;align-items:flex-end;gap:10px">
       ${ginger(64, { mood: allDone ? 'happy' : 'normal' })}
       <div class="bubble" style="flex:1;margin-bottom:18px">${stampedNow ? `Stempel ist im Heft! +${XP_PER_RECIPE} XP${ui.justEntry ? ' Im Tracker-Journal steht es auch schon.' : ''}${ui.justVorrat ? ' ' + esc(ui.justVorrat) : ''}` : cheer}</div>
@@ -3404,6 +3416,26 @@ const actions = {
     if (state.favorites[id]) delete state.favorites[id]; else state.favorites[id] = true;
   },
   'plan-open'(el) { ui.planning = el.dataset.recipe && ui.planning !== el.dataset.recipe ? el.dataset.recipe : null; },
+  'prep-n'(el) { ui.prepN = Object.assign({}, ui.prepN, { [el.dataset.recipe]: Math.max(1, Math.min(7, Number(el.dataset.n))) }); },
+  'prep-meal'(el) { ui.prepMeal = Object.assign({}, ui.prepMeal, { [el.dataset.recipe]: el.dataset.meal }); },
+  // Meal Prep: ein Gericht an den nächsten n freien Tagen zur gleichen Mahlzeit einplanen (schon übernommene andere Gerichte bleiben)
+  'plan-multi'(el) {
+    const w = ensureWeek();
+    const { recipe: id, meal } = el.dataset;
+    const n = Number(el.dataset.n) || 1;
+    const days = [];
+    for (const d of weekDays()) {
+      if (days.length >= n) break;
+      const s = w.slots[`${d}|${meal}`];
+      if (s && s.ok && s.id !== id && w.meals.includes(meal)) continue;
+      w.slots[`${d}|${meal}`] = { id, ok: true };
+      days.push(d);
+    }
+    if (!w.meals.includes(meal)) w.meals = MEAL_ORDER.filter((x) => x === meal || w.meals.includes(x));
+    state.prepPlan = state.prepPlan || {};
+    if (n > 1) state.prepPlan[id] = days.length || n; else delete state.prepPlan[id]; // Meal Prep: beim Kochen gleich alle Portionen
+    toast(days.length ? `${days.length}× eingeplant (${mealName(meal)}): ${days.map(shortDay).join(', ')}${days.length < n ? '. Mehr freie Tage gibt es diese Woche nicht.' : ''}` : 'Diese Woche ist zu der Mahlzeit schon alles verplant.');
+  },
   'plan-at'(el) {
     const w = ensureWeek();
     const { recipe: id, day, meal } = el.dataset;
@@ -3434,7 +3466,17 @@ const actions = {
     const meal = el.dataset.meal || currentMeal();
     const f = Number(el.dataset.factor) || 1;
     const t = readTracker();
-    const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f)); // gekochte Portionen aus dem Vorrat
+    // Meal Prep: Waren noch vorgekochte Portionen da, nichts mehr vom Vorrat abziehen
+    state.prepLeft = state.prepLeft || {};
+    const left = state.prepLeft[r.id];
+    const fromPrep = left && left.n > 0 && left.day >= addDays(todayKey(), -4);
+    const vr = fromPrep ? { used: [], text: `Vorgekocht, noch ${left.n - 1} ${left.n - 1 === 1 ? 'Portion' : 'Portionen'} übrig.` } : takeIngredients(t, scaledIngredients(r, portionsOf(r) * f)); // gekochte Portionen aus dem Vorrat
+    if (fromPrep) { if (left.n > 1) left.n -= 1; else delete state.prepLeft[r.id]; }
+    else {
+      const daysWorth = Math.floor(portionsOf(r) / (state.profile.portions || 1));
+      if (daysWorth > 1) state.prepLeft[r.id] = { n: daysWorth - 1, day: todayKey() }; else delete state.prepLeft[r.id];
+      if (state.prepPlan) delete state.prepPlan[r.id];
+    }
     const entryId = addToTracker(r, meal, f, vr.used.length ? { vu: vr.used } : null);
     if (!entryId && vr.used.length) writeTracker(t);
     if (state.listExtra) delete state.listExtra[r.id]; // gekocht, muss nicht mehr eingekauft werden

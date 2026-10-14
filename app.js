@@ -149,13 +149,13 @@ function mealBudget(meal) {
 // ---------- Ziele und Journal aus dem Tracker ----------
 
 // Kalorienziel, das heute im Tracker gilt (oder der Startwert, wenn dort noch keins steht)
-function kcalGoal() { return trackerGoal().goal || KCAL_FALLBACK; }
-function hasKcalGoal() { return !!trackerGoal().goal; }
+function kcalGoal(day) { return trackerGoal(day).goal || KCAL_FALLBACK; }
+function hasKcalGoal(day) { return !!trackerGoal(day).goal; }
 
 // Tagesziele für Nährstoffe, wie der Tracker sie rechnet: Makros aus seinem Ernährungsziel,
 // Ballaststoffe 30 g und freier Zucker < 10 % (bzw. 5 %) der kcal bei seinen Presets, sonst die eigenen Werte dort.
-function nutrientTargets() {
-  const g = trackerGoal();
+function nutrientTargets(day) {
+  const g = trackerGoal(day);
   const kcal = g.goal || null;
   const auto = g.preset && g.preset !== 'custom';
   const pct = readTracker().sugarPct === 5 ? 5 : 10;
@@ -1196,9 +1196,9 @@ function listButton(r, f = 1) {
 }
 
 // Gegessenes einer Mahlzeit zusammengezählt (kcal, Eiweiß, KH, Fett), aus dem Tracker-Journal
-function mealTotals(meal) {
+function mealTotals(meal, day = todayKey()) {
   const sum = { kcal: 0, protein: 0, kh: 0, fett: 0, n: 0 };
-  for (const e of (readTracker().days || {})[todayKey()] || []) {
+  for (const e of (readTracker().days || {})[day] || []) {
     if ((FROM_TRACKER_MEAL[e.meal] || 'snack') !== meal) continue;
     const f = (e.grams || 0) / 100;
     sum.kcal += (e.k || 0) * f; sum.protein += (e.p || 0) * f; sum.kh += (e.c || 0) * f; sum.fett += (e.f || 0) * f; sum.n++;
@@ -1214,11 +1214,11 @@ function eatenRow(name, t) {
 }
 
 // Oben auf „Heute“: was noch frei ist, mit Makro-Balken wie im Tracker
-function dayCard() {
-  const left = dayLeft();
-  const t = nutrientTargets();
+function dayCard(day = todayKey()) {
+  const left = dayLeft(day);
+  const t = nutrientTargets(day);
   const e = left.eaten;
-  const goal = kcalGoal();
+  const goal = kcalGoal(day);
   const showLeft = readTracker().heroMode !== 'eaten'; // gleiche Einstellung wie früher im Tracker-Journal
   // Gefüllt wird nach dem Anteil von Eiweiß, KH und Fett an den gegessenen kcal, die Länge ist gegessen / Ziel
   const parts = [['protein', 4, 'var(--mp)'], ['kh', 4, 'var(--mc)'], ['fett', 9, 'var(--mf)']];
@@ -1238,7 +1238,7 @@ function dayCard() {
       <div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>
       <a class="day-link" href="tracker/">
         <div class="day-top"><div><div class="journal-kcal">${big}</div>
-          <div class="small muted">${sub}${hasKcalGoal() ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
+          <div class="small muted">${sub}${hasKcalGoal(day) ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
         <div class="comp-bar" aria-hidden="true">${seg}</div>
         <div class="comp-legend">${leg('protein', 'Eiweiß', 'm-p')}${leg('kh', 'KH', 'm-c')}${leg('fett', 'Fett', 'm-f')}</div>
       </a>
@@ -1247,11 +1247,11 @@ function dayCard() {
 
 // Heute gegessene Mineralstoffe und Vitamine aus dem Tracker-Journal. Werte gibt es für BLS-Lebensmittel und Rezepte
 // aus dem Rezeptbuch; Barcode-Produkte und eigene Lebensmittel haben keine verlässlichen Angaben und zählen als „ohne Werte“.
-function dayMicros() {
+function dayMicros(day = todayKey()) {
   const sum = {};
   const miss = {};
   for (const m of MICROS) { sum[m.id] = 0; miss[m.id] = 0; }
-  const entries = (readTracker().days || {})[todayKey()] || [];
+  const entries = (readTracker().days || {})[day] || [];
   for (const e of entries) {
     const ref = String(e.ref || '');
     let v = null;
@@ -1271,10 +1271,10 @@ function dayMicros() {
   }
   return { sum, miss, count: entries.length };
 }
-function microDayCard() {
+function microDayCard(day = todayKey()) {
   const ids = (state.profile.homeMicros || []).filter((id) => DGE[id]);
   if (!ids.length || !hasMicros()) return '';
-  const d = dayMicros();
+  const d = dayMicros(day);
   const def = deficits();
   const style = state.profile.microStyle || 'bar';
   const items = ids.map((id) => {
@@ -1305,8 +1305,32 @@ function greeting() {
   return name ? `${g}, ${name}!` : `${g}!`;
 }
 
+// Rückblick auf frühere Tage: Kalorien, Mineralstoffe und was gegessen wurde, ohne Vorschläge
+function homeDayNav(day) {
+  const today = todayKey();
+  const label = day === today ? 'Heute' : day === keyOf(new Date(Date.now() - 864e5)) ? 'Gestern' : dateOf(day).toLocaleDateString('de-DE', { weekday: 'long' });
+  return `<div class="day-nav" role="group" aria-label="Tag wählen">
+      <button class="icon-btn" data-action="home-day" data-d="-1" aria-label="Vorheriger Tag">‹</button>
+      <span class="small muted">${label}, ${dateOf(day).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' })}</span>
+      <button class="icon-btn" data-action="home-day" data-d="1" aria-label="Nächster Tag" ${day >= today ? 'disabled' : ''}>›</button>
+    </div>`;
+}
+function viewHeuteRueckblick(day) {
+  const eaten = [...dayMeals().map((m) => m.id), ...['fruehstueck', 'mittag', 'abend', 'snack'].filter((id) => !dayMeals().some((m) => m.id === id))]
+    .filter((id, i, a) => a.indexOf(id) === i && mealTotals(id, day).n);
+  return `<main class="screen with-nav">
+    <div class="top-row"><div>${homeDayNav(day)}<h1>Rückblick</h1></div>
+      <button class="link-btn" data-action="home-day" data-d="0">Zu heute ›</button></div>
+    ${dayCard(day)}
+    ${microDayCard(day)}
+    <h2>Gegessen</h2>
+    ${eaten.length ? eaten.map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id, day))}</section>`).join('') : '<div class="card small muted">An diesem Tag ist nichts eingetragen.</div>'}
+  </main>${nav('heute')}`;
+}
+
 function viewHeute() {
-  const date = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  if (ui.homeDay && ui.homeDay < todayKey()) return viewHeuteRueckblick(ui.homeDay);
+  ui.homeDay = null;
   const log = journal();
 
   const tips = prepTips().slice(0, 1).map((tip) => tip.recipe
@@ -1345,7 +1369,7 @@ function viewHeute() {
 
   return `<main class="screen with-nav">
     <div class="top-row">
-      <div><div class="small muted">${date}</div><h1>${esc(greeting())}</h1></div>
+      <div>${homeDayNav(todayKey())}<h1>${esc(greeting())}</h1></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="level-pill">Level ${level()} · ${levelName()}</div>
         <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
@@ -2457,10 +2481,10 @@ function viewEinkauf() {
 // zu dem passen, was heute laut Tracker noch frei ist. Nährwerte kommen aus den Rezepten (BLS), nichts geschätzt.
 
 // Heute schon gegessen (Tracker-Journal) und was vom Tagesziel noch frei ist
-function dayLeft() {
-  const t = nutrientTargets();
+function dayLeft(day = todayKey()) {
+  const t = nutrientTargets(day);
   const eaten = { kcal: 0, protein: 0, kh: 0, fett: 0 };
-  for (const e of (readTracker().days || {})[todayKey()] || []) {
+  for (const e of (readTracker().days || {})[day] || []) {
     const f = (e.grams || 0) / 100;
     eaten.kcal += (e.k || 0) * f;
     eaten.protein += (e.p || 0) * f;
@@ -2468,7 +2492,7 @@ function dayLeft() {
     eaten.fett += (e.f || 0) * f;
   }
   const rest = (goal, x) => (goal ? goal - x : null);
-  return { eaten, kcal: kcalGoal() - eaten.kcal, protein: rest(t.protein, eaten.protein), kh: rest(t.kh, eaten.kh), fett: rest(t.fett, eaten.fett) };
+  return { eaten, kcal: kcalGoal(day) - eaten.kcal, protein: rest(t.protein, eaten.protein), kh: rest(t.kh, eaten.kh), fett: rest(t.fett, eaten.fett) };
 }
 
 // kcal für dieses Gericht: was heute frei ist, minus die Rahmen der Mahlzeiten, die danach noch kommen
@@ -3154,6 +3178,14 @@ const actions = {
   },
   cycle(el) {
     state.profile.cycle = state.profile.cycle === el.dataset.k ? null : el.dataset.k;
+  },
+  'home-day'(el) {
+    const d = Number(el.dataset.d);
+    if (!d) { ui.homeDay = null; return; }
+    const cur = dateOf(ui.homeDay || todayKey());
+    cur.setDate(cur.getDate() + d);
+    const k = keyOf(cur);
+    ui.homeDay = k < todayKey() ? k : null;
   },
   'day-mode'(el) {
     const t = readTracker();

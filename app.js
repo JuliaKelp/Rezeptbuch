@@ -1339,7 +1339,7 @@ function dayMicros(day = todayKey()) {
   const miss = {};
   for (const m of MICROS) { sum[m.id] = 0; miss[m.id] = 0; }
   const entries = (readTracker().days || {})[day] || [];
-  for (const e of entries) {
+  for (const e of entries.flatMap((x) => x.parts || [x])) { // zusammengeführte Mahlzeit: ihre Teile zählen
     const ref = String(e.ref || '');
     let v = null;
     if (ref.startsWith('bls:')) {

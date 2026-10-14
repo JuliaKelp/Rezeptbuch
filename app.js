@@ -1264,6 +1264,20 @@ function suppDueOn(day) {
     return true;
   });
 }
+// Symbole wie im Tracker (Darreichungsform mit Kürzel), aus tracker/js/supplements.js übernommen
+function suppIconSvg(form, c, size = 32, badge = null) {
+  const d = {
+    powder: `<path d="M3.5 17.5h17l-1.4 2.5H4.9z" fill="${c}" fill-opacity="0.35" stroke="${c}" stroke-width="1.4" stroke-linejoin="round"/><path d="M5.5 17.5c1.3-3.4 3.6-5.5 6.5-5.5s5.2 2.1 6.5 5.5z" fill="${c}"/><circle cx="9" cy="9" r=".9" fill="${c}"/><circle cx="14.5" cy="7.5" r=".9" fill="${c}"/><circle cx="12" cy="5" r=".9" fill="${c}"/>`,
+    tablet: `<circle cx="12" cy="12" r="8.5" fill="${c}"/><path d="M4 12h16" stroke="#3B2A20" stroke-opacity="0.3" stroke-width="1.6"/><path d="M8 7.8a6 6 0 0 1 4-1.6" stroke="#fff" stroke-opacity="0.55" stroke-width="1.6" fill="none" stroke-linecap="round"/>`,
+    softgel: `<g transform="rotate(-35 12 12)"><rect x="2.8" y="7" width="18.4" height="10" rx="5" fill="${c}"/><rect x="5.5" y="9" width="9" height="2.2" rx="1.1" fill="#fff" fill-opacity="0.5"/></g>`,
+    capsule: `<g transform="rotate(-35 12 12)"><rect x="2.8" y="7.5" width="18.4" height="9" rx="4.5" fill="${c}" fill-opacity="0.38" stroke="${c}" stroke-width="1.4"/><path d="M12 7.5h5.2a4.5 4.5 0 0 1 0 9H12z" fill="${c}"/></g>`,
+    drops: `<path d="M12 3.2c3.2 4.3 5.6 7.6 5.6 10.6a5.6 5.6 0 0 1-11.2 0c0-3 2.4-6.3 5.6-10.6z" fill="${c}"/><path d="M9.2 13.6a2.9 2.9 0 0 0 2 2.8" stroke="#fff" stroke-opacity="0.55" stroke-width="1.6" fill="none" stroke-linecap="round"/>`,
+    custom: `<g transform="rotate(-35 12 12)"><rect x="2.8" y="7.5" width="18.4" height="9" rx="4.5" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2.4"/></g><path d="M12 9.5v5M9.5 12h5" stroke="${c}" stroke-width="1.7" stroke-linecap="round"/>`,
+  }[form] || '';
+  if (!badge) return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const fs = badge.length >= 3 ? 5.2 : 6.2;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><g transform="translate(-1.6 -1.6) scale(.86)">${d}</g><rect x="12.6" y="13.6" width="10.6" height="8.6" rx="3" fill="#FFFFFF" stroke="${c}" stroke-width="1"/><text x="17.9" y="19.9" text-anchor="middle" font-family="Nunito,sans-serif" font-weight="700" font-size="${fs}" fill="${c}">${esc(badge)}</text></svg>`;
+}
 function suppPills(day) {
   const items = suppDueOn(day);
   if (!items.length) return '';
@@ -1274,7 +1288,7 @@ function suppPills(day) {
     const c = (cat[x.kind] || {}).c || SUPP_COLOR[x.kind] || x.color || '#7A5CC4';
     const k = (cat[x.kind] || {}).k || String(x.name || '?').replace(/^Vitamin\s+/i, '').replace(/[^A-Za-zÄÖÜäöüß0-9]/g, '').slice(0, 2) || '?';
     const on = log.includes(x.id);
-    return `<button type="button" class="sp-chip" data-action="supp-take" data-id="${esc(x.id)}" data-day="${day}" aria-pressed="${on}"><i style="${on ? '' : `background:${c}`}">${on ? '✓' : esc(k)}</i>${esc(x.name || 'Supplement')}</button>`;
+    return `<button type="button" class="sp-chip" data-action="supp-take" data-id="${esc(x.id)}" data-day="${day}" aria-pressed="${on}"><span class="sp-ico">${suppIconSvg(x.form || 'tablet', on ? '#3E8E5E' : c, 26, k)}${on ? '<i>✓</i>' : ''}</span>${esc(x.name || 'Supplement')}</button>`;
   }).join('');
   return `<div class="sp-head"><span>Supplements</span><small>${done} von ${items.length} genommen</small></div><div class="sp-row">${pills}</div>`;
 }

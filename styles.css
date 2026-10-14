@@ -720,10 +720,11 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .sp-head small { font-size: 12px; font-weight: 700; color: var(--muted); }
 .sp-row { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 8px -2px 2px; padding: 0 2px; }
 .sp-row::-webkit-scrollbar { display: none; }
-.sp-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 160px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--card); padding: 3px 10px 3px 3px; font-size: 12px; font-weight: 800; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sp-chip i { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #FFFFFF; font-style: normal; font-size: 8px; font-weight: 900; }
+.sp-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 160px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--card); padding: 2px 10px 2px 4px; font-size: 12px; font-weight: 800; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-ico { flex: none; position: relative; width: 26px; height: 26px; display: block; }
+.sp-ico svg { display: block; }
+.sp-ico i { position: absolute; right: -2px; top: -1px; width: 13px; height: 13px; border-radius: 50%; background: var(--green); color: #FFFFFF; display: grid; place-items: center; font-style: normal; font-size: 8px; font-weight: 900; }
 .sp-chip[aria-pressed="true"] { background: var(--green-soft); border-color: transparent; color: var(--green); }
-.sp-chip[aria-pressed="true"] i { background: var(--green); font-size: 11px; }
 
 /* Geplant: Wochentage Montag bis Sonntag zum Antippen oder Wischen */
 .pd-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 4px 0 6px; }

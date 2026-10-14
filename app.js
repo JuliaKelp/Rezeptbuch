@@ -1859,7 +1859,6 @@ function viewRezept(id, meal, factorParam) {
       ${stampedNow
         ? `<a class="btn" href="#/stempel">Zum Stempelheft</a><button class="link-btn" data-action="undo-eaten" data-entry="${esc(ui.justEntry || '')}" data-recipe="${r.id}">Doch nicht gekocht? Rückgängig</button>`
         : `<button class="btn" data-action="cooked" data-recipe="${r.id}" data-meal="${cookMeal}" data-factor="${f}">Fertig gekocht</button>`}
-      ${stampedNow ? '' : `<button class="link-btn" data-action="tracker-one" data-recipe="${r.id}" data-meal="${cookMeal}" data-factor="${f}">Nur im Tracker eintragen, ohne Stempel</button>`}
       ${r.own ? '' : ui.rejecting === r.id ? rejectPanel(r) : `<button class="link-btn" data-action="ask-reject" data-recipe="${r.id}">Mag ich nicht, nicht mehr vorschlagen</button>`}
       ${r.own ? (ui.confirmDelete
         ? `<div class="input-row"><button class="btn secondary" data-action="cancel-delete">Behalten</button><button class="btn dark" data-action="delete-own" data-recipe="${r.id}">Ja, löschen</button></div>`
@@ -2326,6 +2325,29 @@ function setTrackerGoal(kcal) {
   }
   t.goalHistory = (t.goalHistory || []).filter((h) => h.from !== today).concat([entry]).sort((a, b) => a.from.localeCompare(b.from));
   writeTracker(t);
+}
+
+// Rezepte, die im Tracker eingetragen wurden (z. B. über „Meine“), geben auch einen Stempel
+function syncTrackerStamps() {
+  const days = readTracker().days || {};
+  state.cookedEntries = state.cookedEntries || {};
+  const before = stampCount();
+  let n = 0;
+  for (const list of Object.values(days)) {
+    for (const e of list || []) {
+      const ref = String(e.ref || '');
+      if (!ref.startsWith('custom:rezeptbuch-') || state.cookedEntries[e.id]) continue;
+      const r = recipeById(ref.slice('custom:rezeptbuch-'.length));
+      if (!r) continue;
+      state.cookedEntries[e.id] = r.id;
+      state.stamps[r.id] = (state.stamps[r.id] || 0) + 1;
+      state.xp += XP_PER_RECIPE;
+      n++;
+    }
+  }
+  if (!n) return;
+  save();
+  if (before < STAMPS_FOR_HAT && stampCount() >= STAMPS_FOR_HAT) ui.toast = 'Ginger hat ihre Kochmütze bekommen!';
 }
 
 function newEntryId() { return 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -3671,17 +3693,6 @@ const actions = {
     writeTracker(t);
   },
   'backup-remind'(el) { RBBackup.setMeta({ remind: el.checked }); },
-  'tracker-one'(el) {
-    const r = recipeById(el.dataset.recipe);
-    if (!r) return;
-    const f = Number(el.dataset.factor) || 1;
-    const t = readTracker();
-    const vr = takeIngredients(t, scaledIngredients(r, portionsOf(r) * f));
-    const id = addToTracker(r, el.dataset.meal || currentMeal(), f, vr.used.length ? { vu: vr.used } : null);
-    if (!id && vr.used.length) writeTracker(t);
-    if (id && state.listExtra) delete state.listExtra[r.id];
-    toast(id ? `Im Tracker eingetragen. ${vr.text}`.trim() : 'Dazu kenne ich noch keine Nährwerte.');
-  },
   'add-row'() { ui.form.rows.push({ amount: '', unit: 'g', name: '' }); },
   'remove-row'(el) {
     ui.form.rows.splice(Number(el.dataset.row), 1);
@@ -3939,10 +3950,11 @@ if (trackerPantry().some((x) => String(x.id).startsWith('rb:') && x.p == null)) 
 }
 if (trackerPantry().some((x) => x.qty == null)) changePantry((pantry, t) => V.fillDefaults(pantry, t.offCache)); // alte Einträge: 1 Packung
 writeRecipeIndex();
+syncTrackerStamps();
 render();
 if (!nutritionOk) toast('Die Nährwerte ließen sich nicht laden. Öffne die App einmal mit Internet.');
 // Zurück aus dem Tracker (Seite aus dem Zwischenspeicher des Browsers): neu zeichnen
-window.addEventListener('pageshow', (e) => { if (e.persisted) render(); });
+window.addEventListener('pageshow', (e) => { if (e.persisted) { syncTrackerStamps(); render(); } });
 
 // Updates: Beim Öffnen und jedes Mal, wenn die App wieder in den Vordergrund kommt, nach einer neuen Version fragen.
 // Übernimmt eine neue Version, lädt die Seite einmal neu (nicht beim allerersten Installieren).

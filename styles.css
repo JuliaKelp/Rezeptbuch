@@ -611,3 +611,7 @@ details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); 
 .micro-row .chips { flex-wrap: nowrap; gap: 6px; }
 .micro-row .chip { padding: 6px 10px; }
 .micro-day { display: flex; flex-direction: column; gap: 8px; }
+.journal-card .seg-pill { display: inline-flex; align-self: flex-start; background: var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.journal-card .seg-pill button { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 800; color: var(--muted); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+.journal-card .seg-pill button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(59, 42, 32, 0.15); }
+.day-link { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; }

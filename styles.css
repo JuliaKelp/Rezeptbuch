@@ -758,3 +758,11 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .rz-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .rz-acts .btn.small-btn { padding: 0 6px; font-size: 14px; gap: 4px; justify-content: center; }
 .rz-acts .btn.small-btn svg { flex: none; width: 16px; height: 16px; }
+.ing-row .input { min-width: 0; }
+.ing-row input[data-efield="name"], .ing-row input[data-field="name"] { flex: 1 1 auto; padding: 0 10px; }
+@media (max-width: 380px) {
+  .input-row.ing-row, .ing-row > .input-row { flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .input-row.ing-row input[data-efield="name"], .ing-row > .input-row input[data-field="name"] { order: -1; flex: 1 1 calc(100% - 60px); }
+  .input-row.ing-row .round, .ing-row > .input-row .round { order: -1; }
+  .input-row.ing-row input[data-efield="amount"], .ing-row > .input-row input[data-field="amount"] { flex: 0 0 80px !important; }
+}

@@ -2060,21 +2060,48 @@ function viewNeu(id) {
   </main>`;
 }
 
-// Gingers Rezepte bearbeiten: Zutaten als Text (eine pro Zeile, wie im Rezept), Nährwerte wie bei allen Rezepten aus dem BLS
+// Gingers Rezepte bearbeiten: wie eigene Rezepte mit Menge, Einheit und Zutat je Zeile (für 1 Portion).
+// Gespeichert wird wieder als Zutatenzeile („60 g Reis“), die Nährwerte kommen wie bei allen Rezepten aus dem BLS.
+const EDIT_UNITS = [['g', 'g'], ['ml', 'ml'], ['stueck', 'Stück'], ['el', 'EL'], ['tl', 'TL'], ['hand', 'Handvoll'], ['dose', 'Dose'], ['scheibe', 'Scheibe']];
+const EDIT_UNIT_WORD = { g: 'g', ml: 'ml', stueck: '', el: 'EL', tl: 'TL', hand: 'Handvoll', dose: 'Dose', scheibe: 'Scheibe' };
+function rowFromLine(line) {
+  const p = parseIngredient(line);
+  if (p.amount === null) return { amount: '', unit: 'stueck', name: line.trim() };
+  const m = line.match(/^\s*(\d+(?:[.,]\d+)?\s*[½¼¾⅓⅔]?|[½¼¾⅓⅔])\s+/);
+  return { amount: m ? m[1].replace(/\s+/g, '') : String(p.amount).replace('.', ','), unit: EDIT_UNIT_WORD[p.unit] !== undefined ? p.unit : 'stueck', name: p.name };
+}
+function lineFromRow(r) {
+  const amount = String(r.amount || '').trim(); const name = String(r.name || '').trim();
+  if (!name) return '';
+  if (!amount) return name;
+  return [amount, EDIT_UNIT_WORD[r.unit] || '', name].filter(Boolean).join(' ');
+}
+const editLines = (e) => e.rows.map(lineFromRow).filter(Boolean);
 function editCalc(e) {
-  const lines = e.ing.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = editLines(e);
   const n = lines.reduce((sum, l) => addNutrients(sum, nutrientsOfText(l)), emptyNutrients());
-  const unknown = lines.filter((l) => { const p = parseIngredient(l); return p.amount !== null && !findFood(p.name.replace(/[()]/g, ' ')); });
+  const unknown = e.rows.filter((r) => String(r.amount).trim() && r.name.trim() && !findFood(r.name.replace(/[()]/g, ' ')));
   return `<div style="font-size:22px;font-weight:900">ca. ${fmt(Math.round(n.kcal / 10) * 10)} kcal <span class="small muted">pro Portion</span></div>
     <div class="small muted">${macroLine(n, 1)}</div>
-    ${unknown.length ? `<div class="hint" style="background:var(--red-soft)"><span>Kenne ich nicht, zählt nicht mit: ${unknown.map(esc).join(', ')}. Schreib die Menge vorne hin (z. B. „60 g Reis“) und nimm einen gängigen Namen.</span></div>` : ''}`;
+    ${unknown.length ? `<div class="hint" style="background:var(--red-soft)"><span>Kenne ich nicht, zählt nicht mit: ${unknown.map((r) => esc(r.name)).join(', ')}. Versuch einen gängigen Namen.</span></div>` : ''}`;
 }
 function viewBearbeiten(id) {
   const r = RECIPES.find((x) => x.id === id);
   if (!r) return viewHeute();
-  if (!ui.edit || ui.edit.id !== id) ui.edit = { id, name: r.name, time: r.time, meals: [...r.meals], ing: r.ingredients.join('\n'), steps: r.steps.join('\n') };
+  if (!ui.edit || ui.edit.id !== id) ui.edit = { id, name: r.name, time: r.time, meals: [...r.meals], rows: r.ingredients.map(rowFromLine), steps: r.steps.join('\n') };
   const e = ui.edit;
   const edited = state.edits && state.edits[id];
+  const rows = e.rows.map((row, i) => `<div class="input-row ing-row">
+      <label class="sr-only" for="ea${i}">Menge</label>
+      <input id="ea${i}" class="input" style="flex:0 0 54px;padding:0 8px" inputmode="decimal" placeholder="200" value="${esc(row.amount)}" data-erow="${i}" data-efield="amount">
+      <label class="sr-only" for="eu${i}">Einheit</label>
+      <select id="eu${i}" class="input" style="flex:0 0 88px;padding:0 6px" data-erow="${i}" data-efield="unit">
+        ${EDIT_UNITS.map(([u, l]) => `<option value="${u}" ${row.unit === u ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
+      <label class="sr-only" for="en${i}">Zutat</label>
+      <input id="en${i}" class="input" list="foodlist" placeholder="Zutat" value="${esc(row.name)}" data-erow="${i}" data-efield="name" autocomplete="off">
+      <button class="round" data-action="edit-remove-row" data-row="${i}" aria-label="Zutat entfernen">${ICONS.cross}</button>
+    </div>`).join('');
   return `<main class="screen">
     <a class="back" href="#/rezept/${id}">${ICONS.back}Zurück</a>
     <h1>Rezept bearbeiten</h1>
@@ -2082,8 +2109,12 @@ function viewBearbeiten(id) {
     <div class="field"><label for="etime">Minuten</label><input id="etime" class="input number-input" type="number" inputmode="numeric" min="1" max="240" value="${esc(e.time)}" data-edit="time"></div>
     <div class="field"><span class="small muted" style="font-weight:700">Passt zu</span>
       <div class="chips">${[...MEALS, SNACK].map((m) => `<button class="chip" data-action="edit-meal" data-id="${m.id}" aria-pressed="${e.meals.includes(m.id)}">${m.name}</button>`).join('')}</div></div>
-    <div class="field"><label for="eing">Zutaten für 1 Portion (eine pro Zeile)</label>
-      <textarea id="eing" class="input edit-area" data-edit="ing">${esc(e.ing)}</textarea></div>
+    <section class="field"><h2>Zutaten (für 1 Portion)</h2>
+      <datalist id="foodlist">${FOODS.map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
+      <div style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+      <button class="link-btn" style="align-self:flex-start" data-action="edit-add-row">+ Zutat hinzufügen</button>
+      <span class="small muted">Ohne Menge (z. B. Salz, Pfeffer) zählt eine Zutat nicht mit.</span>
+    </section>
     <section class="card" id="edit-calc" style="display:flex;flex-direction:column;gap:6px">${editCalc(e)}</section>
     <div class="field"><label for="esteps">Schritte (eine Zeile pro Schritt)</label>
       <textarea id="esteps" class="input edit-area" data-edit="steps">${esc(e.steps)}</textarea></div>
@@ -3690,13 +3721,17 @@ const actions = {
     go(`#/rezept/${r.id}`);
     return 'skip';
   },
+  'edit-add-row'() { ui.edit.rows.push({ amount: '', unit: 'g', name: '' }); },
+  'edit-remove-row'(el) { ui.edit.rows.splice(Number(el.dataset.row), 1); if (!ui.edit.rows.length) ui.edit.rows.push({ amount: '', unit: 'g', name: '' }); },
   'edit-meal'(el) {
     const m = ui.edit.meals;
     ui.edit.meals = m.includes(el.dataset.id) ? m.filter((x) => x !== el.dataset.id) : [...m, el.dataset.id];
   },
   'save-edit'() {
     const e = ui.edit; if (!e) return;
-    const ingredients = e.ing.split('\n').map((l) => l.trim()).filter(Boolean);
+    const bad = e.rows.find((r) => String(r.amount).trim() && !/^(\d+([.,]\d+)?\s*[½¼¾⅓⅔]?|[½¼¾⅓⅔])$/.test(String(r.amount).trim()));
+    if (bad) { ui.editError = `Die Menge bei „${bad.name || 'einer Zutat'}“ bitte als Zahl, z. B. 60 oder 0,5.`; return; }
+    const ingredients = editLines(e);
     const steps = e.steps.split('\n').map((l) => l.trim()).filter(Boolean);
     if (!e.name.trim()) { ui.editError = 'Gib dem Rezept einen Namen.'; return; }
     if (!ingredients.length) { ui.editError = 'Trag mindestens eine Zutat ein.'; return; }
@@ -3787,6 +3822,11 @@ app.addEventListener('change', (e) => {
     } else refreshAnalysis();
     return;
   }
+  if (ui.edit && el.dataset.erow !== undefined) {
+    ui.edit.rows[Number(el.dataset.erow)][el.dataset.efield] = el.value;
+    const box = document.getElementById('edit-calc'); if (box) box.innerHTML = editCalc(ui.edit);
+    return;
+  }
   if (el.dataset.input === 'vrUnit') { ui.vrUnit = el.value; ui.vrUnitSet = true; return; }
   if (el.id === 'backup-file') { importBackup(el); return; }
   if (el.dataset.action === 'step') {
@@ -3809,9 +3849,10 @@ app.addEventListener('input', (e) => {
     clearTimeout(saveNoteTimer); saveNoteTimer = setTimeout(save, 400);
     return;
   }
-  if (ui.edit && t.dataset.edit) {
-    ui.edit[t.dataset.edit] = t.value;
-    if (t.dataset.edit === 'ing') { const box = document.getElementById('edit-calc'); if (box) box.innerHTML = editCalc(ui.edit); }
+  if (ui.edit && t.dataset.edit) { ui.edit[t.dataset.edit] = t.value; return; }
+  if (ui.edit && t.dataset.erow !== undefined) {
+    ui.edit.rows[Number(t.dataset.erow)][t.dataset.efield] = t.value;
+    const box = document.getElementById('edit-calc'); if (box) box.innerHTML = editCalc(ui.edit);
     return;
   }
   if (ui.form && t.dataset.row !== undefined) {

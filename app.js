@@ -1296,8 +1296,7 @@ function dayCard(day = todayKey()) {
   const bar = (id, pct) => { const w = Math.round(Math.min(100, Math.max(0, pct || 0)) * 10) / 10; return `<div class="dp-bar" style="background:linear-gradient(to right, ${P[id]} ${w}%, #EFE4D8 ${w}%)"></div>`; };
   const macros = [['protein', 'Eiweiß'], ['kh', 'Kohlenhydrate'], ['fett', 'Fett']].map(([id, name]) => {
     const g = t[id];
-    const r = g ? g - e[id] : null;
-    const text = showLeft && g ? (r < 0 ? `+${fmt(-r)} g drüber` : `${fmt(r)} g`) : `${fmt(e[id])}${g ? `<small> / ${fmt(g)}</small>` : ''} g`;
+    const text = `${fmt(e[id])}${g ? `<small> / ${fmt(g)}</small>` : ''} g`; // immer gegessen / Ziel, auch bei „Übrig“
     return `<div class="dp-row"><div class="dp-h"><span><i class="dp-dot" style="background:${P[id]}"></i>${name}</span><b>${text}</b></div>${bar(id, g ? (e[id] / g) * 100 : 0)}</div>`;
   }).join('');
   const ids = hasMicros() ? (state.profile.homeMicros || []).filter((id) => DGE[id]) : [];
@@ -1308,7 +1307,7 @@ function dayCard(day = todayKey()) {
     const m = MICROS.find((x) => x.id === id);
     const ref = dgeRef(id);
     const sum = d.sum[id];
-    const text = showLeft ? `${num(Math.max(0, ref - sum))} ${m.unit} übrig` : `${num(sum)}<small> / ${fmt(ref)}</small> ${m.unit}`;
+    const text = `${num(sum)}<small> / ${fmt(ref)}</small> ${m.unit}`;
     return `<div class="dp-row"><div class="dp-h"><span><i class="dp-dot" style="background:${P[id]}"></i>${m.name}${def.includes(id) ? ' ★' : ''}</span></div><div class="dp-v">${bar(id, (sum / ref) * 100)}<b>${text}</b></div></div>`;
   }).join('');
   const missing = d ? Math.max(...ids.map((id) => d.miss[id])) : 0;

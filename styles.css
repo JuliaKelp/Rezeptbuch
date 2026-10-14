@@ -733,3 +733,10 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .pd-chip[aria-pressed="true"] { background: var(--accent); color: #FFFFFF; }
 .pd-chip[aria-pressed="true"] b { color: #FFFFFF; }
 .plan-card { touch-action: pan-y; }
+
+/* Home: Einkaufshinweis, wenn für einen Mangel nichts im Vorrat ist */
+.shop-hint { align-items: flex-start; }
+.shop-hint > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.shop-hint b { font-weight: 800; }
+.shop-acts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.shop-hint .shop-acts .link-btn { padding: 4px 0; margin: 0; min-height: 0; text-align: left; display: inline; width: auto; }

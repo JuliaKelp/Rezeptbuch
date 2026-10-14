@@ -766,3 +766,12 @@ a.dp-micro { text-decoration: none; color: inherit; }
   .input-row.ing-row .round, .ing-row > .input-row .round { order: -1; }
   .input-row.ing-row input[data-efield="amount"], .ing-row > .input-row input[data-field="amount"] { flex: 0 0 80px !important; }
 }
+/* Nährwerte auf der Rezeptseite eingeklappt; Zutaten und Kochen stehen vorn */
+.nut-fold > summary { list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; cursor: pointer; color: var(--ink); font-weight: 400; min-height: 32px; }
+.nut-fold > summary::-webkit-details-marker { display: none; }
+.nut-fold > summary h2 { margin: 0; }
+.nut-fold > summary .small::after { content: ' ▾'; }
+.nut-fold[open] > summary .small::after { content: ' ▴'; }
+.nut-fold[open] > summary { margin-bottom: 8px; }
+.prep-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.plan-picker .btn.small-btn { align-self: flex-start; }

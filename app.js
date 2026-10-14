@@ -27,7 +27,7 @@ const KCAL_FALLBACK = 2000;
 
 // Erklärungen hinter den Info-Knöpfen: warum Ginger etwas wissen will
 const INFO = {
-  tracker: 'Ernährungsform, Allergien und dein Kalorienziel stellst du einmal im Tracker ein. Ginger liest sie von dort: Sie schlägt nur passende Rezepte vor und teilt dein Kalorienziel auf die Mahlzeiten auf.',
+  tracker: 'Kalorienziel, Ernährungsform und Allergien speichere ich im Tracker, dort kannst du sie später auch ändern (unter „Ich“). Ginger schlägt damit nur passende Rezepte vor und teilt dein Kalorienziel auf die Mahlzeiten auf.',
   taste: 'Was du magst, schlägt Ginger öfter vor. Was du nicht magst, kommt gar nicht mehr. Lebensmittel, die du wegen Ernährung oder Allergie eh nicht isst, fragt sie gar nicht erst ab.',
   meals: 'Ginger teilt deine Kalorien auf die Mahlzeiten auf. Bei 2 Mahlzeiten bleiben die Portionen normal groß und den Rest bekommst du als zwei kleine Snacks.',
   times: 'Ginger schlägt pro Mahlzeit nur Rezepte vor, die in diese Zeit passen. Wenn es knapp ist, plant sie Vorbereitung ein, zum Beispiel Overnight Oats am Vorabend.',
@@ -573,6 +573,15 @@ function plannedRecipe(day, meal) {
   return r && suitable(r) ? r : null;
 }
 
+// Noch nicht übernommener Vorschlag des Wochenplans
+function weekProposal(day, meal) {
+  const w = ensureWeek();
+  const s = w.slots[`${day}|${meal}`];
+  if (!s || !w.meals.includes(meal)) return null;
+  const r = recipeById(s.id);
+  return r && suitable(r) ? r : null;
+}
+
 function acceptedSlots() {
   const w = state.week;
   if (!w) return [];
@@ -749,7 +758,7 @@ function viewWoche() {
   }
   return `<main class="screen with-nav">
     <div class="ginger-says">${ginger(70)}<div class="bubble">Mein Plan für die nächsten 7 Tage. Tipp ein Gericht an, um es zu übernehmen, zu tauschen oder ein anderes zu bekommen.</div></div>
-    <div class="chips" role="group" aria-label="Welche Mahlzeiten planen">${[...MEALS, SNACK].sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id)).map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
+    <div class="chips chip-scroll" role="group" aria-label="Welche Mahlzeiten planen">${[...MEALS, SNACK].sort((a, b) => MEAL_ORDER.indexOf(a.id) - MEAL_ORDER.indexOf(b.id)).map((m) => `<button class="chip" data-action="week-meal" data-meal="${m.id}" aria-pressed="${w.meals.includes(m.id)}">${m.name}</button>`).join('')}</div>
     <div class="wk-wrap"><table class="wk">
       <thead><tr><th scope="col"><span class="sr-only">Tag</span></th>${w.meals.map((m) => `<th scope="col">${{ fruehstueck: 'Früh&shy;stück', mittag: 'Mittag', snack: 'Snack', abend: 'Abend' }[m]}</th>`).join('')}</tr></thead>
       <tbody>${days.map((d) => `<tr><th scope="row" class="${d === days[0] ? 'today' : ''}">${d === days[0] ? 'Heute' : shortDay(d).replace(' ', '<br>')}${dayTotal(d)}</th>${w.meals.map((m) => cell(d, m)).join('')}</tr>${selDay === d ? detail(ui.cell) : ''}`).join('')}</tbody>
@@ -799,6 +808,8 @@ function listMacros(slots) {
     <p class="small muted">Gerechnet mit einer Portion je Gericht an ${days.size === 1 ? 'einem Tag' : `${days.size} Tagen`}. Ginger wählt die Gerichte im Plan so, dass Eiweiß und Fett möglichst gut zu deinem Ziel passen.</p></div>`;
 }
 
+// Einkaufsliste nach Abteilungen wie im Vorrat sortieren
+function listGroup(x) { return (x.food && foodGroup(x.food.name)) || (x.product ? 'suess' : 'sonst'); }
 function viewListe() {
   ensureWeek();
   const { items, staples } = shoppingList();
@@ -819,7 +830,8 @@ function viewListe() {
       ${listMacros(slots)}
       ${extras.length ? `<div class="card small">Dazu zum Kochen aus dem Vorrat: ${extras.map((x) => `${esc(x.recipe.name)} <button class="link-btn" data-action="cook-list" data-recipe="${x.recipe.id}" aria-label="${esc(x.recipe.name)} von der Liste nehmen">✕</button>`).join(' · ')}</div>` : ''}
       ${slots.length ? `<p class="small muted">Für ${slots.length === 1 ? 'ein übernommenes Gericht' : `${slots.length} übernommene Gerichte`} mit zusammen ${slots.reduce((a, x) => a + x.n, 0) === 1 ? 'einer Portion' : `${slots.reduce((a, x) => a + x.n, 0)} Portionen`}. Die Portionen stellst du im Wochenplan ein.</p>` : ''}
-      <div class="list">${open.map(row).join('') || '<div class="card small muted">Alles im Korb!</div>'}</div>
+      ${open.length ? VR_GROUPS.map(([g, label]) => [label, open.filter((x) => listGroup(x) === g)]).filter(([, xs]) => xs.length)
+        .map(([label, xs]) => `<h3 class="list-group">${label}</h3><div class="list">${xs.map(row).join('')}</div>`).join('') : '<div class="card small muted">Alles im Korb!</div>'}
       ${done.length ? `<h2>Im Korb</h2><div class="list">${done.map(row).join('')}</div>
         ${done.some((x) => x.food && x.needG) ? '<button class="btn secondary" data-action="list-to-vorrat">Gekauftes in den Vorrat legen</button><p class="small muted">Für Lose ohne Barcode. Gescannte Produkte zählt der Scanner schon mit.</p>' : ''}` : ''}
       ${inStock.length ? `<h2>Schon im Vorrat</h2><div class="card small muted">${inStock.map((x) => `${esc(x.text)} <span class="have-ok">· ${esc(x.stockText || 'da')}</span>`).join('<br>')}</div>` : ''}
@@ -1097,7 +1109,7 @@ function viewStart1(edit) {
   const back = edit ? 'edit/1' : 'start/1';
   return `<main class="screen">
     ${edit ? '' : stepsBar(1)}
-    <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Wie heißt du, und wie alt bist du? Wie du isst, was du nicht verträgst und dein Kalorienziel stellst du im Tracker ein. Ich lese es dort ab.</div></div>
+    <div class="ginger-says">${ginger(78)}<div class="bubble">Ich bin Ginger! Erzähl mir kurz von dir, dann suche ich passende Rezepte. Alles bleibt auf diesem Handy.</div></div>
     <section class="card" style="display:flex;flex-direction:column;gap:8px">
       <label for="pname"><h3>Wie soll ich dich nennen?</h3></label>
       <input id="pname" class="input" type="text" data-input="profileName" value="${esc(state.profile.name || '')}" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
@@ -1107,11 +1119,15 @@ function viewStart1(edit) {
       <div class="chips" role="group" aria-label="Regelblutung">${CYCLE.map(([k, label]) => `<button class="chip" data-action="cycle" data-k="${k}" aria-pressed="${state.profile.cycle === k}">${label}</button>`).join('')}</div>`}
       <div class="small muted">Danach richten sich deine Tageswerte für Eisen, Magnesium, Calcium und Co. (DGE). Bleibt nur auf diesem Handy.</div>
     </section>
-    <section class="card" style="display:flex;flex-direction:column;gap:10px">
-      ${infoHead('h3', 'Aus deinem Tracker', 'tracker')}
-      <div class="small muted">${trackerSettingsSummary()}</div>
-      <a class="btn secondary" href="tracker/?zurueck=${back}#ernaehrung">Ernährung und Allergien einstellen</a>
-      <a class="btn secondary" href="tracker/?zurueck=${back}#ziel">Kalorienziel einstellen</a>
+    <section class="card" style="display:flex;flex-direction:column;gap:8px">
+      ${infoHead('h3', 'Wie viele kcal am Tag?', 'tracker')}
+      <input id="pgoal" class="input" type="number" inputmode="numeric" min="500" max="10000" data-input="trackerGoal" value="${hasKcalGoal() ? kcalGoal() : ''}" placeholder="z. B. 2000">
+      <div class="small muted">Deinen Tagesbedarf zeigt dir z. B. deine Uhr oder ein Rechner. Ohne Angabe rechne ich mit 2.000 kcal.</div>
+      <h3>Wie isst du?</h3>
+      <div class="chips" role="group" aria-label="Ernährungsform">${Object.entries(DIET_NAMES).reverse().map(([k, label]) => `<button class="chip" data-action="set-diet" data-k="${k}" aria-pressed="${trackerDiet().type === k}">${label}</button>`).join('')}</div>
+      <h3>Was verträgst du nicht?</h3>
+      <div class="chips" role="group" aria-label="Allergien">${Object.entries(ALLERGEN_NAMES).map(([k, label]) => `<button class="chip" data-action="set-allergen" data-k="${k}" aria-pressed="${trackerDiet().allergens.includes(k)}">${label}</button>`).join('')}</div>
+      <a class="link-btn" href="tracker/?zurueck=${back}#ziel">Makros und Gewicht im Tracker einstellen ›</a>
     </section>
     <div class="bottom"><a class="btn" href="${edit ? '#/ich' : '#/start/2'}">${edit ? 'Fertig' : 'Weiter'}</a></div>
   </main>`;
@@ -1261,7 +1277,8 @@ function dayCard(day = todayKey()) {
   const t = nutrientTargets(day);
   const e = left.eaten;
   const goal = kcalGoal(day);
-  const showLeft = readTracker().heroMode !== 'eaten'; // gleiche Einstellung wie früher im Tracker-Journal
+  const past = day < todayKey(); // frühere Tage: was gegessen wurde, „übrig“ ergibt da keinen Sinn
+  const showLeft = !past && readTracker().heroMode !== 'eaten'; // gleiche Einstellung wie früher im Tracker-Journal
   const over = left.kcal < 0;
   // Kreis: Länge = gegessen / Ziel, die Farben zeigen den Anteil von Eiweiß, KH und Fett an den gegessenen kcal
   const R = 46; const L = 2 * Math.PI * R;
@@ -1299,7 +1316,7 @@ function dayCard(day = todayKey()) {
     state.profile.microsOpen && ids.some((id) => def.includes(id)) ? '★ = Mangel' : ''].filter(Boolean).join(' ');
   return `<section class="card journal-card day-panel">
       <div class="peek">${gingerPeek(72)}</div>
-      <div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>
+      ${past ? '' : `<div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>`}
       <a class="dp-body" href="tracker/">
         <div class="dp-ring" role="img" aria-label="${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen">
           <svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="${R}" fill="none" stroke="#EFE4D8" stroke-width="11"/><g transform="rotate(-90 56 56)">${segs}</g></svg>
@@ -1389,7 +1406,8 @@ function viewHeute() {
     if (eatenHere.length) return `<section class="meal-block">${eatenRow(m.name, mealTotals(m.id))}</section>`;
     // Dasselbe Gericht nicht mittags und abends vorschlagen
     let ideas = ideasFor(m.id).filter((x) => !shownToday.has(x.recipe.id));
-    const planned = plannedRecipe(todayKey(), m.id);
+    // Heute zeigt zuerst dasselbe Gericht wie der Wochenplan, auch wenn es dort noch nicht übernommen ist
+    const planned = plannedRecipe(todayKey(), m.id) || weekProposal(todayKey(), m.id);
     if (planned) ideas = [{ recipe: planned, mode: timeMode(planned, m.id) || 'fits', planned: true, factor: slotFactor(`${todayKey()}|${m.id}`) }, ...ideas.filter((x) => x.recipe.id !== planned.id)];
     if (!ideas.length) {
       return `<section class="meal-block"><div class="meal-head"><h3>${m.name}</h3></div>
@@ -1399,7 +1417,7 @@ function viewHeute() {
     const idea = ideas[i];
     shownToday.add(idea.recipe.id);
     return `<section class="meal-block">
-      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? 'Aus deinem Wochenplan' : `${state.profile.times[m.id]} Min Zeit`}</span></div>
+      <div class="meal-head"><h3>${m.name}</h3><span class="small muted">${idea.planned ? (plannedRecipe(todayKey(), m.id) ? 'Aus deinem Wochenplan' : 'Vorschlag aus dem Wochenplan') : `${state.profile.times[m.id]} Min Zeit`}</span></div>
       ${recipeCard(idea.recipe, { meal: m.id, mode: idea.mode, factor: idea.factor || 1 })}
       ${pantryStatus(idea.recipe, idea.factor || 1)}
       ${ui.rejecting === idea.recipe.id ? rejectPanel(idea.recipe) : `<div class="idea-actions">
@@ -1897,10 +1915,11 @@ function deficitCard() {
 
 // Welche Zusatz-Karten das Tracker-Journal zeigt (die Schalter gibt es im Tracker, hier alle an einer Stelle)
 const TRACKER_CARDS = [['water', 'Wasser'], ['caffeine', 'Koffein'], ['alcohol', 'Alkohol'], ['supp', 'Supplements'], ['sug', 'Abend-Vorschläge mit Tracker-Rezepten']];
+// Fehlt der Eintrag, gilt die Vorgabe des Trackers: Koffein und Alkohol sind aus, der Rest an
+function trackerCardOn(t, k) { return t[k] ? t[k].enabled !== false : !['caffeine', 'alcohol'].includes(k); }
 function trackerCardsCard() {
   const t = readTracker();
-  return `<h2>Im Tracker anzeigen</h2>
-    <section class="card set-list toggles">${TRACKER_CARDS.map(([k, name]) => `<label class="row fit-row"><input type="checkbox" data-action="tracker-card" data-k="${k}" ${!t[k] || t[k].enabled !== false ? 'checked' : ''}><span>${esc(name)}</span><a class="link-btn" href="tracker/?zurueck=ich#set:${encodeURIComponent(name.split(' ')[0])}">Einstellen</a></label>`).join('')}
+  return `<section class="card set-list toggles"><div class="small muted" style="padding-top:8px">Im Tracker-Journal anzeigen</div>${TRACKER_CARDS.map(([k, name]) => `<label class="row fit-row"><input type="checkbox" data-action="tracker-card" data-k="${k}" ${trackerCardOn(t, k) ? 'checked' : ''}><span>${esc(name)}</span><a class="link-btn" href="tracker/?zurueck=ich#set:${encodeURIComponent(name.split(' ')[0])}">Einstellen</a></label>`).join('')}
       <div class="small muted">Was du nicht brauchst, blende ich im Journal aus. Deine Einträge bleiben gespeichert.</div></section>`;
 }
 
@@ -1969,6 +1988,23 @@ function trackerGoal(day = todayKey()) {
   let g = h[0] || {};
   for (const e of h) { if (e.from <= day) g = e; else break; }
   return g;
+}
+
+// Kalorienziel aus der Einrichtung in den Zielverlauf des Trackers schreiben (gilt ab heute).
+// Makros rechnet der Tracker aus Gewicht und Faktoren; sind die schon eingestellt, rechne ich sie genauso neu.
+function setTrackerGoal(kcal) {
+  if (!(kcal >= 500 && kcal <= 10000)) { if (kcal) toast('Bitte einen Wert zwischen 500 und 10.000 kcal.'); return; }
+  const t = readTracker();
+  const today = todayKey();
+  const prev = trackerGoal(today);
+  const entry = Object.assign({ weight: null, preset: 'dge', pf: null, ff: null, protein: null, carbs: null, fat: null, fiber: null, sugar: null }, prev, { from: today, goal: kcal });
+  if (entry.weight && entry.pf != null && entry.ff != null) {
+    entry.protein = Math.round(entry.pf * entry.weight);
+    entry.fat = Math.round(entry.ff * entry.weight);
+    entry.carbs = Math.max(0, Math.round((kcal - entry.protein * 4 - entry.fat * 9) / 4));
+  }
+  t.goalHistory = (t.goalHistory || []).filter((h) => h.from !== today).concat([entry]).sort((a, b) => a.from.localeCompare(b.from));
+  writeTracker(t);
 }
 
 function newEntryId() { return 'rb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -3009,7 +3045,8 @@ const actions = {
   },
   'list-copy'() {
     const { items, staples } = shoppingList();
-    const text = items.filter((x) => !state.week.bought[x.key] && x.stock !== 'full').map((x) => `- ${x.text}`).join('\n')
+    const order = (x) => VR_GROUPS.findIndex(([g]) => g === listGroup(x));
+    const text = items.filter((x) => !state.week.bought[x.key] && x.stock !== 'full').sort((a, b) => order(a) - order(b)).map((x) => `- ${x.text}`).join('\n')
       + (staples.length ? `\n\nVorrat prüfen: ${staples.join(', ')}` : '');
     const done = () => toast('Liste kopiert.');
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => toast('Kopieren hat nicht geklappt.'));
@@ -3247,6 +3284,19 @@ const actions = {
     RBBackup.exportAll().then((ok) => { if (ok) toast('Backup exportiert. Leg die Datei an einem sicheren Ort ab.'); });
     return 'skip';
   },
+  'set-diet'(el) {
+    const t = readTracker();
+    t.diet = Object.assign({ type: 'all', allergens: [] }, t.diet || {}, { type: el.dataset.k });
+    writeTracker(t);
+  },
+  'set-allergen'(el) {
+    const t = readTracker();
+    const d = Object.assign({ type: 'all', allergens: [] }, t.diet || {});
+    const a = new Set(Array.isArray(d.allergens) ? d.allergens : []);
+    if (a.has(el.dataset.k)) a.delete(el.dataset.k); else a.add(el.dataset.k);
+    t.diet = Object.assign(d, { allergens: [...a] });
+    writeTracker(t);
+  },
   cycle(el) {
     state.profile.cycle = state.profile.cycle === el.dataset.k ? null : el.dataset.k;
   },
@@ -3278,7 +3328,7 @@ const actions = {
     const t = readTracker();
     const k = el.dataset.k;
     if (!t[k] && k === 'supp') { toast('Öffne den Tracker einmal, dann kannst du das hier ändern.'); return; }
-    const on = !t[k] || t[k].enabled !== false; // fehlt der Eintrag, ist es im Tracker an
+    const on = trackerCardOn(t, k);
     t[k] = Object.assign({}, t[k] || {}, { enabled: !on });
     writeTracker(t);
   },
@@ -3370,6 +3420,7 @@ app.addEventListener('click', (e) => {
 app.addEventListener('change', (e) => {
   const el = e.target;
   if (rendering) return;
+  if (el.dataset.input === 'trackerGoal') { setTrackerGoal(Number(el.value)); return; }
   // Bei Zutatennamen und Einheiten neu zeichnen (z. B. für das Feld bei unbekannten Zutaten)
   if (ui.form && el.dataset.row !== undefined && (el.dataset.field === 'name' || el.dataset.field === 'unit')) {
     const row = ui.form.rows[Number(el.dataset.row)];

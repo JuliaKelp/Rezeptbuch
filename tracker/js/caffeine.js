@@ -11,7 +11,7 @@ var INFO = globalThis.INFO || {}; globalThis.INFO = INFO; // Info-Texte (Blatt v
    Das Modell zeigt die Menge im Körper in mg, nicht die Plasmakonzentration; Körpergewicht, Mahlzeiten, Toleranz
    und Wechselwirkungen sind nicht berücksichtigt. */
 const CAFF_KA = 8;
-const CAFF_DEFAULTS = () => ({ enabled: true, track: true, bed: '23:00', wake: '07:00', halfLife: 5, threshold: 50, limit: 400, log: {} });
+const CAFF_DEFAULTS = () => ({ enabled: false, track: true, bed: '23:00', wake: '07:00', halfLife: 5, threshold: 50, limit: 400, log: {} });
 
 // Richtwerte für den Koffeingehalt. s: 'bfr' = aus BfR-Angaben abgeleitet, 'typ' = üblicher Wert (nicht belegt, bitte Packung prüfen)
 const CAFF_CATS = [['coffee', 'Kaffee'], ['energy', 'Energy'], ['tea', 'Tee'], ['cola', 'Cola'], ['custom', 'Eigene']];

@@ -11,14 +11,8 @@ const SUPP_EXTRA = ['#7A5CC4', '#3E6FC4', '#3E8E5E'];
 const SUPP_MINT = '#3E8E5E';
 
 function SUPP_DEFAULTS() {
-  const t = isoDate(new Date()); const all = [1, 2, 3, 4, 5, 6, 7];
-  const mk = (id, kind, name, amount, unit, form, mode, slot, on) => ({ id, kind, name, amount, unit, form, mode, days: all.slice(), slot, time: '08:00', on, from: t, anchor: t });
-  return { enabled: true, remind: true, log: {}, items: [
-    mk('s-cr', 'creatine', 'Kreatin', 7, 'g', 'powder', 'daily', 'breakfast', true),
-    mk('s-b12', 'b12', 'Vitamin B12', 1, 'Tabl.', 'tablet', 'daily', 'breakfast', true),
-    mk('s-om', 'omega3', 'Omega-3', 2, 'Kaps.', 'softgel', 'daily', 'lunch', true),
-    mk('s-fe', 'iron', 'Eisen', 1, 'Kaps.', 'capsule', 'every2', 'breakfast', false),
-  ] };
+  // Neu: ohne Beispiel-Supplements; eigene legt man unter Einstellungen → Supplements an (Katalog)
+  return { enabled: true, remind: true, log: {}, items: [] };
 }
 function suppNormalize(d) {
   const base = SUPP_DEFAULTS();

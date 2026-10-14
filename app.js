@@ -1219,19 +1219,30 @@ function dayCard() {
   const t = nutrientTargets();
   const e = left.eaten;
   const goal = kcalGoal();
+  const showLeft = readTracker().heroMode !== 'eaten'; // gleiche Einstellung wie früher im Tracker-Journal
   // Gefüllt wird nach dem Anteil von Eiweiß, KH und Fett an den gegessenen kcal, die Länge ist gegessen / Ziel
   const parts = [['protein', 4, 'var(--mp)'], ['kh', 4, 'var(--mc)'], ['fett', 9, 'var(--mf)']];
   const macroKcal = parts.reduce((x, [id, k]) => x + e[id] * k, 0) || 1;
   const full = Math.min(100, (e.kcal / goal) * 100);
   const seg = parts.map(([id, k, c]) => `<i style="width:${((e[id] * k) / macroKcal) * full}%;background:${c}"></i>`).join('');
-  const leg = (id, name, cls) => `<span class="${cls}"><b>${fmt(e[id])}</b>${t[id] ? ` / ${fmt(t[id])}` : ''} g ${name}</span>`;
-  return `<a class="card journal-card" href="tracker/">
+  const leg = (id, name, cls) => {
+    if (!showLeft || !t[id]) return `<span class="${cls}"><b>${fmt(e[id])}</b>${t[id] ? ` / ${fmt(t[id])}` : ''} g ${name}</span>`;
+    const r = t[id] - e[id];
+    return `<span class="${cls}">${r < 0 ? `<b>+${fmt(-r)}</b> g ${name} drüber` : `<b>${fmt(r)}</b> g ${name} übrig`}</span>`;
+  };
+  const over = left.kcal < 0;
+  const big = showLeft ? `${fmt(Math.abs(left.kcal))} <small>${over ? 'kcal über dem Ziel' : 'kcal übrig'}</small>` : `${fmt(e.kcal)} <small>kcal gegessen</small>`;
+  const sub = showLeft ? `${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen` : `${over ? `${fmt(-left.kcal)} kcal über dem Ziel` : `${fmt(left.kcal)} kcal übrig`} · Ziel ${fmt(goal)}`;
+  return `<section class="card journal-card">
       <div class="peek">${gingerPeek(72)}</div>
-      <div class="day-top"><div><div class="journal-kcal">${fmt(Math.max(0, left.kcal))} <small>kcal frei</small></div>
-        <div class="small muted">${fmt(e.kcal)} von ${fmt(goal)} kcal gegessen${hasKcalGoal() ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
-      <div class="comp-bar" aria-hidden="true">${seg}</div>
-      <div class="comp-legend">${leg('protein', 'Eiweiß', 'm-p')}${leg('kh', 'KH', 'm-c')}${leg('fett', 'Fett', 'm-f')}</div>
-    </a>`;
+      <div class="seg-pill" role="group" aria-label="Anzeige"><button type="button" data-action="day-mode" data-m="left" aria-pressed="${showLeft}">Übrig</button><button type="button" data-action="day-mode" data-m="eaten" aria-pressed="${!showLeft}">Gegessen</button></div>
+      <a class="day-link" href="tracker/">
+        <div class="day-top"><div><div class="journal-kcal">${big}</div>
+          <div class="small muted">${sub}${hasKcalGoal() ? '' : ' (kein Ziel im Tracker, ich rechne mit 2.000)'}</div></div></div>
+        <div class="comp-bar" aria-hidden="true">${seg}</div>
+        <div class="comp-legend">${leg('protein', 'Eiweiß', 'm-p')}${leg('kh', 'KH', 'm-c')}${leg('fett', 'Fett', 'm-f')}</div>
+      </a>
+    </section>`;
 }
 
 // Heute gegessene Mineralstoffe und Vitamine aus dem Tracker-Journal. Werte gibt es für BLS-Lebensmittel und Rezepte
@@ -3135,6 +3146,11 @@ const actions = {
   },
   cycle(el) {
     state.profile.cycle = state.profile.cycle === el.dataset.k ? null : el.dataset.k;
+  },
+  'day-mode'(el) {
+    const t = readTracker();
+    t.heroMode = el.dataset.m;
+    writeTracker(t);
   },
   'home-micro'(el) {
     const h = new Set(state.profile.homeMicros || []);

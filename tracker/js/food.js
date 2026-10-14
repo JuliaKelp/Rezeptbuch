@@ -228,6 +228,7 @@ function openPantry(tab, mode) {
   pantryMode = true;
   scanFix = null;
   addTab = tab || 'scan';
+  if (addTab === 'pantry' && !scanEat) addTab = 'scan'; // Vorrat-Reiter nur beim Essen
   sheetMode = 'add';
   const short = { breakfast: 'Frühstück', lunch: 'Mittag', dinner: 'Abend', snack: 'Snack' };
   openSheet(`
@@ -235,7 +236,7 @@ function openPantry(tab, mode) {
     <label class="toggle"><input type="checkbox" role="switch" id="eatMode" ${scanEat ? 'checked' : ''}><span class="tg-track" aria-hidden="true"></span>
       <span><b>Zum Essen hinzufügen</b><span class="small muted">${scanEat ? 'Kommt in dein Journal. Für den Einkauf ausschalten.' : 'Aus: Einkauf, kommt in den Vorrat.'}</span></span></label>
     ${scanEat ? `<div class="seg" id="mealSeg" aria-label="Mahlzeit">${MEALS.map((m) => `<button data-m="${m.id}" class="${m.id === scanMeal ? 'active' : ''}">${short[m.id]}</button>`).join('')}</div>` : ''}
-    <div class="seg two" id="addSeg"><button data-t="scan">Barcode</button><button data-t="search">Suche</button></div>
+    <div class="seg ${scanEat ? 'three' : 'two'}" id="addSeg"><button data-t="scan">Barcode</button><button data-t="search">Suche</button>${scanEat ? '<button data-t="pantry">Vorrat</button>' : ''}</div>
     ${scanEat ? '' : `<div class="pantry-bar"><label class="switch" style="margin:0"><input type="checkbox" id="pFav" ${pantryFav ? 'checked' : ''}> als Favorit</label><span class="small muted">${pantryCount ? `${pantryCount} vorgemerkt` : 'nur speichern, nicht ins Journal'}</span></div>`}
     <div id="addBody"></div>`);
   $('#eatMode').onchange = (ev) => { stopScanner(); scanEat = ev.target.checked; openPantry(addTab); };

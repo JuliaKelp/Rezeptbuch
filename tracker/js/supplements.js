@@ -155,6 +155,34 @@ function suppItemHtml(x) {
       ${infoBtn('supp:' + (SUPP_CAT_MAP[x.kind] ? x.kind : 'custom'))}<label class="sw"><input type="checkbox" data-on ${x.on ? 'checked' : ''} aria-label="${esc(x.name)} aktiv"></label></div>${ed}</div>`;
 }
 INFO.suppRem = { body: '<p>Sind beim Öffnen der App noch Supplements offen, wird die Supplement-Karte im Journal hervorgehoben und zeigt „Alle genommen“. Eine Benachrichtigung bei geschlossener App ist ohne Server nicht möglich. „Später“ blendet die Hervorhebung für eine Stunde aus.</p><p>Die Hinweise zu den Supplements zeigen Richtwerte aus der Literatur und ersetzen keine ärztliche Beratung.</p>' };
+/* Mineralstoffe und Vitamine fürs Rezeptbuch: was auf dessen Startseite „Heute“ erscheint und wo ein Mangel besteht.
+   Gespeichert im Profil des Rezeptbuchs (rezeptbuch-v1), nur auf diesem Gerät. Ohne Rezeptbuch erscheint der Block nicht. */
+const RB_KEY = 'rezeptbuch-v1';
+const RB_MICROS = [['fe', 'Eisen'], ['mg', 'Magnesium'], ['b12', 'Vitamin B12'], ['zn', 'Zink'], ['ca', 'Calcium'], ['fol', 'Folat'], ['vd', 'Vitamin D'], ['jod', 'Jod']];
+function rbRead() { try { return JSON.parse(localStorage.getItem(RB_KEY)); } catch (e) { return null; } }
+function rbMicroHtml() {
+  const rb = rbRead();
+  if (!rb || !rb.profile) return '';
+  const home = rb.profile.homeMicros || [];
+  const def = rb.profile.deficits || [];
+  return `<div class="rb-micro"><h3 style="margin:14px 0 4px">Mineralstoffe und Vitamine</h3>
+    <p class="small muted" style="margin:0 0 6px">„Heute“ zeigt im Rezeptbuch vorne, wie viel du davon heute gegessen hast (Tageswert der DGE, Gehalt aus dem Bundeslebensmittelschlüssel). „Mangel“ markiert einen festgestellten Mangel, dann schlägt das Rezeptbuch Gerichte vor, die davon viel enthalten.</p>
+    ${RB_MICROS.map(([id, name]) => `<div class="rb-mrow"><span>${name}</span><span><button type="button" class="chip" data-rbm="homeMicros" data-id="${id}" aria-pressed="${home.includes(id)}" aria-label="${name} auf Heute zeigen">Heute</button><button type="button" class="chip" data-rbm="deficits" data-id="${id}" aria-pressed="${def.includes(id)}" aria-label="Mangel an ${name}">Mangel</button></span></div>`).join('')}
+  </div>`;
+}
+function rbMicroBind(redraw) {
+  document.querySelectorAll('[data-rbm]').forEach((b) => b.onclick = () => {
+    const rb = rbRead();
+    if (!rb || !rb.profile) return;
+    const k = b.dataset.rbm; const id = b.dataset.id;
+    const set = new Set(rb.profile[k] || []);
+    if (set.has(id)) set.delete(id); else set.add(id);
+    rb.profile[k] = RB_MICROS.map(([x]) => x).filter((x) => set.has(x));
+    try { localStorage.setItem(RB_KEY, JSON.stringify(rb)); } catch (e) { toast('Speichern fehlgeschlagen.'); return; }
+    redraw();
+  });
+}
+
 function suppSettingsHtml() {
   const s = state.supp;
   return `<div class="card"><h2>Supplements</h2>
@@ -164,6 +192,7 @@ function suppSettingsHtml() {
     <button type="button" class="btn secondary block" id="spAdd" style="margin-top:10px" aria-expanded="${suppPick}">${suppPick ? 'Auswahl schließen' : '+ Supplement hinzufügen'}</button>
     ${suppPick ? `<div class="sp-pick">${SUPP_CAT.map((c) => `<button type="button" class="sp-pk" data-kind="${c.kind}"><span class="supp-ico sm" style="--c:${c.c}">${suppIcon(c.form, c.c, 28, c.k)}</span><span>${esc(c.name)}</span></button>`).join('')}<button type="button" class="sp-pk" data-kind="custom"><span class="supp-ico sm" style="--c:#8A7666">${suppIcon('custom', '#8A7666', 28)}</span><span>Eigenes</span></button></div>
       <p class="small muted" style="margin:8px 2px 0">Zu jedem Supplement gibt es nach dem Hinzufügen ein ⓘ mit Studienlage und Quellen – keine Empfehlung.</p>` : ''}
+    ${rbMicroHtml()}
   </div>`;
 }
 function suppSettingsBind() {
@@ -172,6 +201,7 @@ function suppSettingsBind() {
   $('#spOn').onchange = (e) => { s.enabled = e.target.checked; save(); };
   $('#spRem').onchange = (e) => { s.remind = e.target.checked; save(); };
   $('#spAdd').onclick = () => { suppPick = !suppPick; redraw(); };
+  rbMicroBind(redraw);
   document.querySelectorAll('.sp-pk[data-kind]').forEach((b) => b.onclick = () => {
     const t = isoDate(new Date()); const c = SUPP_CAT_MAP[b.dataset.kind];
     const x = { id: 's-' + uid(), kind: c ? c.kind : 'custom', name: c ? c.name : 'Neues Supplement', amount: c ? c.amount : 1, unit: c ? c.unit : 'Tabl.', form: c ? c.form : 'tablet', mode: 'daily', days: [1, 2, 3, 4, 5, 6, 7], slot: 'breakfast', time: '08:00', on: true, from: t, anchor: t, color: c ? c.c : SUPP_EXTRA[s.items.length % SUPP_EXTRA.length] };

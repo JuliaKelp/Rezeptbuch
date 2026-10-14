@@ -727,3 +727,7 @@ label.toggle input:focus-visible + .tg-track { outline: 2px solid var(--accent);
 .ocr-tab td input { width: 6em; min-height: 38px; padding: 6px 8px; display: inline-block; }
 .ocr-tab td span { display: block; font-size: 0.72rem; color: var(--warn); font-weight: 700; }
 .ocr-tab tr.miss td input { border-color: var(--warn); }
+.rb-mrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.rb-mrow > span:last-child { display: flex; gap: 6px; }
+.rb-mrow .chip { min-height: 34px; padding: 6px 10px; }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }

@@ -35,7 +35,7 @@ const INFO = {
   snack: 'Statt dem vorgesehenen Snack kannst du auch etwas aus deinem Vorrat nehmen. Ich zeige, wie viel davon jetzt passt: höchstens eine übliche Portion, höchstens was du da hast, und nur so viel, wie in deinen Rahmen passt. Darunter steht, wie viel deine restlichen kcal ganz ausnutzt, aber nie mehr als eine Packung. Gesund oder nicht spielt keine Rolle.',
   vorrat: 'Tipp auf ein Lebensmittel: Dort änderst du die Menge, trägst es als gegessen ein, markierst es als Snack (dann schlägt Ginger es dir als Snack vor) oder mit dem Herz (das magst du besonders). Beim Kochen ziehe ich ab, was als Zutat passt („zählt als“). Ohne Packungsgröße weiß ich nur, wie viele Packungen da sind, nicht wie viel Gramm.',
   backup: 'Beim Schließen fragen darf eine Web-App nur dort, wo der Browser es zulässt, und dann nur mit seinem eigenen Satz („Seite verlassen?“). Auf dem iPhone geht das gar nicht. Deshalb frage ich zusätzlich, sobald du die App wieder öffnest und seit dem letzten Export etwas geändert wurde.',
-  deficit: 'Ich bevorzuge Gerichte, die im Verhältnis zu ihren Kalorien viel davon enthalten, gemessen am Tageswert der Deutschen Gesellschaft für Ernährung (DGE). Das ersetzt keine ärztliche Behandlung: Ob und wie viel du ergänzen solltest, klärst du mit deiner Ärztin oder deinem Arzt. Nichts davon wird geschätzt; fehlt in der Quelle ein Wert, zählt das Gericht nicht.',
+  deficit: '„Heute“ zeigt vorne, wie viel du heute davon gegessen hast, gemessen am Tageswert der DGE für dein Alter. Mitgezählt werden Lebensmittel aus dem Bundeslebensmittelschlüssel und Rezepte aus dem Rezeptbuch; Barcode-Produkte haben keine verlässlichen Angaben und fehlen. Bei „Mangel“ bevorzuge ich Gerichte, die im Verhältnis zu ihren Kalorien viel davon enthalten, gemessen am Tageswert der Deutschen Gesellschaft für Ernährung (DGE). Das ersetzt keine ärztliche Behandlung: Ob und wie viel du ergänzen solltest, klärst du mit deiner Ärztin oder deinem Arzt. Nichts davon wird geschätzt; fehlt in der Quelle ein Wert, zählt das Gericht nicht.',
   heute: 'Gingers Vorschläge passen zu deiner Zeit, deinem Geschmack und dem, was heute laut Tracker noch frei ist. Was du schon im Vorrat hast, kommt zuerst. Unter jedem Gericht steht, ob alles da ist oder was fehlt.'
 };
 function infoBtn(key) {
@@ -1234,6 +1234,50 @@ function dayCard() {
     </a>`;
 }
 
+// Heute gegessene Mineralstoffe und Vitamine aus dem Tracker-Journal. Werte gibt es für BLS-Lebensmittel und Rezepte
+// aus dem Rezeptbuch; Barcode-Produkte und eigene Lebensmittel haben keine verlässlichen Angaben und zählen als „ohne Werte“.
+function dayMicros() {
+  const sum = {};
+  const miss = {};
+  for (const m of MICROS) { sum[m.id] = 0; miss[m.id] = 0; }
+  const entries = (readTracker().days || {})[todayKey()] || [];
+  for (const e of entries) {
+    const ref = String(e.ref || '');
+    let v = null;
+    if (ref.startsWith('bls:')) {
+      const mi = blsMicros(ref);
+      if (mi) { v = {}; for (const m of MICROS) v[m.id] = mi[m.id] != null ? (mi[m.id] * (e.grams || 0)) / 100 : null; }
+    } else if (ref.startsWith('custom:rezeptbuch-')) {
+      const r = allRecipes().find((x) => x.id === ref.slice(18));
+      const g = r && portionGrams(r);
+      if (r && g) {
+        const n = recipeNutrients(r);
+        v = {};
+        for (const m of MICROS) v[m.id] = n['miss_' + m.id] > 0 ? null : (n[m.id] || 0) * ((e.grams || 0) / g);
+      }
+    }
+    for (const m of MICROS) { if (v && v[m.id] != null) sum[m.id] += v[m.id]; else miss[m.id]++; }
+  }
+  return { sum, miss, count: entries.length };
+}
+function microDayCard() {
+  const ids = (state.profile.homeMicros || []).filter((id) => DGE[id]);
+  if (!ids.length || !hasMicros()) return '';
+  const d = dayMicros();
+  const def = deficits();
+  const rows = ids.map((id) => {
+    const m = MICROS.find((x) => x.id === id);
+    const ref = dgeRef(id);
+    const pct = Math.round((d.sum[id] / ref) * 100);
+    return `<div class="macro"><span>${m.name}${def.includes(id) ? ' ★' : ''}</span><div class="bar small-bar"><div style="width:${Math.min(100, pct)}%"></div></div><b>${d.sum[id] >= 100 ? fmt(d.sum[id]) : g1(d.sum[id])}<small> / ${fmt(ref)} ${m.unit}</small></b></div>`;
+  }).join('');
+  const missing = Math.max(...ids.map((id) => d.miss[id]));
+  return `<section class="card micro-day">
+      ${rows}
+      <div class="small muted">${!d.count ? 'Noch nichts eingetragen.' : missing ? `${missing === 1 ? 'Ein Eintrag' : `${missing} Einträge`} ohne Werte (z. B. Barcode-Produkte) ${missing === 1 ? 'fehlt' : 'fehlen'} hier.` : 'Tageswerte der DGE, Gehalt aus dem Bundeslebensmittelschlüssel.'}${def.length && ids.some((id) => def.includes(id)) ? ' ★ = Mangel' : ''}</div>
+    </section>`;
+}
+
 // Begrüßung nach Tageszeit, mit Namen, wenn er unter „Ich“ steht (nur lokal gespeichert)
 function greeting() {
   const h = new Date().getHours();
@@ -1289,6 +1333,7 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
+    ${microDayCard()}
     ${infoHead('h2', 'Deine Mahlzeiten', 'heute')}
     ${meals}
     ${[...new Set(extras.map((e) => e.meal))].map((id) => `<section class="meal-block">${eatenRow(id === 'snack' ? 'Snacks' : mealName(id), mealTotals(id))}</section>`).join('')}
@@ -1738,8 +1783,8 @@ function viewIch() {
     </a>
     ${TRACKER_SETTINGS.filter(([group]) => group !== 'Tracker').map(([group, items]) => `<h2>${group}</h2>
     <section class="card set-list">${items.map((t) => `<a href="tracker/?zurueck=ich#set:${encodeURIComponent(t)}"><span>${esc(t)}${t === 'Tagesziel' || t === 'Ernährung & Allergien' ? `<span class="small muted">${t === 'Tagesziel' ? (nutrientTargets().kcal ? `${fmt(nutrientTargets().kcal)} kcal am Tag` : 'noch kein Kalorienziel') : esc(trackerSettingsSummary().split(' · ').slice(0, 2).join(' · '))}</span>` : ''}</span><span aria-hidden="true">›</span></a>`).join('')}</section>`).join('')}
-    ${deficitCard()}
     ${trackerCardsCard()}
+    ${deficitCard()}
     ${backupCard()}
     ${Object.keys(state.rejected || {}).length ? `<section class="card" style="display:flex;flex-direction:column;gap:8px">
       <h3>Abgelehnte Rezepte</h3>
@@ -1754,13 +1799,16 @@ function viewIch() {
   </main>${nav('ich')}`;
 }
 
-// Mängel: Was du ankreuzt, bevorzugt Ginger überall (Vorschläge, Rezepte, Wochenplan, Kochen, Snacks). Nur auf diesem Handy.
+// Mineralstoffe und Vitamine: je Stoff „auf Heute zeigen“ und „Mangel“. Ein Mangel bevorzugt überall Gerichte, die viel davon
+// enthalten (Vorschläge, Rezepte, Wochenplan, Kochen, Snacks). Nur auf diesem Handy.
 function deficitCard() {
   const mine = state.profile.deficits || [];
-  return `${infoHead('h2', 'Mängel', 'deficit')}
-    <section class="card" style="display:flex;flex-direction:column;gap:10px">
-      <div class="small muted">Hast du einen festgestellten Mangel? Dann schlage ich dir Gerichte vor, die davon viel enthalten.</div>
-      <div class="chips">${MICROS.map((m) => `<button class="chip" data-action="deficit" data-id="${m.id}" aria-pressed="${mine.includes(m.id)}">${m.name}</button>`).join('')}</div>
+  const home = state.profile.homeMicros || [];
+  return `${infoHead('h2', 'Mineralstoffe und Vitamine', 'deficit')}
+    <section class="card set-list micro-set">
+      <div class="small muted">„Heute“ zeigt dir vorne, wie viel du davon heute gegessen hast. „Mangel“ markiert einen festgestellten Mangel, dann schlage ich dir Gerichte vor, die davon viel enthalten.</div>
+      ${MICROS.map((m) => `<div class="row micro-row"><span>${m.name}<span class="small muted">${fmt(dgeRef(m.id))} ${m.unit} am Tag</span></span>
+        <span class="chips"><button class="chip" data-action="home-micro" data-id="${m.id}" aria-pressed="${home.includes(m.id)}" aria-label="${m.name} auf Heute zeigen">Heute</button><button class="chip" data-action="deficit" data-id="${m.id}" aria-pressed="${mine.includes(m.id)}" aria-label="Mangel an ${m.name}">Mangel</button></span></div>`).join('')}
       ${hasMicros() ? '' : '<div class="small" style="color:var(--accent-text)">Die Werte aus dem Bundeslebensmittelschlüssel fehlen noch in der App, deshalb wirkt das noch nicht.</div>'}
       <details class="small muted"><summary>Tageswerte und Quellen</summary>
         <ul class="src-list">${MICROS.map((m) => { const d = DGE[m.id]; const nt = dgeNote(m.id); return `<li>${m.name}: ${fmt(dgeRef(m.id))} ${m.unit} am Tag (DGE-${d.kind}, Stand ${d.year}${nt ? `; ${esc(nt)}` : ''}). <a href="${d.url}" target="_blank" rel="noopener">dge.de</a></li>`; }).join('')}</ul>
@@ -3087,6 +3135,11 @@ const actions = {
   },
   cycle(el) {
     state.profile.cycle = state.profile.cycle === el.dataset.k ? null : el.dataset.k;
+  },
+  'home-micro'(el) {
+    const h = new Set(state.profile.homeMicros || []);
+    if (h.has(el.dataset.id)) h.delete(el.dataset.id); else h.add(el.dataset.id);
+    state.profile.homeMicros = MICROS.map((m) => m.id).filter((id) => h.has(id));
   },
   deficit(el) {
     const d = new Set(state.profile.deficits || []);

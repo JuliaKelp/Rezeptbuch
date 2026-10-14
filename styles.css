@@ -605,3 +605,9 @@ textarea.input { resize: vertical; font: inherit; }
 .src-list { padding-left: 18px; margin: 6px 0; line-height: 1.5; }
 details summary { cursor: pointer; font-weight: 800; color: var(--accent-text); }
 .badge.micro-tag { width: fit-content; }
+.micro-set { display: flex; flex-direction: column; gap: 4px; }
+.micro-row { justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line, #eadfd3); }
+.micro-row > span:first-child { display: flex; flex-direction: column; }
+.micro-row .chips { flex-wrap: nowrap; gap: 6px; }
+.micro-row .chip { padding: 6px 10px; }
+.micro-day { display: flex; flex-direction: column; gap: 8px; }

@@ -708,3 +708,13 @@ body.in-settings .subbar, body.in-settings .rbnav, body.in-settings .scan-fab { 
 .rbnav-in { padding-right: 56px; }
 .rbnav a { min-width: 56px; }
 .scan-fab { width: 48px; height: 48px; bottom: calc(env(safe-area-inset-bottom) + 12px); right: max(12px, calc(50% - 228px)); box-shadow: none; }
+
+/* Schalter im Scanner: „Zum Essen hinzufügen“ (an) / Einkauf (aus) */
+label.toggle { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 4px 0 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; cursor: pointer; }
+label.toggle > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+label.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.tg-track { flex: none; position: relative; width: 50px; height: 30px; border-radius: 15px; background: rgba(138, 118, 102, 0.35); transition: background .15s; }
+.tg-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(59, 42, 32, 0.3); transition: transform .15s; }
+label.toggle input:checked + .tg-track { background: var(--accent); }
+label.toggle input:checked + .tg-track::after { transform: translateX(20px); }
+label.toggle input:focus-visible + .tg-track { outline: 2px solid var(--accent); outline-offset: 2px; }

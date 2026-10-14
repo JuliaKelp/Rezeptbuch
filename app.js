@@ -1008,7 +1008,7 @@ function nav(active) {
     <a href="tracker/">${ICONS.tracker}Tracker</a>
     ${item('ich', 'Ich', 'me')}
   </div></nav>
-  <a class="scan-fab" href="tracker/?zurueck=${back}#einkauf" aria-label="Einkauf scannen">${ICONS.cart}</a>`;
+  <a class="scan-fab" href="tracker/?zurueck=${back}#scan" aria-label="Scannen">${ICONS.cart}</a>`;
 }
 // Unterleiste der Rezepte-Seiten
 function subnav(active) {

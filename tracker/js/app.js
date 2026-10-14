@@ -967,6 +967,7 @@ function closeSheet() {
 }
 
 function openAdd(meal) {
+  if (addTab === 'scan') addTab = 'search'; // Barcode gibt es nur noch im einen Scanner
   if (pantryMode) { openPantry(['mine', 'custom'].includes(addTab) ? 'search' : addTab); return; }
   addMeal = meal; sheetMode = 'add';
   const label = MEALS.find((m) => m.id === meal).label;
@@ -974,11 +975,12 @@ function openAdd(meal) {
     <div class="sheet-head"><h1 class="sh-t">${label}</h1><button class="btn ghost" id="closeSheet">Schließen</button></div>
     <div class="seg" id="addSeg">
       <button data-t="search">Suche</button><button data-t="mine">Meine</button>
-      <button data-t="scan">Barcode</button><button data-t="custom">Neu</button>
+      <button data-t="scan">Scannen</button><button data-t="custom">Neu</button>
     </div>
     <div id="addBody"></div>`);
   $('#closeSheet').onclick = closeSheet;
-  $('#addSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { addTab = b.dataset.t; renderAddTab(); });
+  // „Scannen“ öffnet den einen Scanner, Schalter auf „Zum Essen“ und diese Mahlzeit
+  $('#addSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { if (b.dataset.t === 'scan') { openPantry('scan', { eat: true, meal: addMeal }); return; } addTab = b.dataset.t; renderAddTab(); });
   renderAddTab();
 }
 
@@ -1383,19 +1385,9 @@ function openQuick(meal, entry, prefill) {
 
 /* ---------- Barcode ---------- */
 function renderScan() {
-  if (pantryMode) { renderPantryScan(); return; } // Einkauf: Dauer-Scan mit Liste (food.js)
-  $('#addBody').innerHTML = `
-    <div class="scanner"><video id="video" playsinline muted></video><div class="frame"></div>${TORCH_BTN}</div>
-    <p class="small muted" style="margin-top:8px">Barcode in den Rahmen halten, etwa 15–25 cm Abstand, gut beleuchtet. Nur der Barcode wird an Open Food Facts gesendet.</p>
-    <label for="code">Oder Barcode eintippen</label>
-    <div class="row"><input id="code" type="text" inputmode="numeric" placeholder="z. B. 4008400401621"><button class="btn" id="lookup" style="flex:0 0 auto">Suchen</button></div>
-    <div id="scanResult"></div>
-    <button type="button" class="linkbtn" id="toPantryScan">Ganzen Einkauf scannen und vormerken</button>`;
-  $('#lookup').onclick = () => { const c = ($('#code').value || '').replace(/\D/g, ''); if (c) lookupBarcode(c); };
-  $('#toPantryScan').onclick = () => openPantry('scan');
-  startScanner();
+  if (scanEat) renderEatScan(); else renderPantryScan(); // der eine Scanner (food.js)
 }
-/* Kamera: läuft nur, solange der Barcode-Reiter offen ist. Aus beim Scan-Treffer (weiter zum Mengendialog), beim Wechsel
+/* Kamera: läuft nur, solange der Scanner offen ist. Aus beim Wechsel zum Mengendialog, beim Wechsel
    des Reiters, beim Schließen und beim Verlassen der App (iOS fragt in Home-Bildschirm-Apps ggf. erneut nach der
    Erlaubnis). Außerdem: hohe Auflösung, Hauptkamera statt Ultraweitwinkel (schlechter Nahfokus),
    kontinuierlicher Autofokus, falls vom Gerät angeboten. */
@@ -1422,35 +1414,25 @@ async function getCamStream() {
   return st;
 }
 function startScanner(onCode) {
-  if (!window.ZXing || !navigator.mediaDevices) { $('#scanResult').innerHTML = '<p class="muted">Kamera nicht verfügbar – bitte Barcode eintippen.</p>'; return; }
+  if (!window.ZXing || !navigator.mediaDevices) { const r = $('#scanResult'); if (r) r.innerHTML = '<p class="muted">Kamera nicht verfügbar – bitte Barcode eintippen.</p>'; return; }
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
   const reader = new ZXing.BrowserMultiFormatReader(hints, 150);
   scanner = reader;
-  let done = false;
   let seenCode = '', seenAt = 0;
   getCamStream().then((stream) => {
     if (scanner !== reader) return; // inzwischen geschlossen
     tuneCamera(stream);
     return reader.decodeFromStream(stream, 'video', (result) => {
-      if (result && onCode) {
-        // Dauer-Scan (Einkauf): Kamera bleibt an. Derselbe Barcode zählt erst wieder, wenn er 3 s nicht im Bild war.
+      if (result) {
+        // Dauer-Scan: Kamera bleibt an. Derselbe Barcode zählt erst wieder, wenn er 3 s nicht im Bild war.
         const code = result.getText(), now = Date.now();
         const again = code === seenCode && now - seenAt < 3000;
         seenCode = code; seenAt = now;
         if (again) return;
         if (navigator.vibrate) navigator.vibrate(60);
         onCode(code);
-        return;
-      }
-      if (result && !done) {
-        done = true;
-        if (navigator.vibrate) navigator.vibrate(60);
-        const code = result.getText();
-        stopScanner();
-        $('#code').value = code;
-        lookupBarcode(code);
       }
     });
   }).catch(() => { const r = $('#scanResult'); if (r) r.innerHTML = '<p class="muted">Kein Kamerazugriff. Erlaube die Kamera in den Safari-Einstellungen oder tippe den Barcode ein.</p>'; });
@@ -1498,10 +1480,10 @@ function stopScanner() {
   }
   camRelease(); // Kamera nach dem Scannen bzw. Schließen sofort ganz ausschalten
 }
-// App verlassen → Kamera aus; zurück in die App mit offenem Barcode-Reiter → Scanner wieder starten
+// App verlassen → Kamera aus; zurück in die App mit offenem Scanner → Scanner wieder starten
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { stopScanner(); return; }
-  if (sheetMode === 'add' && addTab === 'scan' && !scanner && document.getElementById('video')) startScanner(pantryMode ? scanHit : undefined);
+  if (sheetMode === 'add' && addTab === 'scan' && !scanner && document.getElementById('video')) startScanner(scanEat ? eatHit : scanHit);
 });
 
 // Produkt zu einem Barcode: eigenes Lebensmittel, schon gescannt (Speicher) oder neu von Open Food Facts.
@@ -1540,20 +1522,6 @@ async function fetchProduct(code) {
     return { offline: true };
   }
 }
-async function lookupBarcode(code) {
-  const out = () => $('#scanResult') || document.createElement('div');
-  if (!state.custom.some((x) => x.barcode === code) && !state.offCache[code]) out().innerHTML = '<p class="muted">Suche bei Open Food Facts…</p>';
-  const r = await fetchProduct(code);
-  if (r.food) { openAmount(r.food); return; }
-  if (r.missing) {
-    out().innerHTML = `<div class="card" style="margin-top:12px"><p>Produkt ${esc(code)} nicht gefunden oder ohne Nährwerte.</p>
-      <button class="btn secondary block" id="createOwn">Als eigenes Lebensmittel anlegen</button></div>`;
-    $('#createOwn').onclick = () => openFoodForm({ barcode: code });
-    return;
-  }
-  out().innerHTML = '<p class="muted">Keine Verbindung zu Open Food Facts. Bitte später erneut versuchen.</p>';
-}
-
 /* ---------- Neu: Schnelleintrag, Lebensmittel, Rezept ---------- */
 const RECIPES_ON = false; // Rezepte vorerst ausgeblendet (später Import aus anderer App); vorhandene Rezepte bleiben nutzbar
 function renderNew() {
@@ -2302,7 +2270,7 @@ async function exportBackup() {
 }
 
 /* ---------- Start ---------- */
-// Sprung aus dem Rezeptbuch: #ziel, #ernaehrung oder #einkauf öffnet den passenden Bereich; ?zurueck=… führt danach dorthin zurück
+// Sprung aus dem Rezeptbuch: #ziel, #ernaehrung, #einkauf oder #scan öffnet den passenden Bereich; ?zurueck=… führt danach dorthin zurück
 const rbJump = location.hash.slice(1);
 const rbBack = new URLSearchParams(location.search).get('zurueck');
 const rbReturn = rbBack && /^[a-z0-9/]+$/.test(rbBack) ? '../#/' + rbBack : null;
@@ -2311,9 +2279,10 @@ if (rbJump === 'ziel') goTab('settings', 'Tagesziel');
 else if (rbJump === 'ernaehrung') goTab('settings', 'Ernährung & Allergien');
 else if (rbJump.startsWith('set:')) goTab('settings', decodeURIComponent(rbJump.slice(4))); // aus „Ich“ im Rezeptbuch
 else render();
-$('#scanFab').onclick = () => openPantry('scan');
+$('#scanFab').onclick = () => openPantry('scan', { eat: true });
 loadBls();
-if (rbJump === 'einkauf') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('scan'); }
+// #scan = Scan-Knopf (Schalter „Zum Essen“ an), #einkauf = „Einkauf scannen“ in der Vorratskammer (Schalter aus)
+if (rbJump === 'einkauf' || rbJump === 'scan') { globalThis.rbPantryReturn = rbReturn; goTab('food'); openPantry('scan', { eat: rbJump === 'scan' }); }
 // Koffein-Pegel altert mit der Zeit: Tagebuch (heute) jede Minute und beim Zurückkehren in die App auffrischen
 function refreshCaffeine() {
   if (tab !== 'diary' || sheetMode || document.visibilityState !== 'visible' || !(state.caffeine.enabled || state.alcohol.enabled || (state.supp.enabled && state.supp.remind)) || currentDate !== isoDate(new Date())) return;

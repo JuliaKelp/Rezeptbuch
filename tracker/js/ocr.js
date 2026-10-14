@@ -121,7 +121,51 @@ function photoNutrition(base) {
     try { text = await ocrImage(file, (p) => { const el = $('#ocrNote'); if (el) el.textContent = `Lese die Nährwerttabelle … ${Math.round(p * 100)} %`; }); }
     catch (e) { const el = $('#ocrNote'); if (el) el.textContent = 'Das Lesen hat nicht geklappt (beim ersten Mal braucht es Internet). Bitte die Werte von der Packung abtippen.'; return; }
     const r = parseNutritionText(text);
-    openFoodForm(Object.assign({}, base || {}, ...r.found.map((k) => ({ [k]: r[k] }))), { ocr: r });
+    const vals = Object.assign({}, base || {}, ...r.found.map((k) => ({ [k]: r[k] })));
+    if (r.found.length) openOcrReview(vals, r); // erst als Tabelle prüfen, dann anlegen
+    else openFoodForm(vals, { ocr: r });
   };
   inp.click();
+}
+
+// Vom Foto gelesene Werte als Tabelle zum Prüfen: jede Zeile änderbar, nicht Erkanntes markiert.
+// Angelegt wird erst, wenn die Nutzerin bestätigt, dass sie alles mit der Packung verglichen hat.
+const OCR_ROWS = [['k', 'Brennwert', 'kcal'], ['f', 'Fett', 'g'], ['sf', 'davon gesättigte Fettsäuren', 'g'], ['c', 'Kohlenhydrate', 'g'],
+  ['su', 'davon Zucker', 'g'], ['fi', 'Ballaststoffe', 'g'], ['p', 'Eiweiß', 'g'], ['sa', 'Salz', 'g']];
+function openOcrReview(vals, r) {
+  stopScanner();
+  sheetMode = 'food';
+  const dv = (x) => (x == null ? '' : String(x).replace('.', ','));
+  openSheet(`
+    <div class="sheet-head"><button class="btn ghost" id="back">‹ Zurück</button><span></span></div>
+    <h1>Stimmt das so?</h1>
+    <p class="small muted">Das habe ich vom Foto gelesen, pro 100 ${vals.liq ? 'ml' : 'g'}. Bitte jede Zahl mit der Packung vergleichen und falls nötig ändern.${r.kjOnly ? ' Nur kJ gefunden, kcal umgerechnet (1 kcal = 4,184 kJ).' : ''}</p>
+    ${r.fit === false ? '<p class="small" style="color:var(--warn);font-weight:700">Achtung: Die Werte passen nicht zum Brennwert, da ist wohl etwas falsch gelesen.</p>' : ''}
+    <label for="rvName">Name</label><input id="rvName" type="text" value="${esc(vals.n || '')}" placeholder="z. B. Haferkekse">
+    <table class="ocr-tab">
+      <thead><tr><th>Nährwert</th><th>pro 100 ${vals.liq ? 'ml' : 'g'}</th></tr></thead>
+      <tbody>${OCR_ROWS.map(([k, l, u]) => `<tr class="${r.found.includes(k) ? '' : 'miss'}"><td>${l}${r.found.includes(k) ? '' : '<span>nicht erkannt</span>'}</td>
+        <td><input id="rv_${k}" inputmode="decimal" value="${dv(vals[k])}" aria-label="${l} in ${u}"> ${u}</td></tr>`).join('')}</tbody>
+    </table>
+    ${vals.barcode ? `<p class="small muted">Barcode: ${esc(vals.barcode)}</p>` : ''}
+    <label class="switch"><input type="checkbox" id="rvOk"> Ich habe alle Werte mit der Packung verglichen</label>
+    <button class="btn block" id="rvSave" disabled>Stimmt, neu anlegen</button>
+    <div style="height:8px"></div>
+    <div class="row"><button class="btn secondary" id="rvPhoto">Neues Foto</button><button class="btn secondary" id="rvMore">Alle Felder</button></div>`);
+  const read = () => {
+    const o = Object.assign({}, vals, { n: $('#rvName').value.trim() });
+    OCR_ROWS.forEach(([k]) => { const x = num($('#rv_' + k).value); if (x == null) delete o[k]; else o[k] = x; });
+    return o;
+  };
+  $('#rvOk').onchange = (ev) => { $('#rvSave').disabled = !ev.target.checked; };
+  $('#back').onclick = () => { if (pantryMode) openPantry(addTab === 'search' ? 'search' : 'scan'); else openFoodForm(vals); };
+  $('#rvPhoto').onclick = () => photoNutrition(read());
+  $('#rvMore').onclick = () => openFoodForm(read(), { ocr: r });
+  $('#rvSave').onclick = () => {
+    const o = read();
+    if (!o.n) { toast('Bitte einen Namen eingeben.'); $('#rvName').focus(); return; }
+    if (o.k == null) { toast('Ohne kcal geht es nicht. Bitte von der Packung abtippen.'); $('#rv_k').focus(); return; }
+    openFoodForm(o, { ocr: r }); // gleiches Speichern wie im Formular (Quelle „foto“, fehlende Werte als „keine Angabe“)
+    $('#cSave').click();
+  };
 }

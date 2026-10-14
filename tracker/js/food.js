@@ -73,6 +73,12 @@ function renderEatScan() {
   eatBusy = false;
   startScanner(eatHit);
 }
+// „Nummer falsch“: Nummer zum Korrigieren ins Feld, oder einfach nochmal scannen
+function wrongNumber(code) {
+  const c = $('#code'); if (!c) return;
+  c.value = code; c.focus();
+  toast('Nummer korrigieren und „' + ($('#lookup').textContent || 'Suchen') + '“ tippen, oder nochmal scannen');
+}
 async function eatHit(code) {
   if (eatBusy) return;
   eatBusy = true;
@@ -84,8 +90,9 @@ async function eatHit(code) {
   eatBusy = false;
   const box = $('#scanResult'); if (!box) return;
   if (r.missing) {
-    box.innerHTML = `<div class="scan-item missing"><div class="si-main"><div class="si-n">Barcode ${esc(code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div></div>
-      <div class="si-acts"><button type="button" class="chip" id="eatPhoto">Foto der Nährwerte</button><button type="button" class="chip" id="eatNew">Selbst anlegen</button></div></div>`;
+    box.innerHTML = `<div class="scan-item missing"><div class="si-main"><div class="si-n">Barcode ${esc(code)}</div><div class="si-w">Kenne ich nicht. Ist die Nummer falsch, oder willst du die Nährwerttabelle fotografieren?</div></div>
+      <div class="si-acts"><button type="button" class="chip" id="eatWrong">Nummer falsch</button><button type="button" class="chip" id="eatPhoto">Nährwerttabelle fotografieren</button><button type="button" class="chip" id="eatNew">Abtippen</button></div></div>`;
+    $('#eatWrong').onclick = () => { box.innerHTML = ''; wrongNumber(code); };
     $('#eatPhoto').onclick = () => { stopScanner(); scanFix = { code, oldId: null }; photoNutrition({ barcode: code }); };
     $('#eatNew').onclick = () => { stopScanner(); scanFix = { code, oldId: null }; openFoodForm({ barcode: code }); };
   } else {
@@ -161,8 +168,8 @@ function drawScanList(fresh) {
       acts = `<span class="si-count" role="group" aria-label="Anzahl"><button type="button" class="chip" data-a="minus" data-i="${i}" aria-label="Eins weniger" ${x.n <= 1 ? 'disabled' : ''}>−</button><b>${x.n}×</b><button type="button" class="chip" data-a="plus" data-i="${i}" aria-label="Eins mehr">+</button></span>
         <button type="button" class="chip" data-a="edit" data-i="${i}">Bearbeiten</button><button type="button" class="chip" data-a="eat" data-i="${i}">Gegessen</button>`;
     } else if (x.state === 'missing') {
-      main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Nicht gefunden oder ohne Nährwerte</div>`;
-      acts = `<button type="button" class="chip" data-a="photo" data-i="${i}">Foto der Nährwerte</button><button type="button" class="chip" data-a="new" data-i="${i}">Selbst anlegen</button>`;
+      main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Kenne ich nicht. Ist die Nummer falsch, oder willst du die Nährwerttabelle fotografieren?</div>`;
+      acts = `<button type="button" class="chip" data-a="wrong" data-i="${i}">Nummer falsch</button><button type="button" class="chip" data-a="photo" data-i="${i}">Nährwerttabelle fotografieren</button><button type="button" class="chip" data-a="new" data-i="${i}">Abtippen</button>`;
     } else {
       main = `<div class="si-n">Barcode ${esc(x.code)}</div><div class="si-w">Keine Verbindung zu Open Food Facts</div>`;
       acts = `<button type="button" class="chip" data-a="retry" data-i="${i}">Nochmal</button>`;
@@ -174,6 +181,7 @@ function drawScanList(fresh) {
     const x = scanSession[+b.dataset.i]; if (!x) return;
     const a = b.dataset.a;
     if (a === 'retry') { scanHit(x.code); return; }
+    if (a === 'wrong') { scanSession = scanSession.filter((y) => y !== x); drawScanList(); wrongNumber(x.code); return; }
     if (a === 'plus') { scanHit(x.code); return; }
     if (a === 'minus') {
       if (x.n <= 1 || !x.food) return;

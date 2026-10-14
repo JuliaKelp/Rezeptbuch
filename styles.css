@@ -744,3 +744,17 @@ a.dp-micro { text-decoration: none; color: inherit; }
 .cook-meal { display: flex; flex-direction: column; gap: 6px; }
 .cook-meal .chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .cook-meal .chip { padding-left: 2px; padding-right: 2px; justify-content: center; text-align: center; font-size: 13px; }
+.edit-area { height: auto; min-height: 210px; padding: 10px 14px; line-height: 1.5; }
+.note-card { display: flex; flex-direction: column; gap: 8px; }
+.note-card h2 { margin: 0; }
+.note-card textarea { height: auto; min-height: 84px; padding: 10px 14px; line-height: 1.5; resize: vertical; }
+/* Zutaten: nur Menge und Name, Nährwerte je Zutat zum Aufklappen */
+.ing-d summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; -webkit-tap-highlight-color: transparent; }
+.ing-d summary::-webkit-details-marker { display: none; }
+.ing-d summary::after { content: '▾'; font-size: 12px; color: var(--muted); flex: none; }
+.ing-d[open] summary::after { content: '▴'; }
+.ing-d[open] { padding-bottom: 4px; }
+.ing-d summary { font-weight: 400; color: var(--ink); }
+.rz-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.rz-acts .btn.small-btn { padding: 0 6px; font-size: 14px; gap: 4px; justify-content: center; }
+.rz-acts .btn.small-btn svg { flex: none; width: 16px; height: 16px; }

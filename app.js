@@ -82,6 +82,8 @@ function defaultState() {
     cookedEntries: {}, // { Tracker-Eintrags-ID: recipeId } Einträge, die einen Stempel gebracht haben
     rejected: {},  // { recipeId: true } abgelehnte Vorschläge
     favorites: {}, // { recipeId: true }
+    notes: {},     // { recipeId: eigene Notiz }
+    edits: {},     // { recipeId: { name, time, meals, ingredients, steps } } eigene Änderungen an Gingers Rezepten
     listExtra: {}, // { recipeId: { n, f } } fehlende Zutaten zum Kochen aus dem Vorrat auf der Einkaufsliste
     week: null     // { seed, meals, slots: { 'JJJJ-MM-TT|meal': { id, ok } }, bought: { key: true }, portions }
   };
@@ -121,6 +123,27 @@ function writeRecipeIndex() {
     const list = [...state.ownRecipes, ...RECIPES.filter(suitable)].map((r) => ({ id: r.id, n: r.name, k: Math.round(r.kcal || 0), m: r.meals || [], fav: isFav(r) || undefined, own: r.own || undefined }));
     localStorage.setItem(INDEX_KEY, JSON.stringify({ day, plan, list }));
   } catch (e) { /* Index ist nur eine Abkürzung */ }
+}
+
+// Gingers Rezepte im Original, damit „Original wiederherstellen“ geht
+const ORIGINAL = new Map(RECIPES.map((r) => [r.id, JSON.parse(JSON.stringify(r))]));
+const DIET_RANK = ['vegan', 'vegetarisch', 'fisch', 'fleisch'];
+// Eigene Änderung (oder das Original) auf ein Rezept legen und Nährwerte aus den Zutaten neu rechnen (BLS, wie beim Start)
+function applyEdit(r) {
+  const o = ORIGINAL.get(r.id); if (!o) return;
+  const e = (state.edits || {})[r.id];
+  Object.assign(r, { name: o.name, time: o.time, meals: [...o.meals], ingredients: [...o.ingredients], steps: [...o.steps], diet: o.diet, allergens: [...(o.allergens || [])] });
+  if (e) {
+    Object.assign(r, { name: e.name, time: e.time, meals: [...e.meals], ingredients: [...e.ingredients], steps: [...e.steps] });
+    // Neue Zutaten können die Ernährungsform oder Allergene ändern; Entfernen macht ein Rezept nicht veganer (sicherer)
+    const foods = e.ingredients.map((l) => findFood(parseIngredient(l).name.replace(/[()]/g, ' '))).filter(Boolean);
+    const tags = foods.map((f) => f.diet);
+    const derived = tags.includes('fleisch') ? 'fleisch' : tags.includes('fisch') ? 'fisch' : tags.includes('tierisch') ? 'vegetarisch' : 'vegan';
+    if (DIET_RANK.indexOf(derived) > DIET_RANK.indexOf(r.diet)) r.diet = derived;
+    r.allergens = [...new Set([...r.allergens, ...foods.flatMap((f) => f.allergens || [])])];
+  }
+  r.nutrients = r.ingredients.reduce((sum, line) => addNutrients(sum, nutrientsOfText(line)), emptyNutrients());
+  r.kcal = Math.round(r.nutrients.kcal / 10) * 10;
 }
 
 function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnacks()]; }
@@ -1751,10 +1774,12 @@ function viewProdukt(r, meal) {
       <h1>${esc(r.name)}</h1>
       <div class="small muted" style="margin-top:4px">${[r.brand, `Snack aus deinem Einkauf`, `${r.servingGuess ? 'ca. ' : ''}${fmt(r.serving)} g pro Portion`].filter(Boolean).map(esc).join(' · ')}</div>
     </div>
-    <div class="input-row">
+    <div class="input-row rz-acts">
       <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
       <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
+      <a class="btn secondary small-btn" href="${r.own ? '#/neu/' + r.id : '#/bearbeiten/' + r.id}">Bearbeiten</a>
     </div>
+    ${!r.own && state.edits && state.edits[r.id] ? '<div class="small muted">Von dir bearbeitet.</div>' : ''}
     ${ui.planning === r.id ? planPicker(r) : ''}
     ${nutrientTable(r.nutrients)}
     ${r.servingGuess || r.addedGuess ? `<p class="small muted">${r.servingGuess ? 'Die Packung nennt keine Portionsgröße, ich rechne mit 40 g. ' : ''}${r.addedGuess ? 'Freien Zucker meldet das Produkt nicht, gezeigt ist der ganze Zucker.' : ''}</p>` : ''}
@@ -1795,10 +1820,12 @@ function viewRezept(id, meal, factorParam) {
       <div class="small muted" style="margin-top:4px">${r.time} Min · ca. ${Math.round((r.kcal * f) / 10) * 10} kcal pro Portion · ${dietName(r.diet)}</div>
       <div class="small muted macro-meta">${macroLine(recipeNutrients(r), f)}</div>
     </div>
-    <div class="input-row">
+    <div class="input-row rz-acts">
       <button class="btn secondary small-btn fav-btn" data-action="fav" data-recipe="${r.id}" aria-pressed="${isFav(r)}">${ICONS.heart}${isFav(r) ? 'Favorit' : 'Zu Favoriten'}</button>
       <button class="btn secondary small-btn" data-action="plan-open" data-recipe="${r.id}" aria-expanded="${ui.planning === r.id}">Einplanen</button>
+      <a class="btn secondary small-btn" href="${r.own ? '#/neu/' + r.id : '#/bearbeiten/' + r.id}">Bearbeiten</a>
     </div>
+    ${!r.own && state.edits && state.edits[r.id] ? '<div class="small muted">Von dir bearbeitet.</div>' : ''}
     ${ui.planning === r.id ? planPicker(r) : ''}
     ${f !== 1 ? `<div class="hint">${ICONS.paw}<span>Für deinen Plan nimmst du ${fmtFactor(f)}× die Rezeptmenge, damit der Tag zu deinem Kalorienziel passt. Die Zutaten unten sind schon umgerechnet.</span></div>` : ''}
     ${note}
@@ -1808,9 +1835,12 @@ function viewRezept(id, meal, factorParam) {
           <span><b>${portionsOf(r)}</b> ${portionsOf(r) === 1 ? 'Portion' : 'Portionen'}</span>
           <button class="round" data-action="portions" data-recipe="${r.id}" data-n="${portionsOf(r) + 1}" aria-label="Eine Portion mehr" ${portionsOf(r) >= 12 ? 'disabled' : ''}>+</button>
         </div></div>
-      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => { const n = nutrientsOfText(x); const mic = deficits().filter((id) => !n['miss_' + id]).map((id) => { const m = MICROS.find((y) => y.id === id); return `<span class="micro-line">${m.name} ${g1(n[id])} ${m.unit}</span>`; }).join(' '); return `<li><span>${esc(x)}</span>${n.kcal >= 1 ? `<span class="ing-n">${fmt(n.kcal)} kcal ${macroMini(n)}</span>` : ''}${mic && n.kcal >= 1 ? `<span class="ing-n">${mic}</span>` : ''}</li>`; }).join('')}</ul>
+      <ul class="ing-list">${scaledIngredients(r, portionsOf(r) * f).map((x) => { const n = nutrientsOfText(x); const mic = deficits().filter((id) => !n['miss_' + id]).map((id) => { const m = MICROS.find((y) => y.id === id); return `<span class="micro-line">${m.name} ${g1(n[id])} ${m.unit}</span>`; }).join(' '); return n.kcal >= 1 ? `<li><details class="ing-d"><summary>${esc(x)}</summary><span class="ing-n">${fmt(n.kcal)} kcal ${macroMini(n)}</span>${mic ? `<span class="ing-n">${mic}</span>` : ''}</details></li>` : `<li><span>${esc(x)}</span></li>`; }).join('')}</ul>
     </section>
     ${nutrientTable(addNutrients(emptyNutrients(), recipeNutrients(r), f))}
+    <section class="card note-card"><label for="rnote"><h2>Meine Notiz</h2></label>
+      <textarea id="rnote" class="input" data-note="${r.id}" placeholder="z. B. mit mehr Knoblauch, beim nächsten Mal doppelt kochen">${esc((state.notes || {})[r.id] || '')}</textarea>
+      <span class="small muted">Wird automatisch gespeichert, nur auf diesem Handy.</span></section>
     <h2>So geht’s</h2>
     <div style="display:flex;flex-direction:column;gap:6px">
       <div class="progress">${r.steps.map((_, i) => `<span class="${done.has(i) ? 'on' : ''}"></span>`).join('')}</div>
@@ -2027,6 +2057,39 @@ function viewNeu(id) {
     <div id="analysis" style="display:flex;flex-direction:column;gap:10px">${viewAnalysis(f)}</div>
     ${ui.formError ? `<div class="hint" style="background:var(--red-soft)"><span>${esc(ui.formError)}</span></div>` : ''}
     <div class="bottom"><button class="btn" data-action="save-own">Rezept speichern</button></div>
+  </main>`;
+}
+
+// Gingers Rezepte bearbeiten: Zutaten als Text (eine pro Zeile, wie im Rezept), Nährwerte wie bei allen Rezepten aus dem BLS
+function editCalc(e) {
+  const lines = e.ing.split('\n').map((l) => l.trim()).filter(Boolean);
+  const n = lines.reduce((sum, l) => addNutrients(sum, nutrientsOfText(l)), emptyNutrients());
+  const unknown = lines.filter((l) => { const p = parseIngredient(l); return p.amount !== null && !findFood(p.name.replace(/[()]/g, ' ')); });
+  return `<div style="font-size:22px;font-weight:900">ca. ${fmt(Math.round(n.kcal / 10) * 10)} kcal <span class="small muted">pro Portion</span></div>
+    <div class="small muted">${macroLine(n, 1)}</div>
+    ${unknown.length ? `<div class="hint" style="background:var(--red-soft)"><span>Kenne ich nicht, zählt nicht mit: ${unknown.map(esc).join(', ')}. Schreib die Menge vorne hin (z. B. „60 g Reis“) und nimm einen gängigen Namen.</span></div>` : ''}`;
+}
+function viewBearbeiten(id) {
+  const r = RECIPES.find((x) => x.id === id);
+  if (!r) return viewHeute();
+  if (!ui.edit || ui.edit.id !== id) ui.edit = { id, name: r.name, time: r.time, meals: [...r.meals], ing: r.ingredients.join('\n'), steps: r.steps.join('\n') };
+  const e = ui.edit;
+  const edited = state.edits && state.edits[id];
+  return `<main class="screen">
+    <a class="back" href="#/rezept/${id}">${ICONS.back}Zurück</a>
+    <h1>Rezept bearbeiten</h1>
+    <div class="field"><label for="ename">Name</label><input id="ename" class="input" value="${esc(e.name)}" data-edit="name"></div>
+    <div class="field"><label for="etime">Minuten</label><input id="etime" class="input number-input" type="number" inputmode="numeric" min="1" max="240" value="${esc(e.time)}" data-edit="time"></div>
+    <div class="field"><span class="small muted" style="font-weight:700">Passt zu</span>
+      <div class="chips">${[...MEALS, SNACK].map((m) => `<button class="chip" data-action="edit-meal" data-id="${m.id}" aria-pressed="${e.meals.includes(m.id)}">${m.name}</button>`).join('')}</div></div>
+    <div class="field"><label for="eing">Zutaten für 1 Portion (eine pro Zeile)</label>
+      <textarea id="eing" class="input edit-area" data-edit="ing">${esc(e.ing)}</textarea></div>
+    <section class="card" id="edit-calc" style="display:flex;flex-direction:column;gap:6px">${editCalc(e)}</section>
+    <div class="field"><label for="esteps">Schritte (eine Zeile pro Schritt)</label>
+      <textarea id="esteps" class="input edit-area" data-edit="steps">${esc(e.steps)}</textarea></div>
+    ${ui.editError ? `<div class="hint" style="background:var(--red-soft)"><span>${esc(ui.editError)}</span></div>` : ''}
+    <div class="bottom"><button class="btn" data-action="save-edit">Speichern</button>
+      ${edited ? `<button class="link-btn" data-action="restore-recipe" data-recipe="${id}">Original wiederherstellen</button>` : ''}</div>
   </main>`;
 }
 
@@ -3128,6 +3191,7 @@ function render() {
   else if (page === 'stempel') html = viewStempel();
   else if (page === 'ich') html = viewIch();
   else if (page === 'neu') html = viewNeu(a);
+  else if (page === 'bearbeiten') html = viewBearbeiten(a);
   else if (page === 'einkauf') html = viewEinkauf();
   else if (page === 'woche') html = viewWoche();
   else if (page === 'liste') html = viewListe();
@@ -3160,6 +3224,7 @@ window.addEventListener('hashchange', (e) => {
   const old = (e.oldURL || '').split('#')[1] || '';
   if (!old.startsWith('/rezept/')) ui.prevPage = old ? '#' + old : '';
   if (!location.hash.startsWith('#/rezept/')) try { sessionStorage.removeItem('rb-from-tracker'); } catch (err) { /* egal */ }
+  if (!location.hash.startsWith('#/bearbeiten/')) { ui.edit = null; ui.editError = ''; }
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
   ui.justStamped = null;
   ui.justEntry = null;
@@ -3625,6 +3690,32 @@ const actions = {
     go(`#/rezept/${r.id}`);
     return 'skip';
   },
+  'edit-meal'(el) {
+    const m = ui.edit.meals;
+    ui.edit.meals = m.includes(el.dataset.id) ? m.filter((x) => x !== el.dataset.id) : [...m, el.dataset.id];
+  },
+  'save-edit'() {
+    const e = ui.edit; if (!e) return;
+    const ingredients = e.ing.split('\n').map((l) => l.trim()).filter(Boolean);
+    const steps = e.steps.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!e.name.trim()) { ui.editError = 'Gib dem Rezept einen Namen.'; return; }
+    if (!ingredients.length) { ui.editError = 'Trag mindestens eine Zutat ein.'; return; }
+    if (!e.meals.length) { ui.editError = 'Wähl mindestens eine Mahlzeit.'; return; }
+    state.edits = state.edits || {};
+    state.edits[e.id] = { name: e.name.trim().slice(0, 80), time: Math.max(1, Math.min(240, Math.round(Number(e.time) || 1))), meals: e.meals, ingredients, steps: steps.length ? steps : ['Alles nach Gefühl zubereiten.'] };
+    const r = RECIPES.find((x) => x.id === e.id); if (r) applyEdit(r);
+    ui.edit = null; ui.editError = '';
+    save(); go(`#/rezept/${r.id}`);
+    return 'skip';
+  },
+  'restore-recipe'(el) {
+    if (state.edits) delete state.edits[el.dataset.recipe];
+    const r = RECIPES.find((x) => x.id === el.dataset.recipe); if (r) applyEdit(r);
+    ui.edit = null; ui.editError = '';
+    save(); go(`#/rezept/${el.dataset.recipe}`);
+    toast('Original wiederhergestellt.');
+    return 'skip';
+  },
   'ask-delete'() { ui.confirmDelete = true; },
   'cancel-delete'() { ui.confirmDelete = false; },
   'delete-own'(el) {
@@ -3709,8 +3800,20 @@ app.addEventListener('change', (e) => {
   }
 });
 
+let saveNoteTimer = null;
 app.addEventListener('input', (e) => {
   const t = e.target;
+  if (t.dataset.note) {
+    state.notes = state.notes || {};
+    if (t.value.trim()) state.notes[t.dataset.note] = t.value.slice(0, 2000); else delete state.notes[t.dataset.note];
+    clearTimeout(saveNoteTimer); saveNoteTimer = setTimeout(save, 400);
+    return;
+  }
+  if (ui.edit && t.dataset.edit) {
+    ui.edit[t.dataset.edit] = t.value;
+    if (t.dataset.edit === 'ing') { const box = document.getElementById('edit-calc'); if (box) box.innerHTML = editCalc(ui.edit); }
+    return;
+  }
   if (ui.form && t.dataset.row !== undefined) {
     ui.form.rows[Number(t.dataset.row)][t.dataset.field] = t.value;
     refreshAnalysis();
@@ -3774,10 +3877,7 @@ const waitTimer = setTimeout(() => { waiting = true; showWait('Ginger holt die N
 const nutritionOk = await loadNutrition();
 clearTimeout(waitTimer);
 if (waiting) hideWait();
-for (const r of RECIPES) {
-  r.nutrients = r.ingredients.reduce((sum, line) => addNutrients(sum, nutrientsOfText(line)), emptyNutrients());
-  r.kcal = Math.round(r.nutrients.kcal / 10) * 10;
-}
+for (const r of RECIPES) applyEdit(r);
 
 migrateToTracker();
 // Einmalig: Die Abend-Vorschläge des Trackers (eigene Rezepte dort) aus, Vorschläge gibt es nur noch auf „Heute“

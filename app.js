@@ -1506,7 +1506,6 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
-    ${zy.homeCard()}
     <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
       <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
     ${mangelShopHint()}
@@ -1515,6 +1514,7 @@ function viewHeute() {
     <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
     ${analysisCard(plan)}
     ${tips}
+    ${zy.homeCard()}
   </main>${nav('heute')}`;
 }
 

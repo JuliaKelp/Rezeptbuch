@@ -145,7 +145,7 @@ export function initZyklus(api) {
       <div class="cy-body">
         <a href="#/zyklus" class="cy-ring-link" aria-label="Zum Zykluskalender">${ringSvg(a, today)}</a>
         <div class="cy-side">
-          <div class="cy-head"><h2>Dein Zyklus</h2><button class="info-btn" data-action="info" data-key="cyLegend" aria-expanded="${open}" aria-label="Was die Farben bedeuten">i</button></div>
+          <div class="cy-head"><h2>Dein Zyklus</h2><button class="info-btn cy-i" data-action="info" data-key="cyLegend" aria-expanded="${open}" aria-label="Was die Farben bedeuten">i</button></div>
           <div class="cy-next">${esc(nextText(a, today))}</div>
           <div class="cy-actions"><a class="cy-plus" href="#/zyklus/tag/${today}">+ Eintragen</a><a class="cy-link" href="#/zyklus">Kalender ›</a></div>
         </div>

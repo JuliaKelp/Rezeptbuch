@@ -8,7 +8,8 @@ const TEAL_SOFT = '#8CC7C7';
 const DEFAULT_LEN = 29;      // Mittel 29,3 Tage in über 600.000 Zyklen (Bull 2019, Quelle 4), solange eigene Daten fehlen
 const DEFAULT_BLEED = 5;
 const LUTEAL = 13;           // Eisprung etwa 13 Tage vor der nächsten Periode (Lutealphase im Mittel 12,4 Tage, Quelle 4)
-const FERTILE_DAYS = 6;      // 5 Tage davor bis Eisprungtag (Wilcox 1995, Quelle 6)
+const FERTILE_DAYS = 6;
+const AHEAD = 6;            // so viele Perioden im Voraus (Kalender und Liste)      // 5 Tage davor bis Eisprungtag (Wilcox 1995, Quelle 6)
 
 export const TRACK = [['temp', 'Basaltemperatur'], ['cm', 'Zervixschleim'], ['cervix', 'Muttermund'], ['sex', 'Sex'], ['pill', 'Verhütung'], ['tests', 'Tests'], ['body', 'Körper'], ['meds', 'Medikamente'], ['pain', 'Schmerzstärke'], ['mood', 'Stimmung'], ['note', 'Notiz']];
 const TRACK_DEFAULT = { temp: true, cm: true, cervix: true, sex: true, pill: true, tests: true, body: true, meds: true, pain: false, mood: false, note: false };
@@ -170,13 +171,13 @@ export function initZyklus(api) {
   }
 
   // ---------- Kalender und Verlauf ----------
-  // Status eines Kalendertags: echte Blutung, vorhergesagte Periode, fruchtbar (laufender und die nächsten zwei Zyklen)
+  // Status eines Kalendertags: echte Blutung, vorhergesagte Periode, fruchtbar (laufender und die nächsten Zyklen)
   function dayInfo(a, key, today) {
     const e = daysOf()[key];
     const out = { bleed: key <= today && e ? e.bleed || 0 : 0, entry: key <= today && hasEntry(e), pred: false, fert: false };
     if (!a.last || paused()) return out;
     const fertOn = showFertile();
-    for (let k = 0; k <= 2; k++) {
+    for (let k = 0; k <= AHEAD; k++) {
       const start = addDays(a.last, k * a.avg);
       const n = diff(start, key) + 1;
       if (k === 0 && fertOn) { if (fertileDays(a).includes(n)) out.fert = true; }
@@ -279,6 +280,25 @@ export function initZyklus(api) {
     if (!t) return '';
     return `<p class="cy-typ">Typisch ${t.median} Tage · ${t.spread === 0 ? 'keine Schwankung' : `schwankt ${t.min} bis ${t.max} Tage`}</p>`;
   }
+  // Die nächsten Perioden: Datum nach typischer Länge, Spanne aus kürzestem und längstem Zyklus; die Unsicherheit wächst mit jedem Monat
+  function upcoming(a) {
+    if (!a.last || paused()) return '';
+    const today = todayKey();
+    const rows = [];
+    for (let k = 1; rows.length < AHEAD && k <= AHEAD + 2; k++) {
+      const mid = addDays(a.last, k * a.avg);
+      const lo = addDays(a.last, k * a.min), hi = addDays(a.last, k * a.max);
+      if (hi < today) continue;
+      rows.push({ mid, lo, hi });
+    }
+    if (!rows.length) return '';
+    const d = (key) => deDate(key, { weekday: 'short', day: 'numeric', month: 'short' });
+    const dm = (key) => deDate(key, { day: 'numeric', month: 'short' });
+    return `<section class="card"><h3>Nächste Perioden</h3>
+      <table class="cy-table"><tbody>${rows.map((r) => `<tr><th>${esc(deDate(r.mid, { month: 'long' }))}</th><td><b>${esc(d(r.mid))}</b>${r.lo !== r.hi ? `<span class="small muted" style="display:block">zwischen ${esc(dm(r.lo))} und ${esc(dm(r.hi))}</span>` : ''}</td></tr>`).join('')}</tbody></table>
+      <div class="small muted">${a.own ? `Gerechnet mit dem Mittel deiner letzten Zyklen, ${a.avg} Tage. Die Spanne kommt aus deinem kürzesten und längsten Zyklus und wird mit jedem Monat breiter.` : 'Noch geschätzt mit 29 Tagen. Ab der zweiten Periode rechne ich mit deinen eigenen Zyklen.'}</div>
+    </section>`;
+  }
   function viewKalender() {
     const a = analysis();
     return `<main class="screen with-nav">
@@ -287,6 +307,7 @@ export function initZyklus(api) {
       ${hormonal() && cy().fert ? '<div class="hint small">Mit hormoneller Verhütung sagen die Kalendertage nichts über einen Eisprung aus, deshalb blende ich die fruchtbaren Tage aus.</div>' : ''}
       ${calendar(a)}
       <a class="btn" href="#/zyklus/tag/${todayKey()}">+ Heute eintragen</a>
+      ${upcoming(a)}
       <p class="small muted">Die Vorhersage rechnet mit deinen letzten ${a.own ? Math.min(6, a.usable.length) : 0} Zyklen. Sie ist keine Verhütung.</p>
     </main>${api.nav('heute')}`;
   }

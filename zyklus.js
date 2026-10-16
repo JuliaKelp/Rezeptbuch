@@ -30,7 +30,8 @@ const GROUP_TITLE = { pain: 'Schmerzstärke', cm: 'Zervixschleim', cervix: 'Mutt
 const GROUP_HINT = { cervix: 'Am besten immer zur gleichen Tageszeit tasten.', tests: 'Nur antippen, wenn du einen Test gemacht hast.' };
 
 export function defaultCycle() {
-  return { on: true, fert: true, todayLine: true, method: 'none', phase: 'normal', track: { ...TRACK_DEFAULT }, days: {} };
+  return { on: true, fert: true, todayLine: true, method: 'none', phase: 'normal', track: { ...TRACK_DEFAULT }, days: {},
+    rem: { period: true, pill: true, pillTime: '21:00', temp: false, tempTime: '06:30', log: false }, pin: null, decoyPin: null, decoyDays: {} };
 }
 
 export function initZyklus(api) {
@@ -44,8 +45,11 @@ export function initZyklus(api) {
     const base = defaultCycle();
     for (const k of Object.keys(base)) if (c[k] === undefined) c[k] = base[k];
     c.track = { ...TRACK_DEFAULT, ...c.track };
+    c.rem = { ...base.rem, ...c.rem };
     return c;
   }
+  // Mit der Schein-PIN entsperrt: eigener, leerer Datenbestand
+  const daysOf = () => (ui.cyDecoy ? (cy().decoyDays = cy().decoyDays || {}) : cy().days);
   const diff = (a, b) => Math.round((dateOf(b) - dateOf(a)) / 86400000);
   const isBleed = (e) => !!e && e.bleed >= 2;
   const hasEntry = (e) => !!e && Object.keys(e).some((k) => k !== 'imp');
@@ -59,7 +63,7 @@ export function initZyklus(api) {
 
   // ---------- Rechnen ----------
   function analysis(today = todayKey()) {
-    const days = cy().days;
+    const days = daysOf();
     const keys = Object.keys(days).filter((k) => k <= today).sort();
     // Periodenbeginn: Blutung ab „Leicht“, und die zwei Tage davor ohne Blutung
     const starts = keys.filter((k) => isBleed(days[k]) && !isBleed(days[addDays(k, -1)]) && !isBleed(days[addDays(k, -2)]));
@@ -101,7 +105,7 @@ export function initZyklus(api) {
 
   // ---------- Kreis auf „Heute“ ----------
   function ringSvg(a, today = todayKey()) {
-    const days = cy().days;
+    const days = daysOf();
     const len = Math.max(a.avg, a.dayNo);
     const cx = 95, cyy = 95, r = 66, dotR = 85;
     const ang = (d, f) => ((d - 1 + f) / len) * 2 * Math.PI - Math.PI / 2;
@@ -130,10 +134,14 @@ export function initZyklus(api) {
   // Kompakt (Wunsch 16.10.): kleiner Kreis, Legende hinter dem Info-Knopf
   function homeCard() {
     if (!active()) return '';
+    if (locked()) {
+      return `<section class="card cy-card"><div class="cy-head"><h2>Dein Zyklus</h2><a class="cy-plus" href="#/zyklus">Entsperren</a></div></section>`;
+    }
     const a = analysis();
     const today = todayKey();
+    const rem = reminders(a).map((t) => `<a class="hint tip-line cy-rem" href="#/zyklus/tag/${today}">${ICONS.clock}<span>${esc(t)}</span></a>`).join('');
     if (!a.last) {
-      return `<section class="card cy-card">
+      return `<section class="card cy-card">${rem}
         <div class="cy-head"><h2>Dein Zyklus</h2><a class="cy-link" href="#/zyklus">Kalender ›</a></div>
         <p class="small muted">Trag den ersten Tag deiner letzten Periode ein, dann zeige ich dir hier, wo im Zyklus du gerade bist. Alte Daten übernimmst du unter Ich → Zyklus.</p>
         <a class="btn secondary cy-add" href="#/zyklus/tag/${today}">+ Zyklus eintragen</a>
@@ -141,7 +149,7 @@ export function initZyklus(api) {
     }
     const fert = fertileDays(a);
     const open = !!ui.info.cyLegend;
-    return `<section class="card cy-card">
+    return `<section class="card cy-card">${rem}
       <div class="cy-body">
         <a href="#/zyklus" class="cy-ring-link" aria-label="Zum Zykluskalender">${ringSvg(a, today)}</a>
         <div class="cy-side">
@@ -164,7 +172,7 @@ export function initZyklus(api) {
   // ---------- Kalender und Verlauf ----------
   // Status eines Kalendertags: echte Blutung, vorhergesagte Periode, fruchtbar (laufender und die nächsten zwei Zyklen)
   function dayInfo(a, key, today) {
-    const e = cy().days[key];
+    const e = daysOf()[key];
     const out = { bleed: key <= today && e ? e.bleed || 0 : 0, entry: key <= today && hasEntry(e), pred: false, fert: false };
     if (!a.last || paused()) return out;
     const fertOn = showFertile();
@@ -226,7 +234,7 @@ export function initZyklus(api) {
   }
   function tempChart(a) {
     if (!a.last) return '';
-    const days = cy().days;
+    const days = daysOf();
     const today = todayKey();
     const pts = [];
     for (let d = 1; d <= a.dayNo; d++) { const e = days[addDays(a.last, d - 1)]; if (e && e.temp) pts.push({ d, t: e.temp, off: !!e.tempOff }); }
@@ -278,7 +286,7 @@ export function initZyklus(api) {
     const today = todayKey();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key || '') || key > today) key = today;
     const c = cy();
-    const e = c.days[key] || {};
+    const e = daysOf()[key] || {};
     const tr = c.track;
     const chip = (act, attrs, label) => `<button class="chip" ${attrs} aria-pressed="${!!act}">${esc(label)}</button>`;
     const group = (g) => {
@@ -307,11 +315,11 @@ export function initZyklus(api) {
     </main>${api.nav('heute')}`;
   }
   function setField(key, f, v) {
-    const c = cy();
-    const e = { ...(c.days[key] || {}) };
+    const store = daysOf();
+    const e = { ...(store[key] || {}) };
     if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) delete e[f]; else e[f] = v;
     delete e.imp;
-    if (Object.keys(e).length) c.days[key] = e; else delete c.days[key];
+    if (Object.keys(e).length) store[key] = e; else delete store[key];
   }
   const entryKey = () => { const p = location.hash.split('/'); return p[1] === 'zyklus' && p[2] === 'tag' && p[3] ? p[3] : todayKey(); };
 
@@ -447,7 +455,7 @@ export function initZyklus(api) {
   function viewEinstellungen() {
     const c = cy();
     const tg = (k, label, hint) => `<label class="fit-row cy-tg"><span>${label}${hint ? `<span class="small muted">${hint}</span>` : ''}</span><input type="checkbox" role="switch" data-cy-set="${k}" ${c[k] ? 'checked' : ''}></label>`;
-    const days = Object.keys(c.days).length;
+    const days = Object.keys(daysOf()).length;
     return `<main class="screen with-nav">
       <a class="back" href="#/ich">${ICONS.back}Ich</a>
       <h1>Zyklus</h1>
@@ -465,6 +473,8 @@ export function initZyklus(api) {
       <h2>Lebensphase</h2>
       <section class="card"><div class="chips">${PHASES.map(([k, l]) => `<button class="chip" data-action="cy-phase" data-k="${k}" aria-pressed="${c.phase === k}">${l}</button>`).join('')}</div>
         <div class="small muted">Schwangerschaft, Stillzeit und Wechseljahre pausieren die Vorhersagen.</div></section>
+      ${remSection()}
+      ${pinSection()}
       <h2>Was ich tracke</h2>
       <section class="card"><div class="chips">${TRACK.map(([k, l]) => `<button class="chip" data-action="cy-track" data-k="${k}" aria-pressed="${!!c.track[k]}">${l}</button>`).join('')}</div>
         <div class="small muted">Ausgeschaltetes erscheint beim Eintragen gar nicht. Die Blutung ist immer da.</div></section>
@@ -479,12 +489,161 @@ export function initZyklus(api) {
         ${ui.cyMsg ? `<div class="small" style="color:var(--accent-text)" role="status">${esc(ui.cyMsg)}</div>` : ''}
         <div class="small muted">${days ? `${days} Tage mit Einträgen gespeichert.` : 'Noch keine Einträge.'}</div>
       </section>
-      <section class="card set-list"><a href="#/zyklus/wissen"><span>Wissen und Quellen</span><span aria-hidden="true">›</span></a></section>
+      <section class="card set-list"><a href="#/zyklus/bericht"><span>Bericht für die Ärztin<span class="small muted">Zykluslängen, Blutung, Beschwerden. Drucken oder teilen.</span></span><span aria-hidden="true">›</span></a>
+        <a href="#/zyklus/wissen"><span>Wissen und Quellen</span><span aria-hidden="true">›</span></a></section>
       <div class="danger-zone">${ui.cyConfirm
         ? `<p class="small" style="text-align:center">Wirklich alle Zyklusdaten löschen? Das geht nicht rückgängig, außer mit einem Backup.</p>
            <div class="input-row"><button class="btn secondary" data-action="cy-del-no">Abbrechen</button><button class="btn dark" data-action="cy-del-yes">Ja, löschen</button></div>`
         : (days ? '<button class="link-btn danger" data-action="cy-del-ask">Zyklusdaten löschen …</button>' : '')}</div>
     </main>${api.nav('ich')}`;
+  }
+
+  // ---------- PIN ----------
+  // Sperre nur für den Bildschirm: Die Daten liegen weiter unverschlüsselt im Speicher des Browsers und im Backup.
+  const pinHash = (pin) => { let h = 2166136261; const t = 'rb-zyklus|' + pin; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+  function locked() { return !!cy().pin && !ui.cyUnlocked; }
+  function lockScreen() {
+    return `<main class="screen with-nav cy-lock">
+      <a class="back" href="#/heute">${ICONS.back}Heute</a>
+      <h1>Zyklus gesperrt</h1>
+      <p class="small muted">Gib deine PIN ein.</p>
+      <input class="input cy-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" data-cy="unlock" aria-label="PIN" autofocus>
+      <button class="btn" data-action="cy-unlock">Entsperren</button>
+      ${ui.cyPinErr ? `<div class="small" style="color:#9A3324" role="alert">${esc(ui.cyPinErr)}</div>` : ''}
+      <details class="small muted"><summary>PIN vergessen?</summary>
+        <p>Die PIN lässt sich nicht wiederherstellen. Du kannst die Sperre aufheben, dabei werden alle Zyklusdaten auf diesem Handy gelöscht. Mit einem Backup holst du sie zurück, die PIN ist dann aber wieder aktiv.</p>
+        ${ui.cyForgot ? '<div class="input-row"><button class="btn secondary" data-action="cy-forgot-no">Abbrechen</button><button class="btn dark" data-action="cy-forgot-yes">Daten löschen</button></div>' : '<button class="link-btn danger" data-action="cy-forgot">Sperre aufheben und Zyklusdaten löschen …</button>'}
+      </details>
+    </main>${api.nav('heute')}`;
+  }
+  function pinSection() {
+    const c = cy();
+    const field = (k, label) => `<div class="input-row"><input class="input cy-pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" data-cy="${k}" aria-label="${label}" placeholder="${label}"><button class="btn small-btn" data-action="cy-pin-save" data-k="${k}">Speichern</button></div>`;
+    return `<h2>Privatsphäre</h2>
+      <section class="card cy-data">
+        <div class="row" style="justify-content:space-between"><span><b>PIN für den Zyklus</b><span class="small muted" style="display:block">Rezepte bleiben ohne PIN offen. Gesperrt wird beim Schließen der App.</span></span>
+          ${c.pin ? '<button class="link-btn" data-action="cy-pin-off">Ausschalten</button>' : ''}</div>
+        ${c.pin ? (ui.cyPinEdit === 'pin' ? field('pin', 'Neue PIN, 4 bis 8 Ziffern') : '<button class="link-btn" data-action="cy-pin-edit" data-k="pin">PIN ändern</button>') : field('pin', 'PIN, 4 bis 8 Ziffern')}
+        ${c.pin ? `<div class="row" style="justify-content:space-between;margin-top:6px"><span><b>Schein-PIN</b><span class="small muted" style="display:block">Eine zweite PIN öffnet einen leeren Kalender. Was du dort einträgst, bleibt getrennt.</span></span>
+          ${c.decoyPin ? '<button class="link-btn" data-action="cy-decoy-off">Ausschalten</button>' : ''}</div>
+          ${c.decoyPin ? '' : field('decoyPin', 'Schein-PIN, anders als die PIN')}` : ''}
+        ${ui.cyPinErr ? `<div class="small" style="color:#9A3324" role="alert">${esc(ui.cyPinErr)}</div>` : ''}
+        <div class="small muted">Die PIN schützt nur den Bildschirm. Wer das Handy entsperrt hat und sich auskennt, kommt an den Browser-Speicher, und die Backup-Datei ist nicht verschlüsselt.</div>
+      </section>`;
+  }
+
+  // ---------- Erinnerungen ----------
+  // Eine Web-App ohne Server kann keine verlässlichen Mitteilungen schicken. Deshalb: Hinweis auf „Heute“ beim Öffnen,
+  // und auf Wunsch eine Kalenderdatei mit Weckern fürs Handy (Titel neutral, damit auf dem Sperrbildschirm nichts verrät).
+  function nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+  const toMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  function reminders(a) {
+    const c = cy(), r = c.rem, out = [];
+    const today = todayKey();
+    const e = daysOf()[today] || {};
+    if (r.period && a.last && !paused()) {
+      const lo = a.min - a.dayNo + 1;
+      if (lo >= 0 && lo <= 2) out.push(lo === 0 ? 'Deine Periode kann heute kommen.' : `Deine Periode kann in ${lo} ${lo === 1 ? 'Tag' : 'Tagen'} kommen.`);
+    }
+    if (r.pill && c.method === 'pille' && c.track.pill && !e.pill && nowMin() >= toMin(r.pillTime)) out.push('Pille heute schon genommen? Tipp auf „Eintragen“.');
+    if (r.temp && c.track.temp && !e.temp && nowMin() >= toMin(r.tempTime) && nowMin() < 12 * 60) out.push('Temperatur heute noch nicht eingetragen.');
+    if (r.log && !hasEntry(e) && nowMin() >= 19 * 60) out.push('Heute noch nichts eingetragen.');
+    return out;
+  }
+  function remSection() {
+    const c = cy(), r = c.rem;
+    const tg = (k, label, hint, time) => `<label class="fit-row cy-tg"><span>${label}<span class="small muted">${hint}</span></span>${time ? `<input class="input cy-time" type="time" value="${esc(r[time])}" data-cy-rem-time="${time}" aria-label="Uhrzeit für ${label}">` : ''}<input type="checkbox" role="switch" data-cy-rem="${k}" ${r[k] ? 'checked' : ''}></label>`;
+    return `<h2>Erinnerungen</h2>
+      <section class="card toggles">
+        ${tg('period', 'Periode bald', '2 Tage vor dem frühesten Termin')}
+        ${c.method === 'pille' ? tg('pill', 'Pille', 'täglich ab dieser Uhrzeit, bis sie eingetragen ist', 'pillTime') : ''}
+        ${c.track.temp ? tg('temp', 'Temperatur messen', 'morgens ab dieser Uhrzeit', 'tempTime') : ''}
+        ${tg('log', 'Eintragen vergessen', 'abends ab 19 Uhr, wenn nichts eingetragen ist')}
+        <div class="small muted">Ohne Server kann die App dich nicht von selbst anstupsen. Die Erinnerung steht in der Zyklus-Karte auf „Heute“, sobald du die App öffnest. Für einen echten Wecker holst du dir die Termine in den Kalender deines Handys. Die Titel verraten nichts.</div>
+        <button class="btn secondary small-btn" data-action="cy-ics" style="margin:6px 0 10px">In den Kalender übernehmen (.ics)</button>
+      </section>`;
+  }
+  const icsDate = (key) => key.replace(/-/g, '');
+  function icsFile() {
+    const c = cy(), r = c.rem, a = analysis(), today = todayKey();
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const ev = [];
+    const add = (uid, lines) => ev.push(['BEGIN:VEVENT', `UID:${uid}@rezeptbuch`, `DTSTAMP:${stamp}`, ...lines, 'END:VEVENT'].join('\r\n'));
+    const alarm = (trigger) => ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Rezeptbuch', `TRIGGER:${trigger}`, 'END:VALARM'].join('\r\n');
+    const t = (hhmm) => hhmm.replace(':', '') + '00';
+    if (r.pill && c.method === 'pille') add('pille', [`DTSTART:${icsDate(today)}T${t(r.pillTime)}`, 'DURATION:PT5M', 'RRULE:FREQ=DAILY', 'SUMMARY:Rezeptbuch-Erinnerung', alarm('PT0M')]);
+    if (r.temp && c.track.temp) add('temp', [`DTSTART:${icsDate(addDays(today, 1))}T${t(r.tempTime)}`, 'DURATION:PT5M', 'RRULE:FREQ=DAILY', 'SUMMARY:Rezeptbuch-Erinnerung', alarm('PT0M')]);
+    if (r.period && a.last && !paused()) {
+      const start = addDays(a.last, a.min);
+      if (start >= today) add('periode-' + icsDate(start), [`DTSTART;VALUE=DATE:${icsDate(start)}`, `DTEND;VALUE=DATE:${icsDate(addDays(start, 1))}`, 'SUMMARY:Rezeptbuch', alarm('-P2D')]);
+    }
+    if (!ev.length) return null;
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rezeptbuch//Zyklus//DE', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR', ''].join('\r\n');
+  }
+  async function shareText(text, name, type) {
+    const blob = new Blob([text], { type });
+    try {
+      const file = new File([blob], name, { type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+    } catch (err) { if (err && err.name === 'AbortError') return; }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob); link.download = name; document.body.appendChild(link); link.click();
+    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
+  }
+
+  // ---------- Bericht für die Ärztin ----------
+  function cycleRows(a) {
+    const days = daysOf();
+    return a.starts.slice(-7).map((start, i, arr) => {
+      const next = arr[i + 1];
+      const end = next ? addDays(next, -1) : todayKey();
+      let bleed = 0, strong = 0, spot = 0, pain = 0;
+      const body = {};
+      for (let k = start; k <= end; k = addDays(k, 1)) {
+        const e = days[k]; if (!e) continue;
+        if (e.bleed >= 2) bleed++; if (e.bleed === 4) strong++; if (e.bleed === 1) spot++;
+        if (e.pain) pain++;
+        (e.body || []).forEach((b) => { body[b] = (body[b] || 0) + 1; });
+      }
+      return { start, len: next ? diff(start, next) : null, bleed, strong, spot, pain, body };
+    }).reverse();
+  }
+  function viewBericht() {
+    const a = analysis();
+    const rows = cycleRows(a);
+    const c = cy();
+    const d = (k) => deDate(k, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const sym = {};
+    rows.forEach((r) => Object.entries(r.body).forEach(([b, n]) => { sym[b] = (sym[b] || 0) + n; }));
+    const top = Object.entries(sym).sort((x, y) => y[1] - x[1]).slice(0, 8);
+    return `<main class="screen with-nav cy-report">
+      <a class="back no-print" href="#/zyklus/einstellungen">${ICONS.back}Zyklus-Einstellungen</a>
+      <h1>Zyklusbericht</h1>
+      <p class="small muted">Erstellt am ${d(todayKey())} aus eigenen Einträgen. Ohne Namen, damit du selbst entscheidest, was du weitergibst.</p>
+      ${a.last ? '' : '<div class="hint small">Noch keine Periode eingetragen.</div>'}
+      ${a.own ? `<section class="card"><h3>Überblick</h3><table class="cy-table"><tbody>
+        <tr><th>Zykluslänge im Mittel</th><td>${a.avg} Tage (${a.usable.length} Zyklen)</td></tr>
+        <tr><th>Kürzester / längster</th><td>${a.min} / ${a.max} Tage, Unterschied ${a.max - a.min} Tage</td></tr>
+        <tr><th>Blutung im Mittel</th><td>${a.bleedAvg} Tage</td></tr>
+        <tr><th>Verhütung</th><td>${esc((METHODS.find(([k]) => k === c.method) || METHODS[0])[1])}</td></tr>
+        <tr><th>Aktueller Zyklustag</th><td>${a.dayNo}</td></tr>
+      </tbody></table>
+      <div class="small muted">Normalwerte nach FIGO 2018: 24 bis 38 Tage, Unterschied bis 7 bis 9 Tage, Blutung bis 8 Tage [12].</div></section>` : ''}
+      ${rows.length ? `<section class="card"><h3>Zyklen</h3><div class="cy-scroll"><table class="cy-table cy-grid-table"><thead><tr><th>Beginn</th><th>Länge</th><th>Blutung</th><th>davon stark</th><th>Schmier</th>${c.track.pain ? '<th>Schmerz</th>' : ''}</tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${d(r.start)}</td><td>${r.len ? `${r.len} T.` : 'läuft'}</td><td>${r.bleed} T.</td><td>${r.strong}</td><td>${r.spot}</td>${c.track.pain ? `<td>${r.pain}</td>` : ''}</tr>`).join('')}
+      </tbody></table></div></section>` : ''}
+      ${top.length ? `<section class="card"><h3>Häufigste Beschwerden</h3><ul class="src-list">${top.map(([b, n]) => `<li>${esc(b)}: ${n} ${n === 1 ? 'Tag' : 'Tage'}</li>`).join('')}</ul></section>` : ''}
+      <div class="input-row no-print"><button class="btn secondary" data-action="cy-print">Drucken oder PDF</button><button class="btn" data-action="cy-share-report">Als Text teilen</button></div>
+    </main>${api.nav('ich')}`;
+  }
+  function reportText() {
+    const a = analysis();
+    const d = (k) => deDate(k, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const lines = [`Zyklusbericht vom ${d(todayKey())}`];
+    if (a.own) lines.push(`Zykluslänge im Mittel ${a.avg} Tage (${a.min} bis ${a.max}, ${a.usable.length} Zyklen), Blutung im Mittel ${a.bleedAvg} Tage.`);
+    lines.push('', 'Beginn | Länge | Blutung | stark | Schmier');
+    cycleRows(a).forEach((r) => lines.push(`${d(r.start)} | ${r.len ? r.len + ' Tage' : 'läuft'} | ${r.bleed} | ${r.strong} | ${r.spot}`));
+    return lines.join('\n');
   }
 
   // ---------- Import ----------
@@ -520,13 +679,13 @@ export function initZyklus(api) {
     return [...out];
   }
   function importDates(keys) {
-    const c = cy();
+    const store = daysOf();
     const today = todayKey();
     let n = 0;
     for (const k of keys) {
       if (k > today) continue;
-      if (c.days[k] && c.days[k].bleed >= 2) continue;
-      c.days[k] = { ...(c.days[k] || {}), bleed: 3, imp: 1 };
+      if (store[k] && store[k].bleed >= 2) continue;
+      store[k] = { ...(store[k] || {}), bleed: 3, imp: 1 };
       n++;
     }
     return n;
@@ -539,10 +698,10 @@ export function initZyklus(api) {
       const d = new Date(y, m - 1 + Number(el.dataset.d), 1);
       ui.cyMonth = keyOf(d).slice(0, 7);
     },
-    'cy-bleed'(el) { const k = entryKey(); const v = Number(el.dataset.v); setField(k, 'bleed', (cy().days[k] || {}).bleed === v ? null : v); },
-    'cy-pick'(el) { const k = entryKey(); const f = el.dataset.f; setField(k, f, (cy().days[k] || {})[f] === el.dataset.v ? null : el.dataset.v); },
+    'cy-bleed'(el) { const k = entryKey(); const v = Number(el.dataset.v); setField(k, 'bleed', (daysOf()[k] || {}).bleed === v ? null : v); },
+    'cy-pick'(el) { const k = entryKey(); const f = el.dataset.f; setField(k, f, (daysOf()[k] || {})[f] === el.dataset.v ? null : el.dataset.v); },
     'cy-multi'(el) {
-      const k = entryKey(); const f = el.dataset.f; const list = [...((cy().days[k] || {})[f] || [])];
+      const k = entryKey(); const f = el.dataset.f; const list = [...((daysOf()[k] || {})[f] || [])];
       const i = list.indexOf(el.dataset.v); if (i >= 0) list.splice(i, 1); else list.push(el.dataset.v);
       setField(k, f, list);
     },
@@ -558,9 +717,48 @@ export function initZyklus(api) {
       importDates([v]);
       ui.cyMsg = `Periodenbeginn am ${deDate(v, { day: 'numeric', month: 'long', year: 'numeric' })} eingetragen.`;
     },
+    'cy-unlock'() {
+      const inp = document.querySelector('[data-cy="unlock"]');
+      const v = (inp && inp.value || '').trim();
+      const c = cy();
+      if (v && pinHash(v) === c.pin) { ui.cyUnlocked = true; ui.cyDecoy = false; ui.cyPinErr = ''; }
+      else if (v && c.decoyPin && pinHash(v) === c.decoyPin) { ui.cyUnlocked = true; ui.cyDecoy = true; ui.cyPinErr = ''; }
+      else ui.cyPinErr = 'Die PIN stimmt nicht.';
+    },
+    'cy-forgot'() { ui.cyForgot = true; },
+    'cy-forgot-no'() { ui.cyForgot = false; },
+    'cy-forgot-yes'() { const c = cy(); c.days = {}; c.decoyDays = {}; c.pin = null; c.decoyPin = null; ui.cyForgot = false; ui.cyUnlocked = true; ui.cyDecoy = false; ui.cyPinErr = ''; },
+    'cy-pin-edit'(el) { ui.cyPinEdit = el.dataset.k; },
+    'cy-pin-save'(el) {
+      const k = el.dataset.k;
+      const inp = document.querySelector(`[data-cy="${k}"]`);
+      const v = (inp && inp.value || '').trim();
+      const c = cy();
+      if (!/^\d{4,8}$/.test(v)) { ui.cyPinErr = 'Bitte 4 bis 8 Ziffern.'; return; }
+      if (ui.cyDecoy) { ui.cyPinErr = 'Das geht nur mit der richtigen PIN.'; return; }
+      const h = pinHash(v);
+      if ((k === 'decoyPin' && h === c.pin) || (k === 'pin' && h === c.decoyPin)) { ui.cyPinErr = 'PIN und Schein-PIN müssen verschieden sein.'; return; }
+      c[k] = h; ui.cyPinErr = ''; ui.cyPinEdit = null; ui.cyUnlocked = true;
+      ui.cyMsg = k === 'pin' ? 'PIN gespeichert. Beim nächsten Öffnen der App ist der Zyklus gesperrt.' : 'Schein-PIN gespeichert.';
+    },
+    'cy-pin-off'() { if (ui.cyDecoy) return; const c = cy(); c.pin = null; c.decoyPin = null; ui.cyPinErr = ''; },
+    'cy-decoy-off'() { if (ui.cyDecoy) return; cy().decoyPin = null; },
+    'cy-ics'() {
+      const text = icsFile();
+      if (!text) { ui.cyMsg = 'Schalte erst eine Erinnerung ein, die in den Kalender passt (Periode, Pille oder Temperatur).'; return; }
+      shareText(text, 'rezeptbuch-erinnerungen.ics', 'text/calendar');
+      return 'skip';
+    },
+    'cy-print'() { window.print(); return 'skip'; },
+    'cy-share-report'() {
+      const text = reportText();
+      if (navigator.share) navigator.share({ title: 'Zyklusbericht', text }).catch(() => {});
+      else shareText(text, 'zyklusbericht.txt', 'text/plain');
+      return 'skip';
+    },
     'cy-del-ask'() { ui.cyConfirm = true; },
     'cy-del-no'() { ui.cyConfirm = false; },
-    'cy-del-yes'() { ui.cyConfirm = false; cy().days = {}; ui.cyMsg = 'Zyklusdaten gelöscht.'; }
+    'cy-del-yes'() { ui.cyConfirm = false; if (ui.cyDecoy) cy().decoyDays = {}; else cy().days = {}; ui.cyMsg = 'Zyklusdaten gelöscht.'; }
   };
 
   // Felder ohne Knopf: Temperatur, Störung, Notiz, Einstellungs-Schalter, Datei
@@ -568,6 +766,8 @@ export function initZyklus(api) {
     const t = e.target;
     if (api.isRendering()) return false;
     if (t.dataset.cySet) { cy()[t.dataset.cySet] = t.checked; api.save(); api.render(); return true; }
+    if (t.dataset.cyRem) { cy().rem[t.dataset.cyRem] = t.checked; api.save(); return true; }
+    if (t.dataset.cyRemTime) { if (/^\d{2}:\d{2}$/.test(t.value)) cy().rem[t.dataset.cyRemTime] = t.value; api.save(); return true; }
     if (t.dataset.cy === 'temp') {
       const v = Number(String(t.value).replace(',', '.'));
       setField(entryKey(), 'temp', v >= 34 && v <= 42 ? Math.round(v * 100) / 100 : null);
@@ -598,11 +798,16 @@ export function initZyklus(api) {
   }
 
   function view(a, b) {
+    if (locked()) return lockScreen();
+    if (a === 'bericht') return viewBericht();
     if (a === 'tag') return viewTag(b);
     if (a === 'wissen') return viewWissen();
     if (a === 'einstellungen') return viewEinstellungen();
     return viewKalender();
   }
+
+  // Beim Verlassen der App wieder sperren
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cy().pin) { ui.cyUnlocked = false; ui.cyDecoy = false; } });
 
   return { view, homeCard, ichRow, actions, onChange, onInput, available, active, analysis, parseDates, cy };
 }

@@ -19,7 +19,7 @@ const BODY = ['Brustspannen', 'Unterleibskrämpfe', 'Rückenschmerzen', 'Kopfweh
 const MOOD = ['Gut drauf', 'Ruhig', 'Gereizt', 'Traurig', 'Ängstlich', 'Stimmungsschwankungen', 'Müde', 'Viel Energie', 'Wenig Lust', 'Viel Lust'];
 // Auswahlfelder: [Schlüssel, Überschrift, Optionen, Spalten]
 const PICKS = {
-  pain: [['pain', '', ['Leicht', 'Mittel', 'Stark'], 3]],
+  pain: [['pain', '', ['Keine', 'Leicht', 'Mittel', 'Stark'], 4]],
   cm: [['cm', '', ['Trocken', 'Nichts', 'Feucht', 'Cremig', 'Glasig, spinnbar'], 3]],
   cervix: [['cxPos', 'Lage', ['Tief', 'Mittel', 'Hoch'], 3], ['cxFirm', 'Festigkeit', ['Fest', 'Weich'], 2], ['cxOpen', 'Öffnung', ['Geschlossen', 'Etwas offen', 'Offen'], 3]],
   sex: [['sex', '', ['Solo', 'Mit Kondom', 'Ohne Kondom'], 3]],
@@ -600,7 +600,7 @@ export function initZyklus(api) {
       for (let k = start; k <= end; k = addDays(k, 1)) {
         const e = days[k]; if (!e) continue;
         if (e.bleed >= 2) bleed++; if (e.bleed === 4) strong++; if (e.bleed === 1) spot++;
-        if (e.pain) pain++;
+        if (e.pain && e.pain !== 'Keine') pain++;
         (e.body || []).forEach((b) => { body[b] = (body[b] || 0) + 1; });
       }
       return { start, len: next ? diff(start, next) : null, bleed, strong, spot, pain, body };

@@ -31,7 +31,7 @@ const GROUP_HINT = { cervix: 'Am besten immer zur gleichen Tageszeit tasten.', t
 
 export function defaultCycle() {
   return { on: true, fert: true, todayLine: true, method: 'none', phase: 'normal', track: { ...TRACK_DEFAULT }, days: {},
-    rem: { period: true, pill: true, pillTime: '21:00', temp: false, tempTime: '06:30', log: false }, pin: null, decoyPin: null, decoyDays: {} };
+    rem: { period: true, pill: true, pillTime: '21:00', temp: false, tempTime: '06:30' }, pin: null, decoyPin: null, decoyDays: {} };
 }
 
 export function initZyklus(api) {
@@ -547,7 +547,6 @@ export function initZyklus(api) {
     }
     if (r.pill && c.method === 'pille' && c.track.pill && !e.pill && nowMin() >= toMin(r.pillTime)) out.push('Pille heute schon genommen? Tipp auf „Eintragen“.');
     if (r.temp && c.track.temp && !e.temp && nowMin() >= toMin(r.tempTime) && nowMin() < 12 * 60) out.push('Temperatur heute noch nicht eingetragen.');
-    if (r.log && !hasEntry(e) && nowMin() >= 19 * 60) out.push('Heute noch nichts eingetragen.');
     return out;
   }
   function remSection() {
@@ -558,7 +557,6 @@ export function initZyklus(api) {
         ${tg('period', 'Periode bald', '2 Tage vor dem frühesten Termin')}
         ${c.method === 'pille' ? tg('pill', 'Pille', 'täglich ab dieser Uhrzeit, bis sie eingetragen ist', 'pillTime') : ''}
         ${c.track.temp ? tg('temp', 'Temperatur messen', 'morgens ab dieser Uhrzeit', 'tempTime') : ''}
-        ${tg('log', 'Eintragen vergessen', 'abends ab 19 Uhr, wenn nichts eingetragen ist')}
         <div class="small muted">Ohne Server kann die App dich nicht von selbst anstupsen. Die Erinnerung steht in der Zyklus-Karte auf „Heute“, sobald du die App öffnest. Für einen echten Wecker holst du dir die Termine in den Kalender deines Handys. Die Titel verraten nichts.</div>
         <button class="btn secondary small-btn" data-action="cy-ics" style="margin:6px 0 10px">In den Kalender übernehmen (.ics)</button>
       </section>`;

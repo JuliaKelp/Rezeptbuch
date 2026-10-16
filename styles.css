@@ -872,3 +872,10 @@ span.icon-btn { visibility: hidden; }
   .card { border: 1px solid #DDD; break-inside: avoid; }
 }
 .cy-tg input.cy-time { width: 92px; height: 40px; flex: 0 0 92px; accent-color: auto; font-size: 15px; }
+.cy-top { display: flex; justify-content: space-between; align-items: center; }
+.cy-typ { margin: 0; font-weight: 800; color: var(--muted); font-size: 14px; }
+.cy-typcard { display: flex; flex-direction: column; gap: 10px; }
+.cy-big { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cy-big div { display: flex; flex-direction: column; align-items: center; background: var(--bg); border-radius: 14px; padding: 12px 4px; text-align: center; }
+.cy-big b { font-size: 34px; font-weight: 900; line-height: 1; }
+.cy-big span { font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 4px; }

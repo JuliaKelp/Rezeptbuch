@@ -1358,7 +1358,8 @@ function suppPills(day) {
 // ausgewählten Mineralstoffe in zwei Spalten. Farben: farbenblindtaugliche Palette nach Okabe & Ito (2008);
 // jeder Balken hat zusätzlich seinen Namen, weil sich bei vielen Mineralstoffen Farben wiederholen.
 const DAY_COLORS = { protein: '#0072B2', kh: '#E69F00', fett: '#CC79A7', fe: '#D55E00', mg: '#009E73', b12: '#56B4E9', zn: '#0072B2', ca: '#E69F00', fol: '#009E73', vd: '#E69F00', jod: '#CC79A7' };
-function dayCard(day = todayKey()) {
+// add: Knopf „Im Tracker eintragen“ in der Karte (nur auf Heute), wie „+ Eintragen“ in der Zyklus-Karte
+function dayCard(day = todayKey(), add = '') {
   const P = DAY_COLORS;
   const left = dayLeft(day);
   const t = nutrientTargets(day);
@@ -1425,6 +1426,7 @@ function dayCard(day = todayKey()) {
         <span>Mineralstoffe und Vitamine</span>${state.profile.microsOpen ? '' : `<span class="dp-peek">${ids.map((id) => `<i class="dp-dot" style="background:${P[id]}"></i>${Math.round((d.sum[id] / dgeRef(id)) * 100)} %`).join(' ')}</span>`}<span class="dp-chev" aria-hidden="true">▾</span></button>
       ${state.profile.microsOpen ? `<a class="dp-micro" href="tracker/">${micros}</a>` : ''}` : ''}
       ${suppPills(day)}
+      ${add}
       ${note ? `<div class="small muted">${note}</div>` : ''}
     </section>`;
 }
@@ -1505,16 +1507,15 @@ function viewHeute() {
         <div class="small" style="color:var(--accent-text)">${stampCount()} Stempel gesammelt</div>
       </div>
     </div>
-    ${dayCard()}
-    <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
-      <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
+    ${dayCard(todayKey(), `<a class="trk-btn in-card" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
+      <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>`)}
     ${mangelShopHint()}
     ${prep}
     ${planCard(pd === todayKey() ? plan : planOtherDay(pd), pd)}
     <button class="link-btn" data-action="cook-open" data-meal="${(dayMeals().find((m) => m.id === currentMeal()) || dayMeals()[0]).id}">Mehr Ideen aus dem Vorrat</button>
+    ${zy.homeCard()}
     ${analysisCard(plan)}
     ${tips}
-    ${zy.homeCard()}
   </main>${nav('heute')}`;
 }
 

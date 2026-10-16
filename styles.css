@@ -856,3 +856,19 @@ span.icon-btn { visibility: hidden; }
 .cy-data label.btn { align-self: flex-start; display: inline-flex; align-items: center; }
 .info-btn.cy-i { width: 20px; height: 20px; font-size: 11px; border-width: 1.5px; }
 .info-btn.cy-i::after { inset: -12px; } /* Tippfläche bleibt groß */
+.trk-btn.in-card { margin: 4px 0 0; height: 46px; font-size: 15px; }
+.cy-rem { text-decoration: none; color: inherit; margin: 0; }
+.cy-pin { font-size: 22px; letter-spacing: 0.3em; text-align: center; }
+.cy-lock { gap: 14px; }
+.cy-time { width: 96px; flex: none; padding: 0 8px; min-height: 40px; }
+.cy-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cy-table th, .cy-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--track); vertical-align: top; }
+.cy-table th { font-weight: 800; color: var(--muted); }
+.cy-scroll { overflow-x: auto; }
+.cy-grid-table td, .cy-grid-table th { white-space: nowrap; }
+@media print {
+  .nav, .scan-fab, .no-print { display: none !important; }
+  body, #app { background: #FFFFFF; }
+  .card { border: 1px solid #DDD; break-inside: avoid; }
+}
+.cy-tg input.cy-time { width: 92px; height: 40px; flex: 0 0 92px; accent-color: auto; font-size: 15px; }

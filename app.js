@@ -1,4 +1,5 @@
 import { RECIPES, TASTE_FOODS } from './recipes.js';
+import { initZyklus } from './zyklus.js';
 import { FOODS, UNITS, NUTRIENTS, findFood, gramsOf, kcalOf, emptyNutrients, addNutrients, nutrientsFor, nutrientsOfText, gramsOfText, scaleIngredient, parseIngredient, loadNutrition, NOT_FROM_BLS, MICROS, hasMicros, microsOf, blsMicros } from './nutrition.js';
 
 // ---------- Grunddaten ----------
@@ -150,6 +151,13 @@ function allRecipes() { return [...state.ownRecipes, ...RECIPES, ...productSnack
 
 // Eingaben, die nicht sofort neu gezeichnet werden (sonst springt die Tastatur weg)
 const ui = { info: {}, rejecting: null, swapFrom: null, cell: null, otherSeen: {}, planning: null, recipeQuery: '', have: [], haveDraft: '', prevPage: '', portions: {}, form: null, formError: '', confirmDelete: false, confirmReset: false, draft: '', recipeFilter: 'alle', toast: '', justStamped: null };
+
+// Zyklus (zyklus.js): Daten in state.cycle, Ansichten unter #/zyklus
+const zy = initZyklus({
+  getState: () => state, save: () => save(), render: () => render(), isRendering: () => rendering,
+  esc: (x) => esc(x), ui, get ICONS() { return ICONS; }, nav: (x) => nav(x), isMale: () => (readTracker().profile || {}).sex === 'm',
+  todayKey: () => todayKey(), addDays: (k, n) => addDays(k, n), dateOf: (k) => dateOf(k), keyOf: (d) => keyOf(d)
+});
 
 // ---------- Hilfsfunktionen ----------
 
@@ -1498,6 +1506,7 @@ function viewHeute() {
       </div>
     </div>
     ${dayCard()}
+    ${zy.homeCard()}
     <a class="trk-btn" href="tracker/"><span aria-hidden="true">+</span> Im Tracker eintragen
       <span class="trk-dots" aria-label="${plan.rows.filter((r) => r.eaten).length} von ${plan.rows.length} Mahlzeiten eingetragen">${plan.rows.map((r) => `<i class="${r.eaten ? 'on' : ''}"></i>`).join('')}</span></a>
     ${mangelShopHint()}
@@ -2206,6 +2215,7 @@ function viewIch() {
     <section class="card set-list">
       ${[['#/edit/1', 'Name und Alter', `${esc((p.name || '').trim() || 'noch kein Name')} · ${p.age ? `${esc(p.age)} Jahre` : 'Alter fehlt'}${p.cycle ? ` · Regel: ${esc(CYCLE.find(([k]) => k === p.cycle)[1])}` : ''}`],
         ['#/edit/2', 'Geschmack', `Mag ich: ${esc(likes.join(', ') || 'noch nichts')} · Mag ich nicht: ${esc(nos.join(', ') || 'nichts')}`],
+        ...(zy.available() ? [['#/zyklus/einstellungen', 'Zyklus', zy.cy().on ? `Karte auf Heute · ${Object.values(zy.cy().track).filter(Boolean).length} Bereiche getrackt` : 'aus']] : []),
         ['#/edit/3', 'Zeit und Portionen', `${p.mealCount === 2 ? '2 Mahlzeiten und Snacks · ' : ''}${mainMeals().map((m) => `${m.name} ${p.times[m.id]} Min`).join(' · ')} · für ${p.portions || 1} ${(p.portions || 1) === 1 ? 'Portion' : 'Portionen'}`]]
         .map(([href, title, sub]) => `<a href="${href}"><span>${title}<span class="small muted">${sub}</span></span><span aria-hidden="true">›</span></a>`).join('')}
     </section>
@@ -2221,7 +2231,7 @@ function viewIch() {
     </section>` : ''}
     <section class="card set-list"><a href="#/quellen"><span>Quellen und Lizenzen</span><span aria-hidden="true">›</span></a></section>
     <div class="danger-zone">${ui.confirmReset
-      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel, Wochenplan und Geschmack sind dann weg. Dein Tracker bleibt, wie er ist.</p>
+      ? `<p class="small" style="text-align:center">Wirklich alles löschen? Stempel, Wochenplan und Geschmack sind dann weg. Dein Tracker und deine Zyklusdaten bleiben, wie sie sind.</p>
          <div class="input-row"><button class="btn secondary" data-action="cancel-reset">Abbrechen</button><button class="btn dark" data-action="reset">Ja, löschen</button></div>`
       : '<button class="link-btn danger" data-action="ask-reset">Rezeptbuch zurücksetzen …</button>'}</div>
   </main>${nav('ich')}`;
@@ -3263,6 +3273,7 @@ function render() {
   else if (page === 'quellen') html = viewQuellen();
   else if (page === 'snacks') html = viewSnacks();
   else if (page === 'kochen') html = viewKochen();
+  else if (page === 'zyklus') html = zy.view(a, b);
   else html = viewHeute();
   const sub = { rezepte: 'rezepte', woche: 'woche', liste: 'woche', einkauf: 'einkauf', stempel: 'stempel' }[page];
   if (sub) html = html.replace('<main class="screen with-nav">', `<main class="screen with-nav">${subnav(sub)}`);
@@ -3288,6 +3299,8 @@ window.addEventListener('hashchange', (e) => {
   // Woher kam man? Damit „Zurück“ auf der Rezeptseite dorthin führt
   const old = (e.oldURL || '').split('#')[1] || '';
   if (!old.startsWith('/rezept/')) ui.prevPage = old ? '#' + old : '';
+  if (location.hash.startsWith('#/zyklus/tag/') && !old.startsWith('/zyklus/tag/')) ui.cyBack = old.startsWith('/') ? old.slice(1) : 'heute';
+  ui.cyMsg = '';
   if (!location.hash.startsWith('#/rezept/')) try { sessionStorage.removeItem('rb-from-tracker'); } catch (err) { /* egal */ }
   if (!location.hash.startsWith('#/bearbeiten/')) { ui.edit = null; ui.editError = ''; }
   if (ui.justStamped) { state.cooking[ui.justStamped] = []; save(); }
@@ -3312,6 +3325,7 @@ window.addEventListener('hashchange', (e) => {
 // ---------- Aktionen ----------
 
 const actions = {
+  ...zy.actions,
   portions(el) {
     const n = Math.max(1, Math.min(12, Number(el.dataset.n)));
     if (el.dataset.recipe) ui.portions[el.dataset.recipe] = n;
@@ -3815,7 +3829,9 @@ const actions = {
   'cancel-reset'() { ui.confirmReset = false; },
   reset() {
     ui.confirmReset = false;
+    const cycle = state.cycle; // Zyklusdaten haben ihr eigenes Löschen unter Ich → Zyklus
     state = defaultState();
+    if (cycle) state.cycle = cycle;
     save();
     go('#/start/1');
     return 'skip';
@@ -3860,6 +3876,7 @@ app.addEventListener('click', (e) => {
 app.addEventListener('change', (e) => {
   const el = e.target;
   if (rendering) return;
+  if (zy.onChange(e)) return;
   if (el.dataset.input === 'trackerGoal') { setTrackerGoal(Number(el.value)); return; }
   // Bei Zutatennamen und Einheiten neu zeichnen (z. B. für das Feld bei unbekannten Zutaten)
   if (ui.form && el.dataset.row !== undefined && (el.dataset.field === 'name' || el.dataset.field === 'unit')) {
@@ -3896,6 +3913,7 @@ app.addEventListener('change', (e) => {
 let saveNoteTimer = null;
 app.addEventListener('input', (e) => {
   const t = e.target;
+  if (zy.onInput(e)) return;
   if (t.dataset.note) {
     state.notes = state.notes || {};
     if (t.value.trim()) state.notes[t.dataset.note] = t.value.slice(0, 2000); else delete state.notes[t.dataset.note];

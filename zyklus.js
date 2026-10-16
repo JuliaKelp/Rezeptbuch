@@ -10,8 +10,8 @@ const DEFAULT_BLEED = 5;
 const LUTEAL = 13;           // Eisprung etwa 13 Tage vor der nächsten Periode (Lutealphase im Mittel 12,4 Tage, Quelle 4)
 const FERTILE_DAYS = 6;      // 5 Tage davor bis Eisprungtag (Wilcox 1995, Quelle 6)
 
-export const TRACK = [['temp', 'Basaltemperatur'], ['cm', 'Zervixschleim'], ['cervix', 'Muttermund'], ['sex', 'Sex'], ['pill', 'Verhütung'], ['tests', 'Tests'], ['body', 'Körper'], ['pain', 'Schmerzstärke'], ['mood', 'Stimmung'], ['note', 'Notiz']];
-const TRACK_DEFAULT = { temp: true, cm: true, cervix: true, sex: true, pill: true, tests: true, body: true, pain: false, mood: false, note: false };
+export const TRACK = [['temp', 'Basaltemperatur'], ['cm', 'Zervixschleim'], ['cervix', 'Muttermund'], ['sex', 'Sex'], ['pill', 'Verhütung'], ['tests', 'Tests'], ['body', 'Körper'], ['meds', 'Medikamente'], ['pain', 'Schmerzstärke'], ['mood', 'Stimmung'], ['note', 'Notiz']];
+const TRACK_DEFAULT = { temp: true, cm: true, cervix: true, sex: true, pill: true, tests: true, body: true, meds: true, pain: false, mood: false, note: false };
 const BLEED = [[1, 'Schmier'], [2, 'Leicht'], [3, 'Mittel'], [4, 'Stark']];
 const METHODS = [['none', 'Keine oder Kondom'], ['pille', 'Pille'], ['hormon', 'Andere hormonelle (Ring, Pflaster, Spritze, Implantat, Hormonspirale)'], ['kupfer', 'Kupferspirale oder -kette']];
 const PHASES = [['normal', 'Normaler Zyklus'], ['schwanger', 'Schwanger'], ['stillen', 'Stillzeit'], ['wechsel', 'Wechseljahre']];
@@ -296,6 +296,17 @@ export function initZyklus(api) {
         ${PICKS[g].map(([f, label, opts, cols]) => `${label ? `<div class="cy-lab">${label}</div>` : ''}<div class="cy-opts" style="grid-template-columns:repeat(${cols},minmax(0,1fr))">${opts.map((o) => chip(e[f] === o, `data-action="cy-pick" data-f="${f}" data-v="${esc(o)}"`, o)).join('')}</div>`).join('')}</section>`;
     };
     const multi = (f, title, list) => `<section class="card cy-group"><h3>${title}</h3><div class="chips">${list.map((o) => chip((e[f] || []).includes(o), `data-action="cy-multi" data-f="${f}" data-v="${esc(o)}"`, o)).join('')}</div></section>`;
+    // Medikamente: Schmerzmittel plus eigene Einträge, die sich die App für später merkt
+    const medsGroup = (en) => {
+      const list = ['Schmerzmittel', ...(c.medList || [])];
+      const taken = en.meds || [];
+      taken.forEach((m) => { if (!list.includes(m)) list.push(m); });
+      return `<section class="card cy-group"><h3>Medikamente genommen</h3><div class="chips">${list.map((o) => chip(taken.includes(o), `data-action="cy-multi" data-f="meds" data-v="${esc(o)}"`, o)).join('')}</div>
+        <div class="input-row"><input class="input" type="text" maxlength="40" placeholder="Eigener Eintrag" data-cy="medName" aria-label="Eigenes Medikament"><button class="btn small-btn" data-action="cy-med-add">Hinzufügen</button></div>
+        ${(c.medList || []).length ? '<button class="link-btn muted-link" data-action="cy-med-edit">Eigene Einträge verwalten</button>' : ''}
+        ${ui.cyMedEdit ? `<div class="chips">${(c.medList || []).map((m) => `<button class="chip danger" data-action="cy-med-del" data-v="${esc(m)}" aria-label="${esc(m)} aus der Liste nehmen">${esc(m)} ✕</button>`).join('')}</div><div class="small muted">Nimmt den Namen nur aus der Auswahl. Alte Einträge bleiben.</div>` : ''}
+      </section>`;
+    };
     const prev = addDays(key, -1), next = addDays(key, 1);
     return `<main class="screen with-nav cy-entry">
       <a class="back" href="#/zyklus">${ICONS.back}Kalender</a>
@@ -308,6 +319,7 @@ export function initZyklus(api) {
         <label class="fit-row cy-off"><input type="checkbox" data-cy="tempOff" ${e.tempOff ? 'checked' : ''}><span class="small">Störung (schlecht geschlafen, krank, Alkohol, andere Uhrzeit)</span></label></section>` : ''}
       ${['pain', 'cm', 'cervix', 'sex', 'pill'].map(group).join('')}
       ${tr.body ? multi('body', 'Körper', BODY) : ''}
+      ${tr.meds ? medsGroup(e) : ''}
       ${group('tests')}
       ${tr.mood ? multi('mood', 'Stimmung', MOOD) : ''}
       ${tr.note ? `<section class="card cy-group"><h3>Notiz</h3><textarea class="input" rows="3" maxlength="1000" data-cy="note" aria-label="Notiz">${esc(e.note || '')}</textarea></section>` : ''}
@@ -597,14 +609,15 @@ export function initZyklus(api) {
       const next = arr[i + 1];
       const end = next ? addDays(next, -1) : todayKey();
       let bleed = 0, strong = 0, spot = 0, pain = 0;
-      const body = {};
+      const body = {}, meds = {};
       for (let k = start; k <= end; k = addDays(k, 1)) {
         const e = days[k]; if (!e) continue;
         if (e.bleed >= 2) bleed++; if (e.bleed === 4) strong++; if (e.bleed === 1) spot++;
         if (e.pain && e.pain !== 'Keine') pain++;
         (e.body || []).forEach((b) => { body[b] = (body[b] || 0) + 1; });
+        (e.meds || []).forEach((m) => { meds[m] = (meds[m] || 0) + 1; });
       }
-      return { start, len: next ? diff(start, next) : null, bleed, strong, spot, pain, body };
+      return { start, len: next ? diff(start, next) : null, bleed, strong, spot, pain, body, meds };
     }).reverse();
   }
   function viewBericht() {
@@ -615,6 +628,9 @@ export function initZyklus(api) {
     const sym = {};
     rows.forEach((r) => Object.entries(r.body).forEach(([b, n]) => { sym[b] = (sym[b] || 0) + n; }));
     const top = Object.entries(sym).sort((x, y) => y[1] - x[1]).slice(0, 8);
+    const medSum = {};
+    rows.forEach((r) => Object.entries(r.meds).forEach(([m, n]) => { medSum[m] = (medSum[m] || 0) + n; }));
+    const medTop = Object.entries(medSum).sort((x, y) => y[1] - x[1]);
     return `<main class="screen with-nav cy-report">
       <a class="back no-print" href="#/zyklus/einstellungen">${ICONS.back}Zyklus-Einstellungen</a>
       <h1>Zyklusbericht</h1>
@@ -632,6 +648,7 @@ export function initZyklus(api) {
         ${rows.map((r) => `<tr><td>${d(r.start)}</td><td>${r.len ? `${r.len} T.` : 'läuft'}</td><td>${r.bleed} T.</td><td>${r.strong}</td><td>${r.spot}</td>${c.track.pain ? `<td>${r.pain}</td>` : ''}</tr>`).join('')}
       </tbody></table></div></section>` : ''}
       ${top.length ? `<section class="card"><h3>Häufigste Beschwerden</h3><ul class="src-list">${top.map(([b, n]) => `<li>${esc(b)}: ${n} ${n === 1 ? 'Tag' : 'Tage'}</li>`).join('')}</ul></section>` : ''}
+      ${medTop.length ? `<section class="card"><h3>Medikamente</h3><ul class="src-list">${medTop.map(([m, n]) => `<li>${esc(m)}: an ${n} ${n === 1 ? 'Tag' : 'Tagen'}</li>`).join('')}</ul></section>` : ''}
       <div class="input-row no-print"><button class="btn secondary" data-action="cy-print">Drucken oder PDF</button><button class="btn" data-action="cy-share-report">Als Text teilen</button></div>
     </main>${api.nav('ich')}`;
   }
@@ -704,6 +721,18 @@ export function initZyklus(api) {
       const i = list.indexOf(el.dataset.v); if (i >= 0) list.splice(i, 1); else list.push(el.dataset.v);
       setField(k, f, list);
     },
+    'cy-med-add'() {
+      const inp = document.querySelector('[data-cy="medName"]');
+      const v = (inp && inp.value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+      if (!v) return;
+      const c = cy(); c.medList = c.medList || [];
+      if (v !== 'Schmerzmittel' && !c.medList.includes(v)) c.medList.push(v);
+      const k = entryKey(); const list = [...((daysOf()[k] || {}).meds || [])];
+      if (!list.includes(v)) list.push(v);
+      setField(k, 'meds', list);
+    },
+    'cy-med-edit'() { ui.cyMedEdit = !ui.cyMedEdit; },
+    'cy-med-del'(el) { const c = cy(); c.medList = (c.medList || []).filter((m) => m !== el.dataset.v); },
     'cy-tab'(el) { ui.cyTab = el.dataset.k; },
     'cy-horm'(el) { ui.cyHorm = { ...(ui.cyHorm || {}) }; ui.cyHorm[el.dataset.k] = ui.cyHorm[el.dataset.k] === false; },
     'cy-method'(el) { cy().method = el.dataset.k; },

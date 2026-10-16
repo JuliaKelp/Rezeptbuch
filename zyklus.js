@@ -230,7 +230,8 @@ export function initZyklus(api) {
       <text x="26" y="${(Y(38) + 4).toFixed(1)}" text-anchor="end" font-size="11" font-weight="700" fill="#6B5444">38</text>
       <text x="26" y="${(Y(24) + 4).toFixed(1)}" text-anchor="end" font-size="11" font-weight="700" fill="#6B5444">24</text>
       <line x1="30" y1="${base}" x2="${W}" y2="${base}" stroke="#E2CFBF" stroke-width="1.5"/>${bars}
-      <text x="30" y="${base + 20}" font-size="11" font-weight="700" fill="#6B5444">grün: normaler Bereich 24 bis 38 Tage [12]</text></svg>`;
+      ${typical(a) ? `<line x1="30" y1="${Y(typical(a).median).toFixed(1)}" x2="${W}" y2="${Y(typical(a).median).toFixed(1)}" stroke="#3B2A20" stroke-width="1.5" stroke-dasharray="4 4"/>` : ''}
+      <text x="30" y="${base + 20}" font-size="11" font-weight="700" fill="#6B5444">grün: normal 24 bis 38 Tage [12]${typical(a) ? ` · gestrichelt: typisch ${typical(a).median}` : ''}</text></svg>`;
   }
   function tempChart(a) {
     if (!a.last) return '';
@@ -257,27 +258,59 @@ export function initZyklus(api) {
         <text x="${L}" y="${B + 18}" font-size="11" font-weight="700" fill="#6B5444">Tag 1</text></svg>
       <div class="small muted">Leere Punkte: Messung mit Störung, nicht verbunden. Nach dem Eisprung liegt die Temperatur 0,3 bis 0,7 °C höher [5]. Das zeigt einen Eisprung im Nachhinein, nicht vorher.</div></section>`;
   }
+  // Untermenü wie Vorschlag B: Kalender · Verlauf · Wissen
+  function subnav(active) {
+    const item = (href, id, label) => `<a href="#/${href}" ${active === id ? 'aria-current="page"' : ''}>${label}</a>`;
+    return `<nav class="subnav" aria-label="Zyklus-Bereiche">${item('zyklus', 'kalender', 'Kalender')}${item('zyklus/verlauf', 'verlauf', 'Verlauf')}${item('zyklus/wissen', 'wissen', 'Wissen')}</nav>`;
+  }
+  function head(active) {
+    return `<div class="cy-top"><a class="back" href="#/heute">${ICONS.back}Heute</a><a class="cy-link" href="#/zyklus/einstellungen">Einstellungen ›</a></div>
+      <h1>Zyklus</h1>${subnav(active)}`;
+  }
+  // Typische Länge = Median der letzten (bis zu 6) Zyklen, robust gegen einen Ausreißer
+  function typical(a) {
+    const ls = [...a.usable].sort((x, y) => x - y);
+    if (!ls.length) return null;
+    const m = ls.length % 2 ? ls[(ls.length - 1) / 2] : Math.round((ls[ls.length / 2 - 1] + ls[ls.length / 2]) / 2);
+    return { median: m, min: ls[0], max: ls[ls.length - 1], spread: ls[ls.length - 1] - ls[0], n: ls.length };
+  }
+  function typLine(a) {
+    const t = typical(a);
+    if (!t) return '';
+    return `<p class="cy-typ">Typisch ${t.median} Tage · ${t.spread === 0 ? 'keine Schwankung' : `schwankt ${t.min} bis ${t.max} Tage`}</p>`;
+  }
   function viewKalender() {
     const a = analysis();
-    const ls = a.usable;
-    const stats = a.own ? `<div class="cy-stats">
-        <div><b>${a.avg}</b><span>Tage im Mittel</span></div>
-        <div><b>${a.min === a.max ? a.min : `${a.min}–${a.max}`}</b><span>Spanne</span></div>
-        <div><b>${a.bleedAvg}</b><span>Tage Blutung</span></div>
-        <div><b>${ls.length}</b><span>${ls.length === 1 ? 'Zyklus' : 'Zyklen'}</span></div></div>` : '';
-    const figo = a.own ? `<div class="small muted">Als normal gelten 24 bis 38 Tage, Schwankungen zwischen den Zyklen bis 7 bis 9 Tage und bis zu 8 Tage Blutung [12]. ${a.max - a.min > 9 ? 'Deine Zyklen schwanken stärker. Sprich das gern bei deiner Ärztin an.' : ''}</div>` : '';
     return `<main class="screen with-nav">
-      <a class="back" href="#/heute">${ICONS.back}Heute</a>
-      <div class="info-head"><h1>Zyklus</h1><a class="info-btn" href="#/zyklus/wissen" aria-label="Wissen über den Zyklus">i</a></div>
-      ${a.last ? `<p class="cy-sub">Zyklustag ${a.dayNo} · ${esc(nextText(a))}</p>` : '<p class="small muted">Tipp auf den ersten Tag deiner letzten Periode und trag die Blutung ein.</p>'}
+      ${head('kalender')}
+      ${a.last ? `<p class="cy-sub">Zyklustag ${a.dayNo} · ${esc(nextText(a))}</p>${typLine(a)}` : '<p class="small muted">Tipp auf den ersten Tag deiner letzten Periode und trag die Blutung ein.</p>'}
       ${hormonal() && cy().fert ? '<div class="hint small">Mit hormoneller Verhütung sagen die Kalendertage nichts über einen Eisprung aus, deshalb blende ich die fruchtbaren Tage aus.</div>' : ''}
       ${calendar(a)}
       <a class="btn" href="#/zyklus/tag/${todayKey()}">+ Heute eintragen</a>
-      ${a.lengths.length ? `<section class="card"><h3>Deine Zyklen</h3>${stats}${lengthChart(a)}${figo}</section>` : ''}
+      <p class="small muted">Die Vorhersage rechnet mit deinen letzten ${a.own ? Math.min(6, a.usable.length) : 0} Zyklen. Sie ist keine Verhütung.</p>
+    </main>${api.nav('heute')}`;
+  }
+  function viewVerlauf() {
+    const a = analysis();
+    const t = typical(a);
+    const ls = a.lengths.slice(-6);
+    const regular = t && t.spread <= 7 ? 'regelmäßig' : t && t.spread <= 9 ? 'je nach Alter noch regelmäßig' : 'unregelmäßig';
+    const devs = ls.map((n, i) => ({ n, start: a.starts[a.starts.length - ls.length - 1 + i], d: t ? n - t.median : 0 })).reverse();
+    return `<main class="screen with-nav">
+      ${head('verlauf')}
+      ${t ? `<section class="card cy-typcard">
+          <div class="cy-big"><div><b>${t.median}</b><span>Tage typische Länge</span></div><div><b>${t.spread === 0 ? '±0' : `±${Math.ceil(t.spread / 2)}`}</b><span>Tage Schwankung</span></div></div>
+          <p class="small">${t.spread === 0 ? `Deine letzten ${t.n} Zyklen waren alle ${t.median} Tage lang.` : `Deine letzten ${t.n} Zyklen waren ${t.min} bis ${t.max} Tage lang, ${t.spread} Tage Unterschied zwischen kürzestem und längstem. Das gilt als ${regular} [12].`}</p>
+          ${lengthChart(a)}
+          <div class="small muted">Typisch = der mittlere Wert deiner letzten Zyklen (Median), damit ein einzelner Ausreißer nicht alles verschiebt. Normal sind 24 bis 38 Tage und bis 7 bis 9 Tage Unterschied, je nach Alter [12].</div>
+        </section>
+        <section class="card"><h3>Zyklus für Zyklus</h3><table class="cy-table"><thead><tr><th>Beginn</th><th>Länge</th><th>zur typischen</th></tr></thead><tbody>
+          ${devs.map((r) => `<tr><td>${esc(deDate(r.start, { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td><td>${r.n} Tage</td><td>${r.d === 0 ? 'genau' : `${r.d > 0 ? '+' : '−'}${Math.abs(r.d)} ${Math.abs(r.d) === 1 ? 'Tag' : 'Tage'}`}</td></tr>`).join('')}
+        </tbody></table></section>
+        <section class="card"><h3>Blutung</h3><p class="small">Im Mittel ${a.bleedAvg} Tage. Normal sind bis zu 8 Tage [12].</p></section>`
+      : `<section class="card"><p class="small muted">Sobald zwei Perioden eingetragen sind, siehst du hier deine typische Zykluslänge und wie stark sie schwankt. Alte Daten übernimmst du unter Einstellungen.</p></section>`}
       ${cy().track.temp ? tempChart(a) : ''}
-      <section class="card set-list"><a href="#/zyklus/wissen"><span>Wissen: Hormone, Schleim, Muttermund<span class="small muted">mit Diagrammen und Quellen</span></span><span aria-hidden="true">›</span></a>
-        <a href="#/zyklus/einstellungen"><span>Einstellungen</span><span aria-hidden="true">›</span></a></section>
-      <p class="small muted">Die Vorhersage rechnet mit deinen letzten ${a.own ? Math.min(6, ls.length) : 0} Zyklen. Sie ist keine Verhütung.</p>
+      <section class="card set-list"><a href="#/zyklus/bericht"><span>Bericht für die Ärztin<span class="small muted">Drucken oder teilen</span></span><span aria-hidden="true">›</span></a></section>
     </main>${api.nav('heute')}`;
   }
 
@@ -443,8 +476,7 @@ export function initZyklus(api) {
     const [title, texts] = TEXTS[tab];
     const vis = ui.cyHorm || {};
     return `<main class="screen with-nav">
-      <a class="back" href="#/${active() ? 'zyklus' : 'ich'}">${ICONS.back}Zurück</a>
-      <h1>Dein Zyklus</h1>
+      ${active() ? head('wissen') : `<a class="back" href="#/ich">${ICONS.back}Zurück</a><h1>Dein Zyklus</h1>`}
       <div class="cy-tabs" role="tablist" aria-label="Thema">${[['hormone', 'Hormone'], ['mucus', 'Schleim'], ['cervix', 'Muttermund']].map(([k, l]) => `<button role="tab" class="chip" data-action="cy-tab" data-k="${k}" aria-selected="${tab === k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>
       <section class="card cy-chart">
         ${tab === 'hormone' ? `<div class="chips" role="group" aria-label="Kurven ein- und ausblenden">${HORMONES.map((h) => `<button class="chip cy-hchip" data-action="cy-horm" data-k="${h.key}" aria-pressed="${vis[h.key] !== false}"><i style="border-top:3px ${h.dash ? (h.key === 'fsh' ? 'dotted' : 'dashed') : 'solid'} ${h.color}"></i>${h.short}</button>`).join('')}</div>` : ''}
@@ -830,6 +862,7 @@ export function initZyklus(api) {
     if (a === 'bericht') return viewBericht();
     if (a === 'tag') return viewTag(b);
     if (a === 'wissen') return viewWissen();
+    if (a === 'verlauf') return viewVerlauf();
     if (a === 'einstellungen') return viewEinstellungen();
     return viewKalender();
   }

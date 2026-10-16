@@ -854,3 +854,5 @@ span.icon-btn { visibility: hidden; }
 .cy-refs a { word-break: break-all; }
 .cy-data { display: flex; flex-direction: column; gap: 10px; }
 .cy-data label.btn { align-self: flex-start; display: inline-flex; align-items: center; }
+.info-btn.cy-i { width: 20px; height: 20px; font-size: 11px; border-width: 1.5px; }
+.info-btn.cy-i::after { inset: -12px; } /* Tippfläche bleibt groß */

@@ -306,8 +306,9 @@ export function initZyklus(api) {
       ${tr.temp ? `<section class="card cy-group"><h3>Basaltemperatur</h3>
         <div class="input-row"><input class="input" type="text" inputmode="decimal" placeholder="z. B. 36,45" data-cy="temp" value="${e.temp ? e.temp.toFixed(2).replace('.', ',') : ''}" aria-label="Temperatur in Grad Celsius"><span class="cy-unit">°C</span></div>
         <label class="fit-row cy-off"><input type="checkbox" data-cy="tempOff" ${e.tempOff ? 'checked' : ''}><span class="small">Störung (schlecht geschlafen, krank, Alkohol, andere Uhrzeit)</span></label></section>` : ''}
-      ${['pain', 'cm', 'cervix', 'sex', 'pill', 'tests'].map(group).join('')}
+      ${['pain', 'cm', 'cervix', 'sex', 'pill'].map(group).join('')}
       ${tr.body ? multi('body', 'Körper', BODY) : ''}
+      ${group('tests')}
       ${tr.mood ? multi('mood', 'Stimmung', MOOD) : ''}
       ${tr.note ? `<section class="card cy-group"><h3>Notiz</h3><textarea class="input" rows="3" maxlength="1000" data-cy="note" aria-label="Notiz">${esc(e.note || '')}</textarea></section>` : ''}
       <a class="btn" href="#/${ui.cyBack || 'heute'}">Fertig</a>

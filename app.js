@@ -2484,10 +2484,10 @@ const SOURCES = [
     { name: 'Kalorien- und Makroziele', what: 'Kommen aus dem Tracker (Einstellungen → Tagesziel). Dort stehen auch die Studien und Leitlinien, auf die sich die Ziele stützen (DGE, WHO, Morton 2018 u. a.).', who: 'siehe Tracker', license: 'zitiert' }
   ] },
   { group: 'Selbst gemacht', items: [
-    { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
-    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Fotos einer echten Katze', license: 'eigene Inhalte' },
-    { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte' },
-    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, vorrat.js, backup.js, styles.css, index.html, sw.js.', who: 'von Claude geschrieben', license: 'noch keine Lizenz festgelegt', note: 'Ohne Lizenzdatei gilt: alle Rechte vorbehalten. Wenn andere den Code nutzen dürfen sollen, kann eine Lizenz (z. B. MIT) ergänzt werden.' }
+    { name: 'Rezepte', what: 'Alle Rezepte in recipes.js.', who: 'von Claude für diese App geschrieben', license: 'eigene Inhalte, MIT-Lizenz', note: 'Allgemein bekannte Gerichte, kein Rezept aus einem Buch oder einer Website abgeschrieben.' },
+    { name: 'Katze Ginger', what: 'Alle Ginger-Zeichnungen und die Warte-Animation.', who: 'von Claude als SVG gezeichnet, nach Fotos einer echten Katze', license: 'eigene Inhalte, MIT-Lizenz' },
+    { name: 'Icons, App-Icon und Design', what: 'Linien-Icons, App-Icon, Farben und Gestaltung „Gemütliche Katzenküche“.', who: 'von Claude für diese App gemacht', license: 'eigene Inhalte, MIT-Lizenz' },
+    { name: 'Programmcode der App', what: 'app.js, nutrition.js, recipes.js, vorrat.js, zyklus.js, backup.js, styles.css, index.html, sw.js.', who: 'von Claude geschrieben', license: 'MIT-Lizenz, Copyright (c) 2026 JuliaKelp', note: 'Gilt nur für die eigenen Teile der App; die Fremdinhalte oben behalten ihre eigenen Lizenzen.' }
   ] }
 ];
 

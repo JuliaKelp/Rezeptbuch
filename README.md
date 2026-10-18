@@ -18,4 +18,6 @@ Ausführlich in der App unter „Ich“ → „Quellen und Lizenzen“. Kurz:
 - Nährwerte: Max Rubner-Institut (2025), Bundeslebensmittelschlüssel (BLS) 4.0 – Deutsche Nährstoffdatenbank, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), DOI 10.25826/Data20251217-134202-0; verändert (Auszug, freier Zucker, Ernährungsform und Allergene abgeleitet)
 - Produktdaten: Open Food Facts (ODbL 1.0 / DbCL 1.0)
 - Schrift Nunito: SIL Open Font License 1.1
-- Eigener Programmcode: keine Lizenz festgelegt (alle Rechte vorbehalten)
+- Eigener Programmcode und Inhalte der App: MIT-Lizenz, Copyright (c) 2026 JuliaKelp (`LICENSE`)
+
+Die MIT-Lizenz gilt nur für die eigenen Teile. Die oben genannten Fremdinhalte behalten ihre eigenen Lizenzen.
